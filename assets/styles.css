@@ -1,0 +1,276 @@
+body {
+    font-family: "Roboto Flex", sans-serif;
+    color: white;
+    width: 100%;
+}
+
+.background {
+    background: url('transparent_bg.png') left top/50% no-repeat, linear-gradient(-45deg, #8f510e 0%, #53b5a2 100%) center/auto no-repeat;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    animation: hue-rotation 30s infinite linear;
+    z-index: -1;
+}
+
+@keyframes hue-rotation {
+    from { filter: hue-rotate(0deg); }
+    to { filter: hue-rotate(360deg); }
+}
+
+#sliderMenu {
+    background-color: #998c7e;
+    color: white;
+    position: fixed;
+    width: 300px;
+    right: -300px;
+    box-shadow: inset 50px 0px 40px -60px black;
+    transition: right 0.5s;
+    top: 0;
+    height: 100%;
+    padding: 32px;
+    box-sizing: border-box;
+    animation: hue-rotation 30s infinite linear;
+    overflow: scroll;
+}
+
+#sliderMenu section {
+    margin-bottom: 50px;
+}
+
+#sliderMenu input,
+#sliderMenu select {
+    width: 100%;
+}
+
+select {
+    background: #fff4;
+    border: none;
+    border-radius: 15px;
+    padding: 6px;
+    color: white;
+    font-weight: 600;
+    margin: 8px 0;
+}
+
+select option {
+    color: black;
+    font-weight: 400;
+}
+
+input[type="range"] {
+    background-color: #ffffff44;
+    margin: 8px 0;
+    padding: 0;
+    height: 2em;
+    border-radius: 1rem;
+    overflow: hidden;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 0;
+    box-shadow: -20rem 0 0 20rem #ffffffdd;
+}
+
+input[type="range"]::-moz-range-thumb {
+    border: none;
+    width: 0;
+    box-shadow: -20rem 0 0 20rem #ffffffdd;
+}
+
+#sliderMenu p > span {
+    opacity: 0.68;
+    font-size: 90%;
+}
+
+#sliderMenu.visible {
+    right: 0;
+}
+
+#mainContent {
+    box-sizing: border-box;
+    padding: 32px;
+    position: relative;
+    right: 0;
+    text-align: center;
+    transition: right 0.5s;
+}
+
+#header {
+    text-align: right;
+}
+
+#content {
+    position: relative;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 600px;
+    margin-left: 50%;
+    margin-top: 200px;
+}
+
+button {
+    background-color: #ffffff44;
+    color: white;
+    border: none;
+    font-size: 1em;
+    padding: 10px;
+    border-radius: 12px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #ffffff66;
+}
+
+#windspeed {
+    font-family: "Julius Sans One", sans-serif;
+    font-size: 2em;
+    height: 1em;
+    margin-top: 24px;
+    overflow: hidden;
+    transition: height 1s;
+}
+
+#windspeed.hidden {
+    height: 0;
+}
+
+#notEnoughWind {
+    opacity: 1;
+    transition: opacity 1s;
+}
+
+#notEnoughWind.hidden {
+    opacity: 0;
+}
+
+h1, h2, h3 {
+    font-family: "Julius Sans One", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    margin-top: 8px;
+}
+
+h1 {
+    font-size: 3em;
+}
+
+p, span, button, input, label {
+    font-optical-sizing: auto;
+    font-style: normal;
+}
+
+#content .title {
+    margin-bottom: 50px;
+}
+
+#content .title h1 {
+    margin-bottom: 0;
+}
+
+#content p {
+    opacity: 0.6;
+    margin-top: 0;
+}
+
+.input-container {
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+    width: 100%;
+    padding: 0 24px;
+    box-sizing: border-box;
+}
+
+.input-container input[type="text"] {
+    flex: 1;
+    border-radius: 12px 0 0 12px;
+    margin: 0;
+}
+
+.input-container button {
+    border-radius: 0 12px 12px 0;
+    margin-left: 0;
+}
+
+input[type="text"] {
+    background-color: #ffffff44;
+    color: white;
+    border: none;
+    padding: 10px;
+    border-radius: 12px;
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 1em;
+    margin: 8px 0;
+    height: 40px;
+}
+
+#startButton {
+    height: 40px;
+}
+
+.adsbygoogle {
+    background-color: #c8c8c8;
+    position: absolute;
+    bottom: 0;
+}
+
+.julius-sans-one-regular {
+    font-family: "Julius Sans One", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+}
+
+.roboto-flex {
+    font-family: "Roboto Flex", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: <weight>;
+    font-style: normal;
+    font-variation-settings:
+        "slnt" 0,
+        "wdth" 100,
+        "GRAD" 0,
+        "XOPQ" 96,
+        "XTRA" 468,
+        "YOPQ" 79,
+        "YTAS" 750,
+        "YTDE" -203,
+        "YTFI" 738,
+        "YTLC" 514,
+        "YTUC" 712;
+}
+
+img.svg {
+    filter: brightness(0) invert(1);
+}
+
+#adContainer {
+    border: 2px dashed #ccc;
+    margin: 10px;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 800px) {
+    .background {
+        background-size: 75%, auto;
+    }
+
+    #mainContent,
+    #sliderMenu {
+        padding: 24px;
+    }
+
+    h1 {
+        font-size: 2em;
+    }
+
+    .input-container {
+        padding: 0;
+    }
+}

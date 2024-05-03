@@ -1,0 +1,121 @@
+<head>
+    <title>Wind Chime Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="assets/styles.css">
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div class="background"></div>
+    <div id="mainContent">
+        <div id="header">
+            <button onclick="toggleMenu()" aria-label="Settings">
+                <img src="assets/hamburger.svg" class="svg" alt="Settings Menu">
+            </button>
+        </div>
+        <div id="content">
+            <div class="title">
+                <h1>Wind Chime Simulator</h1>
+                <p>Enter a location below or leave it blank to use your current location.</p>
+            </div>
+            <div class="input-container">
+                <input type="text" id="locationInput" placeholder="City/State/Country">
+                <button id="startButton">Start Wind Chimes</button>
+            </div>
+            <div id="statusContainer">
+                <div id="windSpeed" class="hidden">Error</div>
+                <p id="notEnoughWind" class="hidden">Not enough wind</p>
+            </div>
+        </div>
+    </div>
+    <div id="sliderMenu">
+        <div id="sliderContainer">
+            <section>
+                <h2 onclick="toggleMenu()">Wind <img src="assets/right.svg" class="svg" style="position: relative; top: 3px;" alt="Settings Menu"></h2>
+                <p>
+                    <label for="maxWindSpeedSlider">Max wind speed</label>
+                    <input type="range" id="maxWindSpeedSlider" min="0" max="100" step="1" value="60"><br>
+                    <span id="maxWindSpeedValue">60 mph</span> 
+                </p>
+                <p>
+                    <label for="chimeWindSpeedCutoffSlider">Chime windspeed threshold</label>
+                    <input type="range" id="chimeWindSpeedCutoffSlider" min="0" max="1" step="0.01" value="0.2">
+                    <span id="chimeWindSpeedCutoffValue">12 mph</span> 
+                </p>
+                <p>
+                    <label for="windSleepFactorSlider">Sleep (frequency)</label>
+                    <input type="range" id="windSleepFactorSlider" min="0.1" max="5" step="0.1" value="1">
+                </p>
+                <p>
+                    <label for="windChangeRangeSlider">Turbulence </label>
+                    <input type="range" id="windChangeRangeSlider" min="0.1" max="1" step="0.1" value="0.3">
+                </p>
+            </section>
+            <section>
+                <h2>Chimes</h2>
+                <p>
+                    <label for="chimeScaleSelect">Chime scale</label><br>
+                    <select id="chimeScaleSelect">
+                        <option value="cMajorPentatonic">C Major Pentatonic</option>
+                        <option value="cMinorPentatonic">C Minor Pentatonic</option>
+                        <option value="cMajorDiatonic">C Major Diatonic</option>
+                        <option value="cNaturalMinor">C Natural Minor</option>
+                        <option value="cLydian">C Lydian</option>
+                        <option value="cMixolydian">C Mixolydian</option>
+                        <option value="cWholeTone">C Whole Tone</option>
+                        <option value="cOctaveIntervals">C Octave Intervals</option>
+                    </select>
+                </p>
+                <p>
+                    <label for="noOfNotesSlider">Number of notes in the scale</label>
+                    <input type="range" id="noOfNotesSlider" min="0" max="8" step="1" value="5"><br>
+                    <span id="noOfNotesValue">5 notes</span> 
+                </p>
+                <p>
+                    <label for="chimeAttackSlider">Attack</label>
+                    <input type="range" id="chimeAttackSlider" min="0" max="0.1" step="0.001" value="0.001"><br>
+                    <span id="chimeAttackValue">0.001 seconds</span> 
+                </p>
+                <p>
+                    <label for="chimeDecaySlider">Decay</label>
+                    <input type="range" id="chimeDecaySlider" min="0" max="10" step="0.1" value="2.0"><br>
+                    <span id="chimeDecayValue">2.0 seconds</span> 
+                </p>
+                <p>
+                    <label for="baseDelaySlider">Base delay between multiple chimes</label>
+                    <input type="range" id="baseDelaySlider" min="0.1" max="1" step="0.1" value="0.8"><br>
+                    <span id="baseDelayValue">0.8 seconds</span> 
+                </p>
+                <p>
+                    <label for="multiChimeSlider">Likelihood for multiple chimes</label>
+                    <input type="range" id="multiChimeSlider" min="0" max="1" step="0.01" value="0.8">
+                </p>
+                <p>
+                    <label for="loudnessDecaySlider">Loudness decay for multiple chimes</label>
+                    <input type="range" id="loudnessDecaySlider" min="0" max="1" step="0.1" value="0.5">
+                </p>
+            </section>
+        </div>
+    </div>
+    <script>
+        function toggleMenu() {
+            var menu = document.getElementById('sliderMenu');
+            menu.classList.toggle('visible');
+
+            var main = document.getElementById('mainContent');
+            if (menu.classList.contains('visible')) {
+                main.style.right = '300px';
+            } else {
+                main.style.right = '0px';
+                setTimeout(function() { 
+                    menu.classList.add('hidden'); // Add 'hidden' after the transition
+                }, 500); // Corresponds to the transition time
+            }
+        }
+    </script>
+    <script src="assets/sim.js"></script>
+</body>
