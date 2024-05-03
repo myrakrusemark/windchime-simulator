@@ -67,6 +67,7 @@ input[type="range"] {
     height: 2em;
     border-radius: 1rem;
     overflow: hidden;
+    -webkit-appearance: none;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -80,6 +81,7 @@ input[type="range"]::-moz-range-thumb {
     width: 0;
     box-shadow: -20rem 0 0 20rem #ffffffdd;
 }
+
 
 #sliderMenu p > span {
     opacity: 0.68;
@@ -162,6 +164,11 @@ h1 {
 p, span, button, input, label {
     font-optical-sizing: auto;
     font-style: normal;
+    
+}
+
+input::-webkit-input-placeholder{
+    color:#ffffff88;
 }
 
 #content .title {

@@ -110,17 +110,20 @@ document.getElementById("chimeDecaySlider").addEventListener("input", function (
 
 // Helper Functions
 function updateChimeWindSpeedCutoffValue() {
-  const windSpeedCutoff = Math.round(maxWindSpeed * chimeWindSpeedCutoff);
-  document.getElementById("chimeWindSpeedCutoffValue").textContent = windSpeedCutoff + " mph";
+    const windSpeedCutoff = Math.round(maxWindSpeed * chimeWindSpeedCutoff);
+    document.getElementById("chimeWindSpeedCutoffValue").textContent = windSpeedCutoff + " mph";
 
-  const notEnoughWind = document.getElementById("notEnoughWind");
-  if (currentWindSpeed / maxWindSpeed < chimeWindSpeedCutoff) {
-    notEnoughWind.textContent = `Not enough wind (${windSpeedCutoff} mph)`;
-    notEnoughWind.classList.remove("hidden");
-  } else {
-    notEnoughWind.classList.add("hidden");
-  }
+    const notEnoughWind = document.getElementById("notEnoughWind");
+    const dynamicContent = notEnoughWind.querySelector(".dynamicContent"); // Get the dynamicContent span
+
+    if (currentWindSpeed / maxWindSpeed < chimeWindSpeedCutoff) {
+        dynamicContent.textContent = "Not enough wind (" + windSpeedCutoff + " mph)"; // Update dynamicContent with wind speed cutoff
+        notEnoughWind.classList.remove("hidden"); // Unhide notEnoughWind
+    } else {
+        notEnoughWind.classList.add("hidden"); // Hide notEnoughWind if wind speed is sufficient
+    }
 }
+
 
 // Location Functions
 async function getLocation() {
