@@ -133,6 +133,7 @@ button:hover {
     font-size: 2em;
     height: 1em;
     margin-top: 24px;
+    margin-bottom: 5px;
     overflow: hidden;
     transition: height 1s;
 }
