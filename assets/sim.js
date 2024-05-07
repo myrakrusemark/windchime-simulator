@@ -1,12 +1,17 @@
+// Canvas and Context
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Canvas Dimensions
+const centerX = canvas.width / 2;
+const centerY = canvas.height / 2;
+
 // Sound Generator Variables
 const sampleRate = 44100; // Sample rate in Hz
-let loudness = 0.5;
-let chimeAttack = 0.001;
-let chimeDecay = 2.0;
 let audioContext = null;
 let chimeBuffers = [];
 
-// Chime options
+// Chime Options
 const scales = {
   cMajorPentatonic: [261.63, 293.66, 329.63, 392.00, 440.00, 523.25],
   cMinorPentatonic: [261.63, 293.66, 311.13, 349.23, 392.00, 466.16],
@@ -17,73 +22,92 @@ const scales = {
   cWholeTone: [261.63, 293.66, 329.63, 369.99, 415.30, 466.16, 523.25],
   cOctaveIntervals: [130.81, 261.63, 523.25, 1046.50],
 };
-
 let selectedScale = "cMajorPentatonic";
 let frequencies = scales[selectedScale];
+let loudness = 0.5;
+let chimeAttack = 0.001;
+let chimeDecay = 2.0;
+
+// Windchime Physical Properties
+const chimes = [];
+const chimesAnglesX = new Array(5).fill(0);
+const chimesAnglesY = new Array(5).fill(0);
+const chimesVelocitiesX = new Array(5).fill(0);
+const chimesVelocitiesY = new Array(5).fill(0);
+const stringLength = 300;
+const centerPieceRadius = 105;
+const gravity = 0.0098;
+const centerPieceDamping = 0.995;
+const chimesDamping = 0.99;
+const chimesSpacing = 150;
+const chimesRadius = 30;
+const transferFactor = 0.1;
+const massDifference = 20;
+const forceMultiplier = 0.007;
 
 // IRL Weather Variables
 let latitude = null;
 let longitude = null;
 let weatherData = null;
 let currentWindSpeed = 0;
+let currentWindDirection = 0;
 let mappedWindSpeed = 0.5;
 let weatherTimer = null;
-let wind = 0.0;
 const weatherUpdateInterval = 15;
 
-// Wind-related variables
-let maxWindSpeed = 60;
-let windSleepFactor = 1.0;
+// Wind Simulation Variables
+let wind = 0.0;
+let maxWindSpeed = 100;
 let windChangeRange = 0.3;
-let baseDelay = 0.8;
-let chimeWindSpeedCutoff = 0.2;
-let multiChime = 0.8;
-let noOfNotes = 5;
-let loudnessDecay = 0.5;
+let baseDelay = 0.2;
+let gustiness = 0.3;
+let randomInterval = 0;
+let lastFeatherTime = 0;
+let force = 0;
+let windAccelerationX = 0;
+let windAccelerationY = 0;
+let mappedForce = 0.5;
+let simulatedtWindDirection = 0;
+let lastWindGraph = "";
+const graphLength = 50;
 
-let loopTimer = null;
+// Windchime Interaction Variables
+let centerPieceAngleX = 0;
+let centerPieceAngleY = 0;
+let centerPieceVelocityX = 0;
+let centerPieceVelocityY = 0;
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartAngleX = 0;
+let dragStartAngleY = 0;
+let mouseX = 0;
+let mouseY = 0;
+
+// UI Variables
+const sideMenuWidth = 300;
+
+audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
 // Event Listeners
 document.addEventListener("DOMContentLoaded", function () {
   document.getElementById("startButton").addEventListener("click", startWindChimes);
 });
 
-// Slider Event Listeners
 document.getElementById("maxWindSpeedSlider").addEventListener("input", function () {
   maxWindSpeed = parseInt(this.value);
   document.getElementById("maxWindSpeedValue").textContent = maxWindSpeed + " mph";
-  updateChimeWindSpeedCutoffValue();
-});
-
-document.getElementById("chimeWindSpeedCutoffSlider").addEventListener("input", function () {
-  chimeWindSpeedCutoff = parseFloat(this.value);
-  updateChimeWindSpeedCutoffValue();
-});
-
-document.getElementById("windSleepFactorSlider").addEventListener("input", function () {
-  windSleepFactor = parseFloat(this.value);
 });
 
 document.getElementById("windChangeRangeSlider").addEventListener("input", function () {
   windChangeRange = parseFloat(this.value);
 });
 
-document.getElementById("baseDelaySlider").addEventListener("input", function () {
-  baseDelay = parseFloat(this.value);
-  document.getElementById("baseDelayValue").textContent = baseDelay + " seconds";
-});
-
-document.getElementById("multiChimeSlider").addEventListener("input", function () {
-  multiChime = parseFloat(this.value);
-});
-
 document.getElementById("noOfNotesSlider").addEventListener("input", function () {
-  noOfNotes = parseFloat(this.value);
-  document.getElementById("noOfNotesValue").textContent = noOfNotes + " notes";
-});
+  document.getElementById("noOfNotesValue").textContent = this.value + " notes";
 
-document.getElementById("loudnessDecaySlider").addEventListener("input", function () {
-  loudnessDecay = parseFloat(this.value);
+  calculateChimes();
+  drawWindchime();
 });
 
 document.getElementById("chimeScaleSelect").addEventListener("change", function () {
@@ -108,24 +132,22 @@ document.getElementById("chimeDecaySlider").addEventListener("input", function (
   loadChimes();
 });
 
-// Helper Functions
-function updateChimeWindSpeedCutoffValue() {
-    const windSpeedCutoff = Math.round(maxWindSpeed * chimeWindSpeedCutoff);
-    document.getElementById("chimeWindSpeedCutoffValue").textContent = windSpeedCutoff + " mph";
+// Mouse listeners
+canvas.addEventListener('mousedown', handlePointerStart);
+canvas.addEventListener('mousemove', handlePointerMove);
+canvas.addEventListener('mouseup', handlePointerEnd);
+canvas.addEventListener('touchstart', handlePointerStart);
+canvas.addEventListener('touchmove', handlePointerMove);
+canvas.addEventListener('touchend', handlePointerEnd);
 
-    const notEnoughWind = document.getElementById("notEnoughWind");
-    const dynamicContent = notEnoughWind.querySelector(".dynamicContent"); // Get the dynamicContent span
+locationInput.addEventListener("keydown", function(event) {
+  if (event.key === "Enter") {
+    event.preventDefault(); // Prevent form submission (if applicable)
+    startWindChimes(); // Call the startWindChimes function
+  }
+});
 
-    if (currentWindSpeed / maxWindSpeed < chimeWindSpeedCutoff) {
-        dynamicContent.textContent = "Not enough wind (" + windSpeedCutoff + " mph)"; // Update dynamicContent with wind speed cutoff
-        notEnoughWind.classList.remove("hidden"); // Unhide notEnoughWind
-    } else {
-        notEnoughWind.classList.add("hidden"); // Hide notEnoughWind if wind speed is sufficient
-    }
-}
-
-
-// Location Functions
+// Location and weather functions
 async function getLocation() {
   return new Promise((resolve, reject) => {
     console.log("Getting location from browser...");
@@ -246,7 +268,6 @@ async function getLocationByInput() {
   });
 }
 
-// Weather Functions
 async function getGridUrl(coordinates) {
   try {
     const response = await fetch(`https://api.weather.gov/points/${coordinates}`);
@@ -279,6 +300,29 @@ async function getForecast(gridUrl) {
   }
 }
 
+function windDirectionToDegrees(direction) {
+  const dirMap = {
+      'N': 0,
+      'NNE': 22.5,
+      'NE': 45,
+      'ENE': 67.5,
+      'E': 90,
+      'ESE': 112.5,
+      'SE': 135,
+      'SSE': 157.5,
+      'S': 180,
+      'SSW': 202.5,
+      'SW': 225,
+      'WSW': 247.5,
+      'W': 270,
+      'WNW': 292.5,
+      'NW': 315,
+      'NNW': 337.5
+  };
+
+  return dirMap[direction] || null; // Returns null if the direction is not in the map
+}
+
 function updateWeatherData() {
   return new Promise(async (resolve, reject) => {
     try {
@@ -292,11 +336,18 @@ function updateWeatherData() {
 
           if (forecastData) {
             weatherData = forecastData;
+            console.log(weatherData)
+
+            // Finally get the wind speed and direction
             currentWindSpeed = weatherData.properties.periods[0].windSpeed.split(" ")[0];
+            currentWindCardinalDirection = weatherData.properties.periods[0].windDirection;
+            currentWindDirection = windDirectionToDegrees(currentWindCardinalDirection);
+
+            //Set the value on the page
             const windSpeed = document.getElementById("windSpeed");
             windSpeed.classList.remove("hidden");
-            windSpeed.textContent = `${currentWindSpeed} mph`;
-            updateChimeWindSpeedCutoffValue();
+            windSpeed.textContent = `${currentWindCardinalDirection} - ${currentWindSpeed} mph`;
+
             resolve();
           } else {
             console.log("Weather: There was an error and the forecast could not be retrieved for the location.");
@@ -374,20 +425,420 @@ function loadChimes() {
   });
 }
 
-// Wind Functions
-function updateWind() {
-  const range = [windChangeRange * -1, windChangeRange];
-  const windChange = range[0] + Math.random() * (range[1] - range[0]);
+function playChimeSound(index, intensity) {
+  const currentTime = Date.now();
+  if (currentTime - chimes[index].lastPlayedTime >= 200) { // 200ms = 0.2 seconds
+    const source = audioContext.createBufferSource();
+    source.buffer = chimeBuffers[index];
 
-  mappedWindSpeed = currentWindSpeed / maxWindSpeed;
-  wind = Math.max(0, Math.min(wind + windChange, mappedWindSpeed));
+    // Create a gain node to control the volume
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = intensity;
+
+    // Connect the source to the gain node and then to the destination
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    source.start();
+
+    chimes[index].lastPlayedTime = currentTime; // Update the lastPlayedTime
+  }
 }
 
-// Main Functions
-async function startWindChimes() {
-  stopLoop(); // Ensure any existing loop is stopped
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+// Drawing
+function calculateChimes() {
+  // Clear the chimes array
+  chimes.length = 0;
 
+  // Calculate the positions of the chimes
+  const noOfNotes = Math.min(parseInt(document.getElementById("noOfNotesSlider").value), frequencies.length);
+  for (let i = 0; i < noOfNotes; i++) {
+    const angle = (i * 2 * Math.PI) / noOfNotes;
+    const x = centerX + Math.cos(angle) * chimesSpacing;
+    const y = centerY + Math.sin(angle) * chimesSpacing;
+    chimes.push({ x, y, color: '#ffffff44', lastPlayedTime: 0 }); // Add lastPlayedTime property
+  }
+
+  // Resize the chimesAnglesX, chimesAnglesY, chimesVelocitiesX, and chimesVelocitiesY arrays
+  chimesAnglesX.length = noOfNotes;
+  chimesAnglesY.length = noOfNotes;
+  chimesVelocitiesX.length = noOfNotes;
+  chimesVelocitiesY.length = noOfNotes;
+
+  // Fill the resized arrays with initial values
+  chimesAnglesX.fill(0);
+  chimesAnglesY.fill(0);
+  chimesVelocitiesX.fill(0);
+  chimesVelocitiesY.fill(0);
+}
+
+function drawWindchime() {
+  const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+  const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw the center point
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffffff66';
+  ctx.fill();
+
+  // Draw the chimes
+  chimes.forEach((chime, index) => {
+    const chimeX = chime.x + Math.sin(chimesAnglesX[index]) * chimesSpacing;
+    const chimeY = chime.y + Math.sin(chimesAnglesY[index]) * chimesSpacing;
+
+    ctx.beginPath();
+    ctx.arc(chimeX, chimeY, chimesRadius, 0, 2 * Math.PI);
+    ctx.fillStyle = chime.color; // Use the chime's color property
+    ctx.fill();
+  });
+
+  // Draw the string
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(centerPieceX, centerPieceY);
+  ctx.strokeStyle = '#ffffff66';
+  ctx.stroke();
+
+
+  // Draw the center piece
+  ctx.beginPath();
+  ctx.arc(centerPieceX, centerPieceY, centerPieceRadius, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffffff44';
+  ctx.fill();
+
+  // Draw the hover effect if the mouse is over the center piece
+  if (isMouseOverCenterPiece()) {
+    ctx.beginPath();
+    ctx.arc(centerPieceX, centerPieceY, centerPieceRadius + 5, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#ffffff66';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+function isMouseOverCenterPiece() {
+  if (mouseX && mouseY) {
+    const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+    const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+    const dx = mouseX - centerPieceX;
+    const dy = mouseY - centerPieceY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance < centerPieceRadius;
+  }
+  return false;
+}
+
+function updateChimeColor(index) {
+  chimes[index].color = '#ffffff';
+  chimes[index].collisionTime = Date.now();
+}
+
+function fadeChime(chime) {
+  // Fade the chime color back to its original color over 2 seconds
+  if (chime.color !== '#ffffff44') {
+    const fadeProgress = (Date.now() - chime.collisionTime) / 2000; // 2000ms = 2 seconds
+    if (fadeProgress >= 1) {
+      chime.color = '#ffffff44';
+    } else {
+      const opacity = Math.floor(0x44 + (0xff - 0x44) * (1 - fadeProgress));
+      chime.color = `#ffffff${opacity.toString(16).padStart(2, '0')}`;
+    }
+  }
+}
+
+function updateWindchime() {
+  centerPieceVelocityX += windAccelerationX;
+  centerPieceVelocityY += windAccelerationY;
+
+  const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+  const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+  const centerPieceAccelerationX = -gravity * Math.sin(centerPieceAngleX);
+  const centerPieceAccelerationY = -gravity * Math.sin(centerPieceAngleY);
+
+  // Check for collision with the chimes only if the center piece is not being dragged
+  if (!isDragging) {
+    centerPieceVelocityX += centerPieceAccelerationX;
+    centerPieceVelocityY += centerPieceAccelerationY;
+    centerPieceAngleX += centerPieceVelocityX;
+    centerPieceAngleY += centerPieceVelocityY;
+    centerPieceVelocityX *= centerPieceDamping;
+    centerPieceVelocityY *= centerPieceDamping;
+
+    chimes.forEach((chime, index) => {
+      const chimeX = chime.x + Math.sin(chimesAnglesX[index]) * chimesSpacing;
+      const chimeY = chime.y + Math.sin(chimesAnglesY[index]) * chimesSpacing;
+
+      const dx = centerPieceX - chimeX;
+      const dy = centerPieceY - chimeY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const minDistance = centerPieceRadius + chimesRadius;
+
+      if (distance < minDistance) {
+
+
+        // Collision detected with a chime
+        const angle = Math.atan2(dy, dx);
+        const overlapDistance = minDistance - distance;
+
+        // Move the chimes apart to avoid overlapping
+        const overlapX = Math.cos(angle) * overlapDistance;
+        const overlapY = Math.sin(angle) * overlapDistance;
+        centerPieceAngleX += overlapX / stringLength;
+        centerPieceAngleY += overlapY / stringLength;
+
+        // Transfer a portion of the momentum to the chime based on the transfer factor
+        chimesVelocitiesX[index] += centerPieceVelocityX * transferFactor * massDifference;
+        chimesVelocitiesY[index] += centerPieceVelocityY * transferFactor * massDifference;
+
+        const intensity = Math.sqrt(centerPieceVelocityX ** 2 * centerPieceVelocityY ** 2) * 1000000; // 0 - 1200
+        const mappedIntensity = Math.min(intensity / 1200, 1);
+
+        // Reduce the center piece's velocity based on the transfer factor
+        centerPieceVelocityX *= (1 - transferFactor);
+        centerPieceVelocityY *= (1 - transferFactor);
+
+        updateChimeColor(index);
+        playChimeSound(index, mappedIntensity);
+      }
+    });
+  }
+
+  // Update the angles and velocities of the chimes
+  chimes.forEach((chime, index) => {
+    const chimeAccelerationX = -gravity * Math.sin(chimesAnglesX[index]);
+    const chimeAccelerationY = -gravity * Math.sin(chimesAnglesY[index]);
+    chimesVelocitiesX[index] += chimeAccelerationX;
+    chimesVelocitiesY[index] += chimeAccelerationY;
+    chimesAnglesX[index] += chimesVelocitiesX[index];
+    chimesAnglesY[index] += chimesVelocitiesY[index];
+    chimesVelocitiesX[index] *= chimesDamping;
+    chimesVelocitiesY[index] *= chimesDamping;
+
+    // Check for collision with the center piece
+    const chimeX = chime.x + Math.sin(chimesAnglesX[index]) * chimesSpacing;
+    const chimeY = chime.y + Math.sin(chimesAnglesY[index]) * chimesSpacing;
+    const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+    const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+
+    const dx = centerPieceX - chimeX;
+    const dy = centerPieceY - chimeY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const minDistance = centerPieceRadius + chimesRadius;
+
+    if (distance < minDistance) {
+      // Collision detected with the center piece
+      const angle = Math.atan2(dy, dx);
+      const overlapDistance = minDistance - distance;
+
+      // Move the chime away from the center piece
+      const overlapX = Math.cos(angle) * overlapDistance;
+      const overlapY = Math.sin(angle) * overlapDistance;
+      chimesAnglesX[index] -= overlapX / chimesSpacing;
+      chimesAnglesY[index] -= overlapY / chimesSpacing;
+
+      // Reverse the velocity of the chime
+      chimesVelocitiesX[index] *= -1;
+      chimesVelocitiesY[index] *= -1;
+    }
+
+  });
+
+  // Limit the angles of the center piece to prevent it from going off-screen
+  const maxAngle = Math.PI / 4; // Adjust the maximum angle as needed
+  centerPieceAngleX = Math.max(Math.min(centerPieceAngleX, maxAngle), -maxAngle);
+  centerPieceAngleY = Math.max(Math.min(centerPieceAngleY, maxAngle), -maxAngle);
+
+}
+
+// Pointer functions
+function handlePointerStart(event) {
+  event.preventDefault();
+  const pointer = event.touches ? event.touches[0] : event;
+  const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+  const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+  
+  const sliderMenu = document.getElementById('sliderMenu');
+  const isMenuVisible = sliderMenu.classList.contains('visible');
+  const offsetX = isMenuVisible ? sideMenuWidth : 0;
+  
+  const pointerX = pointer.clientX - canvas.offsetLeft + offsetX;
+  const pointerY = pointer.clientY - canvas.offsetTop;
+  const dx = pointerX - centerPieceX;
+  const dy = pointerY - centerPieceY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance < centerPieceRadius) {
+    isDragging = true;
+    dragStartX = pointerX;
+    dragStartY = pointerY;
+    centerPieceVelocityX = 0;
+    centerPieceVelocityY = 0;
+  }
+}
+
+
+
+function handlePointerMove(event) {
+  event.preventDefault();
+  const pointer = event.touches ? event.touches[0] : event;
+  
+  const sliderMenu = document.getElementById('sliderMenu');
+  const isMenuVisible = sliderMenu.classList.contains('visible');
+  const offsetX = isMenuVisible ? sideMenuWidth : 0;
+  
+  const pointerX = pointer.clientX - canvas.offsetLeft + offsetX;
+  const pointerY = pointer.clientY - canvas.offsetTop;
+  mouseX = pointerX; // Update mouseX
+  mouseY = pointerY; // Update mouseY
+  const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+  const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+  const dx = pointerX - centerPieceX;
+  const dy = pointerY - centerPieceY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance < centerPieceRadius) {
+    canvas.style.cursor = 'grab';
+  } else {
+    canvas.style.cursor = 'default';
+  }
+
+  if (isDragging) {
+
+    const pointer = event.touches ? event.touches[0] : event;
+    
+    const sliderMenu = document.getElementById('sliderMenu');
+    const isMenuVisible = sliderMenu.classList.contains('visible');
+    const offsetX = isMenuVisible ? sideMenuWidth : 0;
+    
+    const pointerX = pointer.clientX - canvas.offsetLeft + offsetX;
+    const pointerY = pointer.clientY - canvas.offsetTop;
+    const dx = pointerX - centerX;
+    const dy = pointerY - centerY;
+    const newAngleX = Math.asin(dx / stringLength);
+    const newAngleY = Math.asin(dy / stringLength);
+
+    // Calculate the velocity of the center piece based on the pointer movement
+    const velocityX = (pointerX - dragStartX) * 0.001; // Adjust the multiplier to control the velocity
+    const velocityY = (pointerY - dragStartY) * 0.001;
+
+    // Update the angles
+    centerPieceAngleX = newAngleX;
+    centerPieceAngleY = newAngleY;
+
+    // Check for collision with the chimes
+    const centerPieceX = centerX + Math.sin(centerPieceAngleX) * stringLength;
+    const centerPieceY = centerY + Math.sin(centerPieceAngleY) * stringLength;
+
+    chimes.forEach((chime, index) => {
+      const chimeX = chime.x + Math.sin(chimesAnglesX[index]) * chimesSpacing;
+      const chimeY = chime.y + Math.sin(chimesAnglesY[index]) * chimesSpacing;
+
+      const dx = centerPieceX - chimeX;
+      const dy = centerPieceY - chimeY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const minDistance = centerPieceRadius + chimesRadius;
+
+      if (distance < minDistance) {
+        // Collision detected with a chime
+        const angle = Math.atan2(dy, dx);
+        const overlapDistance = minDistance - distance;
+
+        // Move the chime away from the center piece
+        const overlapX = Math.cos(angle) * overlapDistance;
+        const overlapY = Math.sin(angle) * overlapDistance;
+        chimesAnglesX[index] -= overlapX / chimesSpacing;
+        chimesAnglesY[index] -= overlapY / chimesSpacing;
+
+        // Update the velocities of the chime based on the collision
+        chimesVelocitiesX[index] += velocityX * transferFactor * massDifference;
+        chimesVelocitiesY[index] += velocityY * transferFactor * massDifference;
+
+        // Calculate the intensity based on the velocity of the center piece
+        const intensity = Math.sqrt(velocityX ** 2 + velocityY ** 2) * 10000; // Adjust the multiplier as needed
+        const mappedIntensity = Math.min(intensity / 1200, 1);
+
+        updateChimeColor(index);
+        playChimeSound(index, mappedIntensity);
+      }
+    });
+
+
+    // Update the drag start position
+    dragStartX = pointerX;
+    dragStartY = pointerY;
+  }
+}
+
+function handlePointerEnd(event) {
+  event.preventDefault();
+  if (isDragging) {
+    isDragging = false;
+    const pointer = event.changedTouches ? event.changedTouches[0] : event;
+    
+    const sliderMenu = document.getElementById('sliderMenu');
+    const isMenuVisible = sliderMenu.classList.contains('visible');
+    const offsetX = isMenuVisible ? sideMenuWidth : 0;
+    
+    const pointerX = pointer.clientX - canvas.offsetLeft + offsetX;
+    const pointerY = pointer.clientY - canvas.offsetTop;
+    const dx = pointerX - dragStartX;
+    const dy = pointerY - dragStartY;
+    centerPieceVelocityX = dx * 0.01;
+    centerPieceVelocityY = dy * 0.01;
+  }
+}
+
+// Simulation Functions
+function updateFeather() {
+  mappedForce = currentWindSpeed / maxWindSpeed;
+
+  const range = [windChangeRange * -2, windChangeRange];
+  const windChange = range[0] + Math.random() * (range[1] - range[0]) - gustiness * (1 - mappedForce);
+
+  
+  force = Math.max(0, Math.min(force + windChange, mappedForce));
+
+
+  if (force === 0) {
+    const directionRange = [-30, 30];
+    const directionChange = directionRange[0] + Math.random() * (directionRange[1] - directionRange[0]);
+    simulatedtWindDirection = (currentWindDirection + directionChange + 360) % 360;
+  }
+}
+
+function featherLoop(currentTime) {
+  if (currentTime - lastFeatherTime >= randomInterval) {
+    randomInterval = Math.random() * baseDelay * 1000;
+    lastFeatherTime = currentTime;
+
+    updateFeather();
+
+    // Inject acceleration into the velocities based on wind speed and direction
+    const windAngle = (simulatedtWindDirection * Math.PI) / 180; // Convert degrees to radians
+    windAccelerationX = Math.cos(windAngle) * force * forceMultiplier; // Adjust the multiplier as needed
+    windAccelerationY = Math.sin(windAngle) * force * forceMultiplier;
+
+    // Output Status
+    let windPos = Math.floor(force * graphLength);
+    windPos = Math.min(windPos, graphLength);
+    let windGraph = "[" + "=".repeat(windPos) + " ".repeat(Math.max(0, graphLength - windPos)) + "]";
+
+    // Only output the status if windGraph has changed
+    if (windGraph !== lastWindGraph) {
+      const statusOutput = `${windGraph}`;
+      console.log(statusOutput);
+      lastWindGraph = windGraph;
+    }
+  }
+
+  requestAnimationFrame(featherLoop);
+}
+
+// Start Functions
+async function startWindChimes() {
   const locationInput = document.getElementById("locationInput");
   const locationName = locationInput.value;
 
@@ -398,10 +849,18 @@ async function startWindChimes() {
         const locationInput = document.getElementById("locationInput");
         locationInput.value = cityName;
       });
-      loadChimes();
+      
       updateWeatherData()
         .then(() => {
-          playChimesLoop();
+          // Set the maxWindSpeed slider to 2x the windspeed
+          const maxWindSpeedSlider = document.getElementById("maxWindSpeedSlider");
+          const maxWindSpeedValue = currentWindSpeed * 2;
+          maxWindSpeedSlider.value = maxWindSpeedValue;
+          maxWindSpeed = maxWindSpeedValue;
+          document.getElementById("maxWindSpeedValue").textContent = maxWindSpeedValue + " mph";
+
+          // Start the featherLoop and animation
+          requestAnimationFrame(featherLoop);
         })
         .catch((error) => {
           console.error("Error updating weather data:", error);
@@ -412,10 +871,17 @@ async function startWindChimes() {
       );
       if (useBrowserLocation) {
         getLocationByBrowser().then(() => {
-          loadChimes();
           updateWeatherData()
             .then(() => {
-              playChimesLoop();
+              // Set the maxWindSpeed slider to 2x the windspeed
+              const maxWindSpeedSlider = document.getElementById("maxWindSpeedSlider");
+              const maxWindSpeedValue = currentWindSpeed * 2;
+              maxWindSpeedSlider.value = maxWindSpeedValue;
+              maxWindSpeed = maxWindSpeedValue;
+              document.getElementById("maxWindSpeedValue").textContent = maxWindSpeedValue + " mph";
+
+              // Start the featherLoop and animation
+              requestAnimationFrame(featherLoop);
             })
             .catch((error) => {
               console.error("Error updating weather data:", error);
@@ -428,7 +894,15 @@ async function startWindChimes() {
       loadChimes();
       updateWeatherData()
         .then(() => {
-          playChimesLoop();
+          // Set the maxWindSpeed slider to 2x the windspeed
+          const maxWindSpeedSlider = document.getElementById("maxWindSpeedSlider");
+          const maxWindSpeedValue = currentWindSpeed * 2;
+          maxWindSpeedSlider.value = maxWindSpeedValue;
+          maxWindSpeed = maxWindSpeedValue;
+          document.getElementById("maxWindSpeedValue").textContent = maxWindSpeedValue + " mph";
+
+          // Start the featherLoop and animation
+          requestAnimationFrame(featherLoop);
         })
         .catch((error) => {
           console.error("Error updating weather data:", error);
@@ -437,95 +911,21 @@ async function startWindChimes() {
   }
 }
 
-function playChimesLoop() {
-  const graphLength = 50; // Fixed length of the wind graph
-  let ascending = Math.random() < 0.5; // Flag to determine the direction of chime selection
-  let chimeIndex = 0;
+// Start
+function animate() {
+  updateWindchime();
+  drawWindchime();
 
-  function loop() {
-    updateWind();
-    if (mappedWindSpeed > chimeWindSpeedCutoff) {
-      const randomValue = Math.random();
-      let windPos = Math.floor(wind * graphLength);
-      windPos = Math.min(windPos, graphLength);
-      let windGraph = "[" + "=".repeat(windPos) + " ".repeat(Math.max(0, graphLength - windPos)) + "]";
+  // Constantly fade the chimes back to their original color
+  chimes.forEach((chime) => {
+    fadeChime(chime);
+  });
 
-      const randomPos = Math.floor(randomValue * graphLength);
-      windGraph = windGraph.slice(0, randomPos) + "|" + windGraph.slice(randomPos + 1);
-
-      // Determine the number of chimes to play based on wind speed
-      let numChimes = 1;
-      if (Math.random() < multiChime) {
-        if (randomValue < 0.3) {
-          numChimes = Math.floor(Math.random() * 2) + 1;
-        } else if (randomValue < 0.6) {
-          numChimes = Math.floor(Math.random() * 3) + 1;
-        } else {
-          numChimes = Math.floor(Math.random() * 4) + 1;
-        }
-      }
-
-      if (randomValue < wind) {
-        // Play the specified number of chimes in sequential order
-        for (let i = 0; i < numChimes; i++) {
-          let baseDelayChimes = baseDelay * (1 - wind);
-
-          // The first two chimes may vary from 0 to baseDelayChimes, as two chimes may be hit at the same time.
-          if (i === 0 && numChimes > 1) {
-            baseDelayChimes = baseDelayChimes * Math.random();
-          }
-
-          setTimeout(() => {
-            const source = audioContext.createBufferSource();
-            source.buffer = chimeBuffers[chimeIndex];
-            const gainNode = audioContext.createGain();
-            gainNode.gain.value = randomValue * (1 - i * loudnessDecay);
-            source.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            source.start();
-
-            // Update the chime index based on the direction
-            if (ascending) {
-              if (numChimes > 1 && i < numChimes && chimeIndex === Math.min(frequencies.length, noOfNotes) - 1) {
-                chimeIndex = 0;
-              } else if (numChimes > 1 && i < numChimes) {
-                chimeIndex++;
-              } else {
-                chimeIndex = Math.floor(Math.random() * Math.min(frequencies.length, noOfNotes));
-              }
-            } else {
-              if (numChimes > 1 && i < numChimes && chimeIndex === 0) {
-                chimeIndex = Math.min(frequencies.length, noOfNotes) - 1;
-              } else if (numChimes > 1 && i < numChimes) {
-                chimeIndex--;
-              } else {
-                chimeIndex = Math.floor(Math.random() * Math.min(frequencies.length, noOfNotes));
-              }
-            }
-
-            chimeIndex = chimeIndex % Math.min(frequencies.length, noOfNotes); // Ensure index does not exceed the number of accessible notes
-          }, (i === 1 && numChimes > 1 ? i * baseDelayChimes * Math.random() : i * baseDelayChimes) * 1000);
-        }
-      }
-
-      ascending = Math.random() < 0.5;
-
-      const chimeIndicator = randomValue < wind ? " * ".repeat(numChimes) : "";
-      const statusOutput = `${Math.floor(currentWindSpeed)}mph ${windGraph}${chimeIndicator}`;
-      console.log(statusOutput);
-    } else {
-      console.log(`${currentWindSpeed}mph - Not enough wind`);
-    }
-
-    loopTimer = setTimeout(loop, windSleepFactor * Math.random() * 1000);
-  }
-
-  loop();
+  requestAnimationFrame(animate);
 }
 
-function stopLoop() {
-  if (loopTimer) {
-    clearTimeout(loopTimer); // Stop the current loop
-    loopTimer = null; // Reset the timer reference
-  }
-}
+loadChimes();
+calculateChimes();
+animate();
+
+

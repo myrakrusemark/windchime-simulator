@@ -103,15 +103,25 @@ input[type="range"]::-moz-range-thumb {
 
 #header {
     text-align: right;
+    margin-bottom:24px
 }
 
 #content {
-    position: relative;
-    transform: translate(-50%, -50%);
-    width: 90%;
-    max-width: 600px;
-    margin-left: 50%;
-    margin-top: 200px;
+    max-width:800px;
+    margin: 0 auto;
+}
+
+#canvasContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height:270px;
+    width:50px;
+    margin:0 auto;
+}
+
+#canvas {
+    max-width:550px;
 }
 
 button {
@@ -191,7 +201,9 @@ input::-webkit-input-placeholder{
     align-items: stretch;
     width: 100%;
     padding: 0 24px;
+    position:relative;
     box-sizing: border-box;
+    z-index:999;
 }
 
 .input-container input[type="text"] {
@@ -273,6 +285,10 @@ img.svg {
         padding: 24px;
     }
 
+    #content .title {
+        margin-bottom: 24px;
+    }
+
     h1 {
         font-size: 2em;
     }
@@ -280,4 +296,6 @@ img.svg {
     .input-container {
         padding: 0;
     }
+
+
 }

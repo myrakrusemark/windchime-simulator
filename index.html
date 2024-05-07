@@ -12,7 +12,7 @@
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073" crossorigin="anonymous"></script>
     <title>Wind Chime Simulator</title>
     <meta name="description" content="Experience the soothing sounds of wind chimes with an interactive Wind Chime Simulator. Customize the chimes and wind settings to create your perfect ambient soundscape.">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&display=swap" rel="stylesheet">
@@ -44,8 +44,15 @@
                 <p id="notEnoughWind" class="hidden"><span class="dynamicContent">Not enough wind</span> <span onclick="toggleMenu()" style="text-decoration:underline; cursor: pointer;">Change</span></p>
                 
             </div>
+            <div id = "canvasContainer">
+                <canvas id="canvas" width="600" height="600"></canvas>
+            </div>
+            
         </div>
+
     </div>
+
+
     <div id="sliderMenu">
         <div id="sliderContainer">
             <section>
@@ -56,17 +63,8 @@
                     <span id="maxWindSpeedValue">60 mph</span> 
                 </p>
                 <p>
-                    <label for="chimeWindSpeedCutoffSlider">Chime windspeed threshold</label>
-                    <input type="range" id="chimeWindSpeedCutoffSlider" min="0" max="1" step="0.01" value="0.2">
-                    <span id="chimeWindSpeedCutoffValue">12 mph</span> 
-                </p>
-                <p>
-                    <label for="windSleepFactorSlider">Sleep (frequency)</label>
-                    <input type="range" id="windSleepFactorSlider" min="0.1" max="5" step="0.1" value="1">
-                </p>
-                <p>
                     <label for="windChangeRangeSlider">Turbulence </label>
-                    <input type="range" id="windChangeRangeSlider" min="0.1" max="1" step="0.1" value="0.3">
+                    <input type="range" id="windChangeRangeSlider" min="0.1" max="1" step="0.01" value="0.3">
                 </p>
             </section>
             <section>
@@ -99,19 +97,7 @@
                     <input type="range" id="chimeDecaySlider" min="0" max="10" step="0.1" value="2.0"><br>
                     <span id="chimeDecayValue">2.0 seconds</span> 
                 </p>
-                <p>
-                    <label for="baseDelaySlider">Base delay between multiple chimes</label>
-                    <input type="range" id="baseDelaySlider" min="0.1" max="1" step="0.1" value="0.8"><br>
-                    <span id="baseDelayValue">0.8 seconds</span> 
-                </p>
-                <p>
-                    <label for="multiChimeSlider">Likelihood for multiple chimes</label>
-                    <input type="range" id="multiChimeSlider" min="0" max="1" step="0.01" value="0.8">
-                </p>
-                <p>
-                    <label for="loudnessDecaySlider">Loudness decay for multiple chimes</label>
-                    <input type="range" id="loudnessDecaySlider" min="0" max="1" step="0.1" value="0.5">
-                </p>
+
             </section>
         </div>
     </div>
