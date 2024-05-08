@@ -127,8 +127,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 button {
-    background-color: #ffffff44;
-    color: white;
+    color: #63915d;
+    background: #fff8;
+    animation: hue-rotation 30s infinite linear;
     border: none;
     font-size: 1em;
     padding: 10px;
@@ -137,7 +138,8 @@ button {
 }
 
 button:hover {
-    background-color: #ffffff66;
+    background-color: #ffffffaa;
+
 }
 
 #windSpeed {
@@ -185,14 +187,14 @@ input::-webkit-input-placeholder{
 }
 
 #content .title {
-    margin-bottom: 50px;
+    margin-bottom: 24px;
 }
 
 #content .title h1 {
     margin-bottom: 0;
 }
 
-#content p {
+#content label {
     opacity: 0.6;
     margin-top: 0;
 }
@@ -201,6 +203,7 @@ input::-webkit-input-placeholder{
     display: flex;
     justify-content: center;
     align-items: stretch;
+    margin-top:12px;
     width: 100%;
     padding: 0 24px;
     position:relative;
@@ -302,8 +305,24 @@ iframe {
     }
 
     .input-container {
+        flex-direction: column;
+        align-items: stretch;
         padding: 0;
+
     }
+ 
+    .input-container input[type="text"] {
+        border-radius: 12px 12px 0 0;
+    }
+ 
+    .input-container button {
+        border-radius: 0 0 12px 12px;
+        margin-left: 0;
+        margin-top: 0;
+    }
+
+
+
 
 
 }

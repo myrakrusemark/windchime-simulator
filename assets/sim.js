@@ -178,7 +178,6 @@ async function getCoordinatesFromLocation(locationName) {
       const { lat, lon } = data[0];
       latitude = lat;
       longitude = lon;
-      console.log(`lat: ${latitude}, lon: ${longitude}`);
       return true;
     } else {
       console.log("Location not found");
@@ -336,17 +335,19 @@ function updateWeatherData() {
 
           if (forecastData) {
             weatherData = forecastData;
-            console.log(weatherData)
 
-            // Finally get the wind speed and direction
-            currentWindSpeed = weatherData.properties.periods[0].windSpeed.split(" ")[0];
+            // Extract the number from the wind speed string
+            const windSpeedString = weatherData.properties.periods[0].windSpeed;
+            const windSpeedMatch = windSpeedString.match(/\d+/g);
+            currentWindSpeed = windSpeedMatch ? parseInt(windSpeedMatch[0]) : 0;
+
             currentWindCardinalDirection = weatherData.properties.periods[0].windDirection;
             currentWindDirection = windDirectionToDegrees(currentWindCardinalDirection);
 
             //Set the value on the page
             const windSpeed = document.getElementById("windSpeed");
             windSpeed.classList.remove("hidden");
-            windSpeed.textContent = `${currentWindCardinalDirection} - ${currentWindSpeed} mph`;
+            windSpeed.textContent = `${currentWindCardinalDirection} - ${windSpeedString}`;
 
             resolve();
           } else {
@@ -367,6 +368,8 @@ function updateWeatherData() {
     }
   });
 }
+
+
 
 // Sound Functions
 function playChime(frequency) {
@@ -842,6 +845,8 @@ async function startWindChimes() {
   const locationInput = document.getElementById("locationInput");
   const locationName = locationInput.value;
 
+  clearInterval(weatherTimer);
+
   if (locationName) {
     const locationFound = await getCoordinatesFromLocation(locationName);
     if (locationFound) {
@@ -909,7 +914,12 @@ async function startWindChimes() {
         });
     });
   }
+
+  // Start updating weather data periodically
+  weatherTimer = setInterval(updateWeatherData, weatherUpdateInterval * 1000);
 }
+
+
 
 // Start
 function animate() {
