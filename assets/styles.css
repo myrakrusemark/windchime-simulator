@@ -276,6 +276,13 @@ img.svg {
     box-sizing: border-box;
 }
 
+iframe {
+  margin-left: 50%;
+  position: fixed;
+  transform: translateX(-50%);
+  bottom: 0;
+}
+
 @media (max-width: 800px) {
     .background {
         background-size: 75%, auto;
