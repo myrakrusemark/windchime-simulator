@@ -1,7 +1,6 @@
 body {
     font-family: "Roboto Flex", sans-serif;
     color: white;
-    width: 100%;
     margin:0
 }
 
@@ -118,7 +117,7 @@ input[type="range"]::-moz-range-thumb {
     align-items: center;
     height:270px;
     width:100%;
-    margin:0 auto;
+    margin:0 auto 120px auto;
     overflow-x: clip;
 }
 
@@ -272,18 +271,15 @@ img.svg {
     filter: brightness(0) invert(1);
 }
 
-#adContainer {
-    border: 2px dashed #ccc;
-    margin: 10px;
-    padding: 10px;
-    box-sizing: border-box;
+
+#footer {
+    text-align: center;
+    color:#ffffff77;
+    width:100%;
 }
 
-iframe {
-  margin-left: 50%;
-  position: fixed;
-  transform: translateX(-50%);
-  bottom: 0;
+#footer a {
+    color:#ffffff77;
 }
 
 @media (max-width: 800px) {
@@ -297,7 +293,11 @@ iframe {
     }
 
     #content .title {
-        margin-bottom: 24px;
+        margin-bottom: 50px;
+        margin-top: -61px;
+        max-width:650px;
+        padding-right:75px;
+        text-align: left;
     }
 
     h1 {
