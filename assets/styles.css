@@ -193,6 +193,10 @@ input::-webkit-input-placeholder{
     margin-bottom: 0;
 }
 
+#content .title p {
+    opacity: 0.6;
+}
+
 #content label {
     opacity: 0.6;
     margin-top: 0;
