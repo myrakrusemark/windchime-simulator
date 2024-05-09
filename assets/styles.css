@@ -181,6 +181,10 @@ p, span, button, input, label {
     
 }
 
+a {
+    color:#ffffff77;
+}
+
 input::-webkit-input-placeholder{
     color:#ffffff88;
 }
@@ -280,10 +284,6 @@ img.svg {
     text-align: center;
     color:#ffffff77;
     width:100%;
-}
-
-#footer a {
-    color:#ffffff77;
 }
 
 @media (max-width: 800px) {
