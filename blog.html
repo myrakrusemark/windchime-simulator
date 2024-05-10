@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Wind Chime Simulator - Blog</title>
+    <meta name="description" content="Experience the soothing sounds of wind chimes with an interactive Wind Chime Simulator. Customize the chimes and wind settings to create your perfect ambient soundscape.">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="assets/styles.css">
+    <link rel="stylesheet" type="text/css" href="assets/blog-styles.css">
+</head>
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-DJHXYEGQDS"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-DJHXYEGQDS');
+</script>
+
+<body class="contentPage">
+    <div class="background"></div>
+    <div class="content">
+        <a href="/">Back</a>
+        <h1>Wind Chime Simulator Blog</h1>
+        <article>
+            <h2>The Physics Behind the Wind Chime Simulator</h2>
+            <p>Posted on May 10, 2024</p>
+            <p>The Wind Chime Simulator is not only a soothing auditory experience but also a fascinating physics simulation. Let's dive into the science behind how the simulator works.</p>
+            
+            <h3>Wind Simulation</h3>
+            <p>The simulator uses a simplified model of wind behavior. The wind speed is generated using a combination of Perlin noise and a wind gust function. Perlin noise creates a natural, organic pattern of wind speed variations, while the gust function adds occasional bursts of higher wind speeds.</p>
+            
+            <h3>Chime Motion</h3>
+            <p>Each chime in the simulator is modeled as a pendulum. The motion of a chime is determined by the force exerted by the wind and the chime's own weight. The simulator calculates the angular acceleration of each chime based on these forces and then updates the chime's angular velocity and position using numerical integration.</p>
+            
+            <h3>Collision Detection</h3>
+            <p>To prevent the chimes from swinging too far and to create a realistic sound when the chimes collide, the simulator includes a simple collision detection system. When a chime's angle exceeds a certain threshold, the simulator reverses the chime's angular velocity and reduces it by a factor to simulate energy loss during the collision.</p>
+            
+            <h3>Sound Synthesis</h3>
+            <p>The sounds of the chimes are generated using Web Audio API. Each chime is associated with a specific frequency based on the selected scale. When a chime collides, the simulator triggers an oscillator to play the corresponding frequency. The volume of the sound is determined by the chime's angular velocity at the moment of collision, creating a dynamic and realistic sound experience.</p>
+            
+            <p>By combining these physical simulations, the Wind Chime Simulator creates an immersive and interactive auditory experience that mimics the behavior of real wind chimes. Explore the different settings and enjoy the beauty of physics in action!</p>
+            
+            <p>If you're interested in exploring the code behind the Wind Chime Simulator, check out the project on my <a href="https://github.com/myrakrusemark/windchime-simulator" target="_blank">GitHub repository</a>. Feel free to dive into the source code, learn from it, and even contribute to the project.</p>
+        </article>
+        <article>
+            <h2>Why I Use Ads on My Website</h2>
+            <p>Posted on May 8, 2024</p>
+            <p>As you may have noticed, my website includes advertisements. I want to take a moment to explain why I've chosen to include ads and how they support my work.</p>
+            
+            <h3>Balancing Passion and Practicality</h3>
+            <p>While I have a day job that covers my basic needs, my true passion lies in creating cool coding projects and exploring the world of 3D printing. However, these creative and technical endeavors require time, resources, and sometimes even additional equipment.</p>
+            
+            <h3>Supporting My Projects</h3>
+            <p>By displaying ads on my website, I'm able to generate a small income that helps support my various projects. This extra revenue allows me to dedicate more time to developing new features, improving existing projects, and experimenting with new ideas.</p>
+            
+            <h3>Minimizing Ad Intrusiveness</h3>
+            <p>I understand that ads can sometimes be intrusive, especially when they interfere with the user experience. However, in the case of the Wind Chime Simulator, which is primarily an audio-based experience, the advertisements shouldn't disrupt your enjoyment of the soothing sounds. The ads are placed in a way that doesn't interfere with the aural aspect of the simulator, ensuring that you can still relax and immerse yourself in the calming tones of the wind chimes.</p>
+            
+            <h3>Sharing My Work</h3>
+            <p>I believe in the power of open-source and enjoy sharing my code projects with the community. You can find many of my projects, including the Wind Chime Simulator, on my <a href="https://github.com/myrakrusemark" target="_blank">GitHub profile</a>. Feel free to explore, learn from, and even contribute to these projects.</p>
+            
+            <h3>Exploring My 3D Printing</h3>
+            <p>In addition to coding, I'm passionate about 3D printing. I create unique and fascinating 3D-printed items, which I sell on platforms like <a href="https://www.etsy.com/shop/TopoCoArt" target="_blank">Etsy</a> and <a href="https://www.ebay.com/usr/your_ebay_username" target="_blank">eBay</a>. By supporting my work through these platforms, you not only help me continue my creative journey but also get to own a piece of my artistic expression.</p>
+            
+            <p>I strive to ensure that the advertisements on my site are relevant and unobtrusive. Your understanding and support mean the world to me, and I'm grateful for every visitor who engages with my work.</p>
+            
+            <p>Thank you for being a part of my creative journey!</p>
+        </article>
+        <article>
+            <h2>The Inspiration Behind the Wind Chime Simulator</h2>
+            <p>Posted on May 8, 2024</p>
+            <p>I've always found wind chimes to be incredibly soothing and relaxing. There's something about the gentle, melodic tones that just puts me at ease. I wanted to create a way for people to experience the calming effects of wind chimes wherever they are, and that's how the idea for the Wind Chime Simulator was born.</p>
+            <p>I hope that this simulator brings a little bit of peace and tranquility to your day, just as real wind chimes do for me.</p>
+        </article>
+
+        <article>
+            <h2>Introducing New Chime Scales</h2>
+            <p>Posted on May 5, 2024</p>
+            <p>I'm excited to announce that the Wind Chime Simulator now includes several new chime scales for you to explore! In addition to the classic pentatonic and diatonic scales, you can now enjoy the soothing tones of the Lydian, Mixolydian, and Whole Tone scales.</p>
+            <p>Each scale offers a unique flavor and atmosphere, so I encourage you to experiment with them and find your favorites. Happy chiming!</p>
+        </article>
+        
+    </div>
+    <div id="footer">
+        <p>Another cool project by Myra Krusemark! (C)2024<br />
+            <a href="about.html">About Me and Contact</a> | 
+            <a href="terms.html">Terms & Conditions</a> | 
+            <a href="privacy.html">Privacy Policy</a> | 
+            <a href="blog.html">Blog</a> | 
+            <a target="_blank" href="https://github.com/myrakrusemark">GitHub</a>
+        </p>
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073"
+        crossorigin="anonymous"></script>
+        <!-- windchime -->
+        <ins class="adsbygoogle"
+                style="display:block"
+                data-ad-client="ca-pub-6788527921390073"
+                data-ad-slot="2774506336"
+                data-ad-format="auto"
+                data-full-width-responsive="true"></ins>
+        <script>
+                (adsbygoogle = window.adsbygoogle || []).push({});
+        </script>
+    </div>
+</body>
+</html>
