@@ -154,6 +154,7 @@ button:hover {
     margin-bottom: 5px;
     overflow: hidden;
     transition: height 1s;
+    text-align: center;
 }
 
 #windSpeed.hidden {

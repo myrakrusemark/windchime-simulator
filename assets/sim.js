@@ -44,12 +44,13 @@ const chimesRadius = 30;
 const transferFactor = 0.1;
 const massDifference = 20;
 const forceMultiplier = 0.007;
+const defaultWindSpeed = 15;
 
 // IRL Weather Variables
 let latitude = null;
 let longitude = null;
 let weatherData = null;
-let currentWindSpeed = 0;
+let currentWindSpeed = 15;
 let currentWindDirection = 0;
 let mappedWindSpeed = 0.5;
 let weatherTimer = null;
@@ -869,6 +870,24 @@ async function startWindChimes() {
         })
         .catch((error) => {
           console.error("Error updating weather data:", error);
+
+          //Fallback to default windspeed
+          // Set the maxWindSpeed slider to 2x the windspeed
+          currentWindSpeed = defaultWindSpeed;
+          const maxWindSpeedSlider = document.getElementById("maxWindSpeedSlider");
+          const maxWindSpeedValue = currentWindSpeed * 2;
+          maxWindSpeedSlider.value = maxWindSpeedValue;
+          maxWindSpeed = maxWindSpeedValue;
+          document.getElementById("maxWindSpeedValue").textContent = maxWindSpeedValue + " mph";
+
+          //Set the value on the page, and notify the user
+          alert("The windspeed at your location could not be found, but please enjoy a 15mph wind!")
+          const windSpeed = document.getElementById("windSpeed");
+          windSpeed.classList.remove("hidden");
+          windSpeed.textContent = `${currentWindSpeed} mph`;
+
+          // Start the featherLoop and animation
+          requestAnimationFrame(featherLoop);
         });
     } else {
       const useBrowserLocation = confirm(
