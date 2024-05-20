@@ -293,6 +293,12 @@ img.svg {
     width:100%;
 }
 
+
+.blog .content {
+    max-width: 800px;
+    margin:0 auto;
+}
+
 @media (max-width: 800px) {
     .background {
         background-size: 75%, auto;
