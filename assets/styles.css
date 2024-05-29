@@ -301,6 +301,9 @@ img.svg {
 
 .blog article {
     margin-bottom: 64px;
+    background: rgba(255,255,255,0.2);
+    padding: 50px;
+    border-radius: 50px;
 }
 
 @media (max-width: 800px) {
