@@ -306,6 +306,46 @@ img.svg {
     border-radius: 50px;
 }
 
+/* Educational content section */
+#learn {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px 50px 24px;
+}
+
+#learn h2 {
+    text-align: center;
+    margin-bottom: 32px;
+    font-size: 2em;
+}
+
+.learn-section {
+    background: rgba(255,255,255,0.2);
+    padding: 30px 40px;
+    border-radius: 30px;
+    margin-bottom: 24px;
+}
+
+.learn-section h3 {
+    margin-top: 0;
+}
+
+.learn-section ul {
+    padding-left: 20px;
+}
+
+.learn-section li {
+    margin-bottom: 8px;
+}
+
+.learn-section code {
+    background: rgba(0,0,0,0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
 @media (max-width: 800px) {
     .background {
         background-size: 75%, auto;
@@ -345,8 +385,11 @@ img.svg {
         margin-top: 0;
     }
 
+    .learn-section {
+        padding: 20px 24px;
+    }
 
-
-
-
+    #learn {
+        padding: 0 16px 40px 16px;
+    }
 }

@@ -113,12 +113,64 @@
             </section>
         </div>
     </div>
+
+    <div id="learn">
+        <h2>The Science Behind the Simulation</h2>
+
+        <section class="learn-section">
+            <h3>A Brief History of Wind Chimes</h3>
+            <p>Wind chimes have been around for a very long time—about 5,000 years! The earliest ones were found in Southeast Asia around 3000 B.C., made from bones, wood, bamboo, and seashells. People believed they could scare away evil spirits and invite good ones.</p>
+            <p>In China, wind chimes are called <strong>"Feng Ling"</strong> and were hung in temples and homes to bring positive energy. In Japan, they're called <strong>"Fūrin"</strong> and are hung outside during hot summers—the soft tinkling sound is thought to make you feel cooler and calmer. Today, people all over the world use wind chimes for relaxation and meditation.</p>
+        </section>
+
+        <section class="learn-section">
+            <h3>Swinging on a String (Pendulum Physics)</h3>
+            <p>The center striker in this simulation hangs from an invisible string (300 pixels long in the code). Gravity constantly pulls it down (<code>gravity = 0.0098</code>), and when the wind pushes it, it swings back and forth. This back-and-forth motion is called a <strong>pendulum</strong>.</p>
+            <p>Here's the cool part: how fast a pendulum swings depends only on the length of the string, NOT on how heavy it is! The famous scientist Galileo figured this out about 400 years ago by watching a chandelier swing in a church.</p>
+            <p><strong>Damping</strong> (<code>centerPieceDamping = 0.995</code>) is why the striker eventually stops swinging. Each swing loses a tiny bit of energy to "air resistance"—just like how a real swing slows down if you stop pumping your legs.</p>
+        </section>
+
+        <section class="learn-section">
+            <h3>Parts of the Wind Chime</h3>
+            <p>The simulation has three main parts:</p>
+            <ul>
+                <li><strong>The Striker</strong> (center piece): The disk in the middle that catches the wind and bumps into things. It's heavier than the chimes.</li>
+                <li><strong>The Chimes</strong>: The smaller circles arranged around the striker—these make sound when hit.</li>
+                <li><strong>The Strings</strong>: Each piece hangs from its own string and swings independently.</li>
+            </ul>
+            <p>All the chimes are arranged in a circle, spaced <code>chimesSpacing = 150</code> pixels apart.</p>
+        </section>
+
+        <section class="learn-section">
+            <h3>Bump! Collision Detection</h3>
+            <p>How does the computer know when two circles touch? It uses the <strong>Pythagorean theorem</strong> (a² + b² = c²) that you might have learned in math class!</p>
+            <p>The code calculates the distance between the centers of two circles: <code>distance = Math.sqrt(dx * dx + dy * dy)</code>. If that distance is smaller than the two radii added together (<code>strikerRadius + chimeRadius</code>), they're touching!</p>
+            <p>When they collide, <strong>momentum transfer</strong> happens—some energy moves from the striker to the chime. The <code>transferFactor = 0.1</code> means 10% of the energy transfers. The heavier striker (<code>massDifference = 20</code>) pushes the lighter chimes, just like a bowling ball knocking over pins.</p>
+        </section>
+
+        <section class="learn-section">
+            <h3>Making Music (Sound Synthesis)</h3>
+            <p>The sounds you hear aren't recordings—they're created by the computer in real-time! Here's how:</p>
+            <ul>
+                <li><strong>Attack</strong>: How fast a note starts. An instant attack gives you a sharp "ding!" while a slow attack creates a gentle fade-in.</li>
+                <li><strong>Decay</strong>: How long the note rings out before fading to silence. Longer decay = longer, dreamier sounds.</li>
+                <li><strong>Harmonics</strong>: Real chimes don't just play one frequency—they play the main note plus quieter "overtones" at 2x, 3x, and 4x the frequency. This is what makes them sound rich and natural instead of like a plain computer beep.</li>
+            </ul>
+        </section>
+
+        <section class="learn-section">
+            <h3>Why It Sounds Good (Music Theory)</h3>
+            <p>The default scale is <strong>C Major Pentatonic</strong>: C, D, E, G, A. "Penta" means five—so this scale has only 5 notes instead of the usual 7 in a regular scale.</p>
+            <p>Here's the magic: these 5 notes sound good together no matter what order you play them! That's why wind chimes never sound "wrong"—there are no clashing notes in a pentatonic scale. Musicians call this a "foolproof" scale because you really can't hit a bad note.</p>
+            <p>Random timing + pleasant notes = the relaxing ambient sound that makes wind chimes so soothing.</p>
+        </section>
+    </div>
+
     <div id="footer">
         <p>Another cool project by <a target="_blank" href="https://myrakrusemark.com">Myra Krusemark</a>! (C)2024<br />
-            <a href="about.html">About Me and Contact</a> | 
-            <a href="terms.html">Terms & Conditions</a> | 
-            <a href="privacy.html">Privacy Policy</a> | 
-            <a href="blog.html">Blog</a> | 
+            <a href="about.html">About Me and Contact</a> |
+            <a href="terms.html">Terms & Conditions</a> |
+            <a href="privacy.html">Privacy Policy</a> |
             <a target="_blank" href="https://github.com/myrakrusemark">GitHub</a>
         </p>
         <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073"
