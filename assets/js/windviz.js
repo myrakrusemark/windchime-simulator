@@ -215,6 +215,7 @@ export function createWindViz(opts) {
 	const pcol = (key, fallback) => new THREE.Color(PAL[key] !== undefined ? PAL[key] : fallback);
 	// Linear-space RGB triples for the shaders, which do their own lighting.
 	const bladeLen = PAL.flatten ? BLADE_LEN_FLAT : BLADE_LEN;
+	let flutterPhase = 0;
 	const plin = (key, fallback) => {
 		const c = pcol(key, fallback).clone().convertSRGBToLinear();
 		return new THREE.Vector3(c.r, c.g, c.b);
@@ -246,6 +247,14 @@ export function createWindViz(opts) {
 		// a soft lambert wash and no backlit rim, which is what the storybook
 		// style needs -- a rim term is a photograph of grass, not a drawing of it.
 		uFlatten: { value: PAL.flatten ? 1.0 : 0.0 },
+		// Accumulated flutter phase, advanced on the CPU at a rate proportional
+		// to the wind. It replaces `uTime * (base + k * ws)`, which looks
+		// equivalent and is not: multiplying an ever-growing clock by a term that
+		// changes every frame jumps the phase by clock * delta, so after five
+		// minutes a hundredth of a metre per second of gust jerked every blade
+		// through a radian and a half. Integrating the rate instead is continuous
+		// by construction, and it stops dead when the air does.
+		uFlutter: { value: 0 },
 		uRoof: { value: PAL.porchRoof === false ? 0.0 : 1.0 },
 		uGrassTip: { value: plin('grassTip', 0xb0a04d) },
 		uChimeCentre: { value: new THREE.Vector3(0, CHIME_DISC_Y, 0) },
@@ -306,6 +315,7 @@ export function createWindViz(opts) {
 		uniform vec3 uGrassRoot;
 		uniform vec3 uGrassTip;
 		uniform float uFlatten;
+		uniform float uFlutter;
 
 		varying vec3 vLit;
 
@@ -340,7 +350,13 @@ export function createWindViz(opts) {
 
 			// Cross-wind flutter, per blade, faster in stronger wind.
 			vec2 perp = vec2(-wd.y, wd.x);
-			p.xz += perp * sin(uTime * (5.0 + ws * 0.55) + iPhase) * 0.012 * ws * h;
+			// Per-blade frequency spread comes from a CONSTANT taken off the
+			// blade's own phase, never from ws, so no blade's rate changes under
+			// it. The gate kills the shimmer below about a metre per second: a
+			// lawn in still air is still, and a small amplitude at an unchanged
+			// frequency reads as buzzing rather than as a light breeze.
+			float flutter = smoothstep(0.0, 1.10, ws) * ws;
+			p.xz += perp * sin(uFlutter * (0.82 + 0.36 * fract(iPhase)) + iPhase) * 0.012 * flutter * h;
 
 			// Tip the normal over with the bend so the sheen travels with the wave.
 			n = normalize(n + vec3(wd.x, 0.0, wd.y) * bend * 1.6);
@@ -565,6 +581,7 @@ export function createWindViz(opts) {
 
 	const SHRUB_VERT = /* glsl */`
 		uniform float uFlatten;
+		uniform float uFlutter;
 		attribute vec3 iPos;
 		attribute float iRot;
 		attribute float iScale;
@@ -610,7 +627,8 @@ export function createWindViz(opts) {
 			vec3 world = iPos + p;
 			world.xz += wd * bend;
 			world.y -= bend * bend * 0.30;
-			world.xz += vec2(-wd.y, wd.x) * sin(uTime * (2.2 + ws * 0.30) + iPhase) * 0.028 * min(ws, 8.0) * 0.12 * iSway;
+			float shrubFlutter = smoothstep(0.0, 1.30, ws) * min(ws, 8.0);
+			world.xz += vec2(-wd.y, wd.x) * sin(uFlutter * (0.55 + 0.24 * fract(iPhase)) + iPhase) * 0.028 * shrubFlutter * 0.12 * iSway;
 
 			vec4 mvPosition = modelViewMatrix * vec4(world, 1.0);
 			gl_Position = projectionMatrix * mvPosition;
@@ -1237,8 +1255,13 @@ export function createWindViz(opts) {
 
 			// Tumble about the wind axis, with a flutter about the leaf's own long
 			// axis. The zigzag fall comes out of the flutter, not out of noise.
-			lSpin[i] += (wmag * 0.9 + 1.2) * dt;
-			const flutter = Math.sin(tSec * (4 + wmag * 0.6) + lPhase[i]);
+			// The old rate carried a constant 1.2 rad/s, so a leaf lying in dead
+			// calm span forever on the spot. Nothing turns a leaf but the air.
+			lSpin[i] += wmag * 1.12 * dt;
+			// lPhase starts as a per-leaf random offset and is then integrated,
+			// for the same reason as the grass: tSec * (a + b * wmag) jumps.
+			lPhase[i] += wmag * 1.18 * dt;
+			const flutter = Math.sin(lPhase[i]);
 			lVel[i3 + 1] += Math.cos(flutter) * wmag * 0.11 * dt;
 
 			x += lVel[i3] * dt;
@@ -1395,6 +1418,8 @@ export function createWindViz(opts) {
 		ribbonSeeded = true;
 	}
 
+	let ribPhase = 0;
+
 	function updateRibbon(dt, tSec, anchor) {
 		if (!anchor) return;
 		if (!ribbonSeeded) seedRibbon(anchor);
@@ -1467,6 +1492,11 @@ export function createWindViz(opts) {
 		wind.sample(_w2, rPos[0], rPos[1], rPos[2]);
 		const wsp = _w2.length();
 		const twistAmp = 0.72 * clamp(wsp / 5, 0, 1);
+		// Integrated, not tSec * (3 + 0.8 * wsp): the ribbon is the one cue a
+		// viewer watches to read direction, so a phase jump in it is the most
+		// visible of the four. In still air it stops twisting and just hangs.
+		ribPhase += wsp * 1.35 * dt;
+		if (ribPhase > TAU * 1024) ribPhase -= TAU * 1024;
 
 		for (let i = 0; i < ribbonNodes; i++) {
 			const i3 = i * 3;
@@ -1484,7 +1514,7 @@ export function createWindViz(opts) {
 			_side.normalize();
 			_ref.crossVectors(_side, _seg).normalize();   // parallel transport
 
-			_e2.copy(_side).applyAxisAngle(_seg, Math.sin(tSec * (3 + wsp * 0.8) + i * 0.9) * twistAmp);
+			_e2.copy(_side).applyAxisAngle(_seg, Math.sin(ribPhase + i * 0.9) * twistAmp);
 			const hw = rHalfW[i];
 			const o = i * 6;
 			arr[o] = rPos[i3] + _e2.x * hw;
@@ -1559,6 +1589,16 @@ export function createWindViz(opts) {
 
 			const step = clamp(dt, 0, 0.100);
 			vizTime += step;
+			// One rate for every oscillator in the scene, proportional to the air
+			// that is actually moving. At the default 12 mph it lands near the
+			// 5 rad/s the grass used to run at; in dead calm it is zero and the
+			// whole meadow holds still.
+			const meanMs = wind.state.speedMph * 0.44704 * wind.state.gust;
+			flutterPhase += meanMs * 1.05 * step;
+			// Wrapped well away from the precision floor: a float32 uniform at
+			// 1e6 radians has lost the fractional part a sine needs.
+			if (flutterPhase > TAU * 1024) flutterPhase -= TAU * 1024;
+			uniforms.uFlutter.value = flutterPhase;
 			updateStreaks(step);
 			updateLeaves(step, tSec);
 			updateRibbon(step, tSec, anchor);

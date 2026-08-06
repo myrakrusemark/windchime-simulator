@@ -37,6 +37,10 @@ function arg(name, fallback) {
 const SECONDS = Number(arg('seconds', 8));
 const OUT = arg('out', join(SCRATCH, 'shots'));
 const PAGE = arg('page', 'index.html');
+// Emulates prefers-reduced-motion, which the page honours by never starting the
+// idle camera drift. Without it any run longer than 12 seconds has the CAMERA
+// moving, which swamps any attempt to measure how much the SCENE moves.
+const REDUCED = process.argv.includes('--reduced-motion');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -85,6 +89,9 @@ const browser = await puppeteer.launch({
 
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+if (REDUCED) {
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+}
 
 const logs = [];
 const errors = [];

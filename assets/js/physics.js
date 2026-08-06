@@ -196,6 +196,9 @@ const SAIL_YAW_K = 0.5 * RHO * SAIL_AREA * SAIL_W * 0.06;  // dished-sail weathe
 const SAIL_YAW_DAMP = 3.0e-4;
 const SAIL_YAW_NOISE_SIGMA = 1.5e-4;
 const SAIL_YAW_NOISE_TAU = 1.2;
+// Reference dynamic pressure the buffeting sigma is quoted at: 12 mph, the
+// default wind, so scaling it leaves the design point untouched.
+const SAIL_YAW_NOISE_U2 = 5.36 * 5.36;
 
 // THE PORCH IS SOLID OVERHEAD. Above about 30 mph the aerodynamics are
 // emphatically correct and emphatically alarming: a 28 mm tube at 20 m/s
@@ -775,8 +778,15 @@ export function createRig(freqs) {
       const u2 = ux * ux + uy * uy + uz * uz;
       const tRestore = -SAIL_YAW_K * u2 * Math.sin(2 * rel);
       const tDamp = -SAIL_YAW_DAMP * psiDot;
+      // Buffeting is an aerodynamic torque, so it scales with dynamic pressure
+      // exactly like the restoring torque above. Held at constant variance it
+      // was the ONLY term left in dead air -- the restoring torque goes as u^2
+      // and had already vanished -- so the calmer it got, the more the noise
+      // dominated, and the sail hunted back and forth in perfectly still
+      // conditions. Normalised at the default 12 mph so nothing changes there.
       const a = Math.exp(-h / SAIL_YAW_NOISE_TAU);
-      yawNoise = yawNoise * a + SAIL_YAW_NOISE_SIGMA * Math.sqrt(1 - a * a) * gauss();
+      const buffet = SAIL_YAW_NOISE_SIGMA * Math.min(u2 / SAIL_YAW_NOISE_U2, 4);
+      yawNoise = yawNoise * a + buffet * Math.sqrt(1 - a * a) * gauss();
       psiDot += ((tRestore + tDamp + yawNoise) / SAIL_I) * h;
       psiDot = MathUtils.clamp(psiDot, -40, 40);
       psi = wrapPi(psi + psiDot * h);
