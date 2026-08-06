@@ -40,6 +40,10 @@ const SUN_AZ_DEG = 205;
 const GRASS_R = 14.0;
 const GRASS_R_BARE = 0.35;
 const BLADE_LEN = 0.22;
+// The storybook style is a mown lawn, not a hay meadow: at 0.22 m and a camera
+// looking down 30 degrees the sward closes over and the ground colour never
+// shows, which is most of what that idiom is made of.
+const BLADE_LEN_FLAT = 0.10;
 
 // The chime's bounding disc, used for the analytic grass shadow. One disc is a
 // coarse stand-in for a 1 m tall assembly, but at an 11 degree sun the shadow
@@ -135,6 +139,7 @@ const SUN_OCCLUSION = /* glsl */`
 	uniform vec3 uSunDir;
 	uniform vec3 uChimeCentre;
 	uniform float uChimeRadius;
+	uniform float uRoof;   // 0 when the style hangs the chime from a bare beam
 
 	// Fraction of the ray from p toward the sun that passes through an
 	// axis-aligned box, as a soft 0..1 hit. Soft because a slab test with a hard
@@ -159,7 +164,7 @@ const SUN_OCCLUSION = /* glsl */`
 
 		float s = 0.0;
 		// Porch roof slab, cedar beam, post. Kept in step with scene.js by hand.
-		s = max(s, 0.82 * boxShade(p, d, vec3(-1.5, 2.75, -0.7), vec3(1.5, 2.81, 0.7)));
+		s = max(s, uRoof * 0.82 * boxShade(p, d, vec3(-1.5, 2.75, -0.7), vec3(1.5, 2.81, 0.7)));
 		s = max(s, 0.70 * boxShade(p, d, vec3(-1.3, 2.60, -0.045), vec3(1.3, 2.72, 0.045)));
 		s = max(s, 0.78 * boxShade(p, d, vec3(-1.30, 0.0, -0.05), vec3(-1.20, 2.60, 0.05)));
 
@@ -187,6 +192,18 @@ export function createWindViz(opts) {
 	const params = opts.params;
 	let tier = opts.tier;
 
+	// The art direction, handed down from scene.js so the grass, shrubs, motes
+	// and ribbon are painted from the same table as the chime and the ground
+	// rather than carrying a second, quietly diverging palette.
+	const PAL = opts.palette || {};
+	const pcol = (key, fallback) => new THREE.Color(PAL[key] !== undefined ? PAL[key] : fallback);
+	// Linear-space RGB triples for the shaders, which do their own lighting.
+	const bladeLen = PAL.flatten ? BLADE_LEN_FLAT : BLADE_LEN;
+	const plin = (key, fallback) => {
+		const c = pcol(key, fallback).clone().convertSRGBToLinear();
+		return new THREE.Vector3(c.r, c.g, c.b);
+	};
+
 	const flowInfo = (wind && wind.flowInfo) || { size: 64, extent: 32, height: 0.30, scale: 12 };
 
 	// A neutral stand-in so that, if the flow texture is not up yet on the very
@@ -208,6 +225,13 @@ export function createWindViz(opts) {
 		uTime: { value: 0 },
 		uSunDir: { value: new THREE.Vector3(-0.415, 0.191, 0.890) },
 		uSunColor: { value: new THREE.Color(0xffc07a) },
+		uGrassRoot: { value: plin('grassRoot', 0x444620) },
+		// 0 keeps the golden hour lighting model; 1 flattens to near-albedo with
+		// a soft lambert wash and no backlit rim, which is what the storybook
+		// style needs -- a rim term is a photograph of grass, not a drawing of it.
+		uFlatten: { value: PAL.flatten ? 1.0 : 0.0 },
+		uRoof: { value: PAL.porchRoof === false ? 0.0 : 1.0 },
+		uGrassTip: { value: plin('grassTip', 0xb0a04d) },
 		uChimeCentre: { value: new THREE.Vector3(0, CHIME_DISC_Y, 0) },
 		uChimeRadius: { value: CHIME_DISC_R }
 	};
@@ -263,6 +287,9 @@ export function createWindViz(opts) {
 		uniform float uFlowScale;
 		uniform float uTime;
 		uniform vec3 uSunColor;
+		uniform vec3 uGrassRoot;
+		uniform vec3 uGrassTip;
+		uniform float uFlatten;
 
 		varying vec3 vLit;
 
@@ -276,7 +303,7 @@ export function createWindViz(opts) {
 			vec3 p = position;
 			p.x *= mix(1.0, 0.16, h);             // taper the blade to a point
 			p *= iScale;
-			float len = ${BLADE_LEN.toFixed(3)} * iScale;
+			float len = ${bladeLen.toFixed(3)} * iScale;
 
 			float c = cos(iRot), s = sin(iRot);
 			mat2 rot = mat2(c, -s, s, c);
@@ -321,15 +348,17 @@ export function createWindViz(opts) {
 			// Warm meadow rather than cool olive. At golden hour dry grass runs
 			// amber at the tips and stays green only down in the sward, and that
 			// warm-over-green split is most of what says "low sun" here.
-			vec3 root = vec3(0.0508, 0.0578, 0.0152);   // #444620 linearised
-			vec3 tip  = vec3(0.4179, 0.3467, 0.0742);   // #b0a04d linearised
-			vec3 albedo = mix(root, tip, h) * (1.0 + (iTint - 0.5) * 0.16);
+			vec3 albedo = mix(uGrassRoot, uGrassTip, h) * (1.0 + (iTint - 0.5) * 0.16);
 
 			// The rim term is direct sun through a thin blade, so it takes the
 			// shadow at full strength; the half-lambert term is mostly skylight
 			// and keeps a floor.
-			vLit = albedo * (0.55 + 1.90 * lam * mix(0.34, 1.0, shade))
-			     + uSunColor * rim * 0.9 * shade;
+			vec3 litGolden = albedo * (0.55 + 1.90 * lam * mix(0.34, 1.0, shade))
+			              + uSunColor * rim * 0.9 * shade;
+			// Flat: the blade keeps its own colour, shading only enough to tell a
+			// lit face from a shaded one, and the porch's shadow still lands.
+			vec3 litFlat = albedo * (0.92 + 0.22 * lam) * mix(0.66, 1.0, shade);
+			vLit = mix(litGolden, litFlat, uFlatten);
 
 			#include <fog_vertex>
 		}
@@ -353,8 +382,8 @@ export function createWindViz(opts) {
 		// Matching the count instead would put phones and the software rasteriser
 		// - which is most of who sees the low tier - in front of stubble on a
 		// painted plane, which is not what the high tier is showing.
-		const src = new THREE.PlaneGeometry(tier.name === 'low' ? 0.019 : 0.012, BLADE_LEN, 1, 3);
-		src.translate(0, BLADE_LEN * 0.5, 0);   // root the blade at y = 0
+		const src = new THREE.PlaneGeometry(tier.name === 'low' ? 0.019 : 0.012, bladeLen, 1, 3);
+		src.translate(0, bladeLen * 0.5, 0);   // root the blade at y = 0
 
 		grassGeo = new THREE.InstancedBufferGeometry();
 		grassGeo.index = src.index;
@@ -454,7 +483,7 @@ export function createWindViz(opts) {
 	// to sit 6.3 degrees off axis with a 6.2 degree angular radius, so its edge
 	// grazed the tube bottoms and the sail and read as foliage growing through
 	// the chime.
-	const SHRUB_CLUSTERS = [
+	const SHRUB_CLUSTERS = PAL.shrubClusters || [
 		{ x: -3.00, y: 0.60, z: 5.60, r: 1.05 },
 		{ x: -6.80, y: 0.70, z: -1.60, r: 1.15 },
 		{ x: -2.40, y: 0.45, z: 7.40, r: 0.90 }
@@ -463,6 +492,8 @@ export function createWindViz(opts) {
 	// A leaf-cluster mask built as raw bytes. No canvas, so this module never
 	// touches the DOM.
 	function makeLeafClusterTexture() {
+		const sc = pcol('shrub', 0x5f6b3a);
+		const shrubR = sc.r, shrubG = sc.g, shrubB = sc.b;
 		const S = 64;
 		const data = new Uint8Array(S * S * 4);
 		const rnd = mulberry32(0x51F0);
@@ -498,11 +529,11 @@ export function createWindViz(opts) {
 				const alpha = cover > 0 ? clamp((cover * 3.4) * (0.55 + 0.75 * e), 0, 1) : 0;
 				const shade = 0.62 + 0.38 * e;
 				const o = (j * S + i) * 4;
-				// Sun-dried olive, keyed off the ground colour (0x5f6b3a) rather than
-				// a nursery green, or the bushes read as plastic against the meadow.
-				data[o] = Math.round(255 * 0.40 * shade);
-				data[o + 1] = Math.round(255 * 0.46 * shade);
-				data[o + 2] = Math.round(255 * 0.24 * shade);
+				// Keyed off the palette's shrub colour rather than a nursery green,
+				// or the bushes read as plastic against the meadow.
+				data[o] = Math.round(255 * shrubR * shade);
+				data[o + 1] = Math.round(255 * shrubG * shade);
+				data[o + 2] = Math.round(255 * shrubB * shade);
 				data[o + 3] = Math.round(255 * alpha);
 			}
 		}
@@ -517,6 +548,7 @@ export function createWindViz(opts) {
 	}
 
 	const SHRUB_VERT = /* glsl */`
+		uniform float uFlatten;
 		attribute vec3 iPos;
 		attribute float iRot;
 		attribute float iScale;
@@ -574,8 +606,12 @@ export function createWindViz(opts) {
 			float shade = sunOcclusion(world);
 			// Foliage is deep: the interior of the mass is in its own shade, so key
 			// the ambient off how far the card sits up the bush.
-			vLit = vec3(0.42 + 0.30 * iSway + 1.45 * lam * mix(0.34, 1.0, shade))
-			     + uSunColor * rim * 0.70 * shade;
+			vec3 litGolden = vec3(0.42 + 0.30 * iSway + 1.45 * lam * mix(0.34, 1.0, shade))
+			               + uSunColor * rim * 0.70 * shade;
+			// Flat: the leaf texture carries the colour, so this only has to say
+			// which side of the bush the light is on.
+			vec3 litFlat = vec3((0.84 + 0.26 * lam) * mix(0.76, 1.0, shade));
+			vLit = mix(litGolden, litFlat, uFlatten);
 
 			#include <fog_vertex>
 		}
@@ -727,7 +763,7 @@ export function createWindViz(opts) {
 		streakGeo.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
 
 		streakMat = new THREE.MeshBasicMaterial({
-			color: 0xffe9c9,
+			color: pcol('streak', 0xffe9c9),
 			transparent: true,
 			depthWrite: false,
 			// Normal blending, not additive: additive over a bright sky is white mush.
@@ -991,7 +1027,8 @@ export function createWindViz(opts) {
 		lGround = new Float32Array(n);
 
 		const rnd = mulberry32(0x4E21);
-		const palette = [new THREE.Color(0xc46a2a), new THREE.Color(0xd99a3c), new THREE.Color(0x8d5a22)];
+		const lp = PAL.leafPalette || [0xc46a2a, 0xd99a3c, 0x8d5a22];
+		const palette = lp.map((c) => new THREE.Color(c));
 		for (let i = 0; i < n; i++) {
 			lSize[i] = 0.045 + rnd() * 0.040;   // 7 to 14 cm along the long axis
 			lPhase[i] = rnd() * TAU;
@@ -1214,7 +1251,7 @@ export function createWindViz(opts) {
 		ribGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.9, 0), 1.2);
 
 		ribMat = new THREE.MeshStandardMaterial({
-			color: 0xc9425a,
+			color: pcol('ribbon', 0xc9425a),
 			roughness: 0.92,
 			metalness: 0.0,
 			side: THREE.DoubleSide,

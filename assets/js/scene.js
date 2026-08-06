@@ -29,9 +29,214 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const HOOK_Y = 2.60;          // the porch beam underside; the rig hangs from here
 const R_TUBE = 0.014;         // tube outer radius, m (28 mm OD aluminium)
 const R_BORE = 0.0125;        // inner bore radius, m (25 mm ID)
-const SUN_AZ_DEG = 205;       // compass bearing the sun sits in: behind-left of the default camera
 const CORD_SEGMENTS = 6;      // line segments per cord; enough to read a belly of sag
 const DEG = Math.PI / 180;
+
+// ---------------------------------------------------------------------------
+// Art direction
+//
+// Everything the picture's LOOK depends on lives here as data, so the renderer
+// below reads `S.whatever` and never a literal. Two presets:
+//
+//   storybook -- flat matte colour under soft even light, seen through an
+//     orthographic camera. Untitled Goose Game is the reference: no texture, no
+//     specular, no glare, a muted pastel palette, and shapes that read by
+//     silhouette. Everything that makes a render look photographic is
+//     deliberately switched off, because in this idiom those things read as
+//     dirt on the lens.
+//
+//   golden -- the physically-lit version: anodised aluminium with a real
+//     environment map, an 11 degree sun, ACES tone mapping and bloom.
+//
+// The wind simulation is identical in both. Only the picture changes.
+// ---------------------------------------------------------------------------
+
+const STYLES = {
+
+  storybook: {
+    name: 'storybook',
+
+    // An orthographic camera is most of the feel on its own: parallel edges
+    // stay parallel, so the porch reads as a diagram of a porch and the tubes
+    // stay the same width top to bottom. Height is the frustum in metres, which
+    // is the honest way to frame an ortho camera -- there is no field of view.
+    ortho: true,
+    // Tight enough that the chime is the subject. At 3.5 m the porch roof ate
+    // the top third of the frame and the chime read as a detail in a landscape.
+    viewHeight: 2.6,
+    viewHeightPortrait: 3.5,
+    // A 30 degree downward look. The ground plane reads as a plane rather than
+    // as a horizon line, which is what makes this idiom sit up and look drawn.
+    // For an ortho camera this vector only sets DIRECTION -- the eye is pushed
+    // out to a fixed distance below, since an ortho eye's position changes
+    // nothing but clipping.
+    camPos: [2.83, 3.20, -2.22],
+    camTarget: [0, 1.45, 0],
+    porchRoof: false,
+
+    // Flat, slightly warm off-white. A gradient sky pulls the eye up and out of
+    // the frame; a flat one keeps it on the object.
+    sky: false,
+    background: 0xe9e3d3,
+    // An orthographic camera's eye sits far behind the scene and every fragment
+    // comes back at nearly the same view depth, so distance fog degenerates into
+    // a flat wash over everything. There is no haze in this style; the wind's
+    // dust cue lives entirely in the streaks and the grass here.
+    fogColor: 0xe9e3d3,
+    fogCalm: 0.0,
+    fogBlown: 0.0,
+
+    // No tone curve and no bloom. Both exist to emulate a camera, and there is
+    // no camera in this idiom -- the colours are meant to arrive as authored.
+    toneMapping: 'none',
+    exposure: 1.0,
+    bloom: false,
+
+    // Light from high up, soft, with most of the illumination coming from the
+    // fill. A low raking sun carves out form and long shadows, which is exactly
+    // what this look does not want.
+    // With no tone curve there is no highlight rolloff, so the budget is
+    // literal. The first cut looked blown out at 1.35 + 2.05, but that was 40
+    // percent distance fog washing the frame, not the lights -- an ortho eye
+    // sits 40 m back, so FogExp2 was fogging every fragment equally. With the
+    // fog gone these are the values that put a lit surface near the top of the
+    // range without clipping it.
+    // Front-left, on the CAMERA's side. Under a camera that looks down, a
+    // shadow cast away from the viewer climbs into frame and one cast toward
+    // the viewer falls out the bottom -- at the golden style's 232 the chime's
+    // shadow landed 190 px below the visible area, which is why this style
+    // looked like it had no shadows even though the map was rendering. At 28
+    // it lands up and to the left of the chime with clear separation.
+    sunAzDeg: 28,
+    sunElevDeg: 52,
+    sunColor: 0xfff4de,
+    sunIntensity: 1.55,
+    hemiSky: 0xdce9f4,
+    hemiGround: 0xb9a884,
+    hemiIntensity: 1.45,
+    // Shadows are short at 52 degrees, so the frustum can be tight and the map
+    // is spent where it shows.
+    // applySun parks the light 40 m out along the sun vector, so the depth
+    // range has to bracket 40 -- not the scene's own size. At 1..12 every
+    // caster sat beyond the far plane and nothing cast at all.
+    shadowHalf: [3.4, 2.8],
+    shadowNear: 32.0,
+    shadowFar: 49.0,
+    shadowBias: -0.0012,
+    shadowNormalBias: 0.02,
+
+    env: false,          // no environment map: nothing here is reflective
+    envIntensity: 0,
+    flatten: true,
+
+    ground: 0xa8b072,
+    groundVariation: 0.10,
+    // Soft sky occlusion is what grounds an object under a real sky. Under flat
+    // shading it just reads as a stain on the lawn, so most of it comes out.
+    groundOcclusion: 0.30,
+    cedar: 0xa8845c,
+    roof: 0x8c6a4a,
+    hook: 0x9a938a,
+    plate: 0xa8845c,
+    bore: 0x4a4438,
+    clapper: 0xc49a68,
+    sail: 0xd8c091,
+    cord: 0xcfc4ac,
+    // Tubes as painted metal rather than bare: a spread of muted pastels across
+    // the set, which is how a viewer tells them apart when there is no highlight
+    // travelling down them to do it.
+    tubeHueDeg: [188, 26],
+    tubeSat: 0.30,
+    tubeLight: 0.66,
+    tubeMetalness: 0.0,
+    tubeRoughness: 1.0,
+    tubeBrushed: false,
+
+    grassRoot: 0x8ea154,
+    grassTip: 0xcdd189,
+    shrub: 0xa3c077,
+    // Placed for a camera that looks DOWN: the golden set sits five to seven
+    // metres out, which an orthographic frame 2.6 m tall never reaches. These
+    // sit close enough to be in shot and low enough not to climb over the
+    // chime.
+    // Solved against the actual orthographic frame rather than guessed. Under a
+    // camera that looks DOWN, a bush placed further away projects HIGHER up the
+    // screen, so the intuition that "far means small and out of the way" is
+    // exactly backwards -- the first set at 1.5 m behind the chime climbed
+    // straight up into the tubes. These two clear the chime's screen box by a
+    // fifth of a frame height and sit low in shot.
+    shrubClusters: [
+      { x: -1.20, y: 0.24, z: -0.40, r: 0.34 },
+      { x: 0.05, y: 0.22, z: 1.20, r: 0.30 }
+    ],
+    streak: 0xfaf3e2,
+    leafPalette: [0xd08a45, 0xdcae5c, 0xa9713a],
+    ribbon: 0xd4566b,
+  },
+
+  golden: {
+    name: 'golden',
+    ortho: false,
+    fov: 38,
+    camPos: [2.719, 1.66, -2.124],
+    camTarget: [0, 1.44, 0],
+    baseDist: 3.45,
+    baseDistPortrait: 4.75,
+    camTargetPortraitY: 1.52,
+
+    sky: true,
+    background: null,
+    fogColor: 0xd8a061,
+    fogCalm: 0.018,
+    fogBlown: 0.032,
+
+    toneMapping: 'aces',
+    exposure: 0.74,
+    bloom: true,
+
+    sunAzDeg: 205,
+    sunElevDeg: 11,
+    sunColor: 0xffd3a0,
+    sunIntensity: 2.8,
+    hemiSky: 0x9fc7ff,
+    hemiGround: 0x9c8259,
+    hemiIntensity: 1.05,
+    shadowHalf: [6.0, 3.8],
+    shadowNear: 22,
+    shadowFar: 62,
+    shadowBias: -0.0004,
+    shadowNormalBias: 0.035,
+
+    env: true,
+    envIntensity: 1.0,
+
+    ground: 0x807839,
+    groundVariation: 0.25,
+    groundOcclusion: 1.0,
+    cedar: 0x6b5236,
+    roof: 0x4a3925,
+    hook: 0x8d8f92,
+    plate: 0x6b5236,
+    bore: 0x191510,
+    clapper: 0x9c7a4f,
+    sail: 0xc6a677,
+    cord: 0xd8ccb4,
+    tubeHueDeg: [35, 205],
+    tubeSat: 0.06,
+    tubeLight: 0.62,
+    tubeMetalness: 0.92,
+    tubeRoughness: 1.0,
+    tubeBrushed: true,
+
+    grassRoot: 0x444620,
+    grassTip: 0xb0a04d,
+    shrub: 0x66753d,
+    streak: 0xffe9c9,
+    leafPalette: [0xc46a2a, 0xd99a3c, 0x8d5a22],
+    ribbon: 0xc9425a,
+  },
+
+};
 
 // Module-scope scratch. syncRig runs every frame and must not allocate.
 const _vA = new THREE.Vector3();
@@ -61,8 +266,8 @@ function hash1(n) {
  * Direction FROM the origin TOWARD the sun, from a compass azimuth and an
  * elevation, in the project's axis convention (+X east, -Z north).
  */
-function sunDirection(elevDeg, out) {
-  const az = SUN_AZ_DEG * DEG;
+function sunDirection(elevDeg, out, azDeg) {
+  const az = (azDeg === undefined ? 205 : azDeg) * DEG;
   const el = elevDeg * DEG;
   const ce = Math.cos(el);
   return out.set(Math.sin(az) * ce, Math.sin(el), -Math.cos(az) * ce).normalize();
@@ -140,7 +345,7 @@ function makeTubeRoughnessMap() {
  * actually attaches an object to the ground it stands on. It is baked because
  * the porch never moves.
  */
-function makeGroundMap() {
+function makeGroundMap(withRoof, base, variation, occStrength) {
   const S = 256;
   const HALF = 30;                    // the plane is 60 x 60 m
   const M = HALF * 2 / S;             // metres per texel
@@ -167,7 +372,7 @@ function makeGroundMap() {
     [0, 0, 1.5, 0.7, 2.78, 0.42],   // roof slab
     [0, 0, 1.3, 0.05, 2.60, 0.16],  // beam
     [-1.25, 0, 0.05, 0.05, 1.30, 0.55]   // post, occluding from its own base up
-  ];
+  ].filter((o, i) => (i !== 0 || withRoof));
 
   for (let j = 0; j < S; j++) {
     const wz = -HALF + (j + 0.5) * M;
@@ -178,10 +383,15 @@ function makeGroundMap() {
             + 0.30 * vnoise(i / S * 9.0 + 0.31, j / S * 9.0 + 0.77)
             + 0.15 * vnoise(i / S * 24.0 + 0.61, j / S * 24.0 + 0.19);
 
-      // Dry straw to damp green, warm at both ends.
-      let r = 0.42 + 0.16 * n;
-      let g = 0.41 + 0.12 * n;
-      let b = 0.20 + 0.05 * n;
+      // The base colour with large-scale variation around it. The golden style
+      // wants a wide dry-straw-to-damp-green swing; the storybook style wants
+      // almost none, because mottling is texture and texture is the thing that
+      // idiom does not have. Either way the MAP carries the ground's colour and
+      // the material stays white, so this is not multiplied by a tint twice.
+      const v = (n - 0.5) * variation;
+      let r = base[0] * (1 + v * 1.30);
+      let g = base[1] * (1 + v * 1.00);
+      let b = base[2] * (1 + v * 0.90);
 
       let occ = 1;
       for (let k = 0; k < OCC.length; k++) {
@@ -193,7 +403,7 @@ function makeGroundMap() {
         const dz = Math.max(0, Math.abs(wz - o[1]) - o[3]);
         const d = Math.sqrt(dx * dx + dz * dz);
         const soft = o[4] * 0.75;
-        occ *= 1 - o[5] * Math.max(0, 1 - d / soft);
+        occ *= 1 - o[5] * occStrength * Math.max(0, 1 - d / soft);
       }
       r *= occ; g *= occ; b *= occ;
 
@@ -230,6 +440,10 @@ export function createStage(opts) {
   const params = opts.params;
   let tier = opts.tier;
 
+  // The art direction. Everything below reads S rather than a literal, so the
+  // whole look is one table lookup away from being a different picture.
+  const S = STYLES[opts.style] || STYLES[params.style] || STYLES.storybook;
+
   // -- renderer ------------------------------------------------------------
   let renderer;
   try {
@@ -248,8 +462,8 @@ export function createStage(opts) {
 
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tier.dprCap));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.74;
+  renderer.toneMapping = S.toneMapping === 'aces' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+  renderer.toneMappingExposure = S.exposure;
   renderer.shadowMap.enabled = true;
   // r185 deprecated PCFSoftShadowMap and silently substitutes PCFShadowMap.
   // Naming the substitute directly gives the identical filter with no console
@@ -281,9 +495,14 @@ export function createStage(opts) {
 
   // -- scene, camera, controls --------------------------------------------
   const scene = new THREE.Scene();
-  // Warm haze rather than grey. Applied before tone mapping, so it is
-  // deliberately over-saturated at source: ACES pulls the chroma back out.
-  scene.fog = new THREE.FogExp2(0xd8a061, 0.018);
+  // Under ACES the fog colour is deliberately over-saturated at source, because
+  // the tone curve pulls the chroma back out. With no tone curve it is taken as
+  // authored, and it matches the background so distance dissolves rather than
+  // fading to a different colour.
+  scene.fog = new THREE.FogExp2(S.fogColor, S.fogCalm);
+  if (S.background !== null && S.background !== undefined) {
+    scene.background = new THREE.Color(S.background);
+  }
 
   const startW = Math.max(1, container.clientWidth || canvas.clientWidth || 1);
   const startH = Math.max(1, container.clientHeight || canvas.clientHeight || 1);
@@ -303,17 +522,37 @@ export function createStage(opts) {
   // the camera opposite the sun instead. The grass lights from behind and goes
   // gold, the tubes pick up a rim, and the sun's glow sits off to the left of
   // the subject rather than dead behind it.
-  const camera = new THREE.PerspectiveCamera(38, startW / startH, 0.05, 6000);
-  camera.position.set(2.719, 1.66, -2.124);
+  // An orthographic camera has no field of view, so it is framed by a frustum
+  // HEIGHT in metres and the aspect gives the width. OrbitControls drives ortho
+  // through camera.zoom rather than by dollying, so the min/max below are zoom
+  // factors, not distances; the eye stays put and the frustum tightens.
+  let camera;
+  if (S.ortho) {
+    const hh = S.viewHeight / 2;
+    const hw = hh * (startW / startH);
+    camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.05, 200);
+  } else {
+    camera = new THREE.PerspectiveCamera(S.fov, startW / startH, 0.05, 6000);
+  }
+  camera.position.set(S.camPos[0], S.camPos[1], S.camPos[2]);
 
   const controls = new OrbitControls(camera, canvas);
-  controls.target.set(0, 1.44, 0);
+  controls.target.set(S.camTarget[0], S.camTarget[1], S.camTarget[2]);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.rotateSpeed = 0.45;
   controls.zoomSpeed = 0.6;
-  controls.minDistance = 1.2;
-  controls.maxDistance = 7;
+  if (S.ortho) {
+    controls.minZoom = 0.55;
+    controls.maxZoom = 2.6;
+    // An ortho eye contributes nothing but direction, so push it well clear of
+    // the porch. Left at 3 m it clipped through the roof on a high orbit.
+    _vA.subVectors(camera.position, controls.target).normalize();
+    camera.position.copy(controls.target).addScaledVector(_vA, 40);
+  } else {
+    controls.minDistance = 1.2;
+    controls.maxDistance = 7;
+  }
   controls.minPolarAngle = 0.35;
   controls.maxPolarAngle = 1.62;   // never dips under the ground plane
   controls.enablePan = false;      // panning is how you lose the subject
@@ -335,7 +574,11 @@ export function createStage(opts) {
   // one more channel telling you which way the air is moving -- see the cloud
   // drift block there. Stock Sky cannot do that, so assets/vendor's copy carries
   // a marked two-line change swapping its scalar clock for a drift vector.
-  const sky = new Sky();
+  // In the storybook style the sky is a flat background colour, so the Sky mesh
+  // is never built. Everything downstream guards on `sky` being null rather
+  // than on the style name, so there is one thing to get right instead of five.
+  const sky = S.sky ? new Sky() : null;
+  if (sky) {
   sky.scale.setScalar(4500);
   sky.material.uniforms.turbidity.value = 6.0;
   sky.material.uniforms.rayleigh.value = 2.6;
@@ -355,11 +598,12 @@ export function createStage(opts) {
   sky.material.uniforms.cloudElevation.value = 0.14;
   sky.material.uniforms.time.value = 900;
   scene.add(sky);
+  }
 
   // -- light ----------------------------------------------------------------
   // Exactly one shadow caster. Everything else is ambient bounce; a second
   // shadowed light doubles the shadow pass for a difference nobody can name.
-  const sun = new THREE.DirectionalLight(0xffd3a0, 2.8);
+  const sun = new THREE.DirectionalLight(S.sunColor, S.sunIntensity);
   sun.castShadow = true;
   // THE FRUSTUM HAS TO COVER WHERE THE SHADOWS LAND, WHICH IS NOWHERE NEAR THE
   // OBJECTS. At an 11 degree sun a shadow is 5.1 times the caster's height:
@@ -374,20 +618,20 @@ export function createStage(opts) {
   // degrees and still 12 m at the 20 degree end of the slider. Lateral +-6.0
   // covers the whole visible meadow. At 2048 that is 5.9 mm per texel, which is
   // finer than the 28 mm tubes it has to resolve.
-  sun.shadow.camera.left = -6.0;
-  sun.shadow.camera.right = 6.0;
-  sun.shadow.camera.top = 3.8;
-  sun.shadow.camera.bottom = -3.8;
-  sun.shadow.camera.near = 22;
-  sun.shadow.camera.far = 62;
+  sun.shadow.camera.left = -S.shadowHalf[0];
+  sun.shadow.camera.right = S.shadowHalf[0];
+  sun.shadow.camera.top = S.shadowHalf[1];
+  sun.shadow.camera.bottom = -S.shadowHalf[1];
+  sun.shadow.camera.near = S.shadowNear;
+  sun.shadow.camera.far = S.shadowFar;
   sun.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
   // Bias is expressed in NORMALISED depth, so it scales with near..far. Over
   // this 40 m range -0.0004 is 16 mm of slop; the ground is nearly edge-on to
   // an 11 degree sun, which is the worst case for acne, so most of the work is
   // done by normalBias instead (it offsets along the surface normal, which is
   // exactly the direction the error lies in here).
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.035;
+  sun.shadow.bias = S.shadowBias;
+  sun.shadow.normalBias = S.shadowNormalBias;
   // MANDATORY, and the reason this scene had no shadows at all until now: three
   // never calls updateProjectionMatrix on a shadow camera for you, so the six
   // assignments above sit on the object doing nothing and the camera keeps the
@@ -408,7 +652,7 @@ export function createStage(opts) {
   // half is a warm lit-meadow bounce rather than dark soil: with the old dark
   // value the top plate's underside sampled at (66, 61, 48), a charcoal puck
   // capping the whole object every time it tipped toward the camera.
-  const hemi = new THREE.HemisphereLight(0x9fc7ff, 0x9c8259, 1.05);
+  const hemi = new THREE.HemisphereLight(S.hemiSky, S.hemiGround, S.hemiIntensity);
   scene.add(hemi);
 
   // -- ground and porch -----------------------------------------------------
@@ -418,8 +662,13 @@ export function createStage(opts) {
   // taking it at full strength floods the picture and flattens the sun out of
   // it. The map below supplies the occlusion that is not being computed.
   const groundMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: 0.58,
-    map: makeGroundMap(),
+    color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: 0.58 * S.envIntensity,
+    map: makeGroundMap(
+      S.porchRoof !== false,
+      [(S.ground >> 16 & 255) / 255, (S.ground >> 8 & 255) / 255, (S.ground & 255) / 255],
+      S.groundVariation,
+      S.groundOcclusion
+    ),
   });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -427,7 +676,7 @@ export function createStage(opts) {
   scene.add(ground);
 
   const cedarMat = new THREE.MeshStandardMaterial({
-    color: 0x6b5236, roughness: 0.85, metalness: 0, envMapIntensity: 0.56,
+    color: S.cedar, roughness: 0.85, metalness: 0, envMapIntensity: 0.56 * S.envIntensity,
   });
 
   const porch = new THREE.Group();
@@ -454,17 +703,22 @@ export function createStage(opts) {
   // golden-hour cue in the picture.
   const roofGeo = new THREE.BoxGeometry(3.0, 0.06, 1.4);
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x4a3925, roughness: 0.9, metalness: 0, envMapIntensity: 0.40,
+    color: S.roof, roughness: 0.9, metalness: 0, envMapIntensity: 0.40 * S.envIntensity,
   });
   const roof = new THREE.Mesh(roofGeo, roofMat);
   roof.position.set(0, 2.78, 0);
   roof.castShadow = true;
-  porch.add(roof);
+  // Under an orthographic camera a 3 x 1.4 m slab overhead is a hard-edged
+  // parallelogram across the top of the frame that never gets smaller with
+  // distance, and it takes the whole upper third. The storybook scene hangs the
+  // chime from the beam alone, which also lets the camera look down far enough
+  // to put the meadow in frame.
+  if (S.porchRoof !== false) porch.add(roof);
 
   // The screw eye the whole rig hangs from, at (0, 2.60, 0).
   const hookGeo = new THREE.TorusGeometry(0.016, 0.004, 6, 16);
   const hookMat = new THREE.MeshStandardMaterial({
-    color: 0x8d8f92, roughness: 0.5, metalness: 0.8, envMapIntensity: 0.9,
+    color: S.hook, roughness: S.ortho ? 1.0 : 0.5, metalness: S.ortho ? 0 : 0.8, envMapIntensity: 0.9 * S.envIntensity,
   });
   const hook = new THREE.Mesh(hookGeo, hookMat);
   hook.position.set(0, HOOK_Y + 0.012, 0);
@@ -518,7 +772,7 @@ export function createStage(opts) {
     // Suspension disk.
     const plateGeo = new THREE.CylinderGeometry(0.070, 0.070, 0.012, 32);
     const plateMat = new THREE.MeshStandardMaterial({
-      color: 0x6b5236, roughness: 0.85, metalness: 0, envMapIntensity: 0.56,
+      color: S.plate, roughness: 0.85, metalness: 0, envMapIntensity: 0.56 * S.envIntensity,
     });
     plateMesh = new THREE.Mesh(plateGeo, plateMat);
     plateMesh.castShadow = true;
@@ -529,7 +783,7 @@ export function createStage(opts) {
     // Tubes. Open-ended so you can see down the bore when they tilt, with a
     // BackSide inner cylinder standing in for the dark interior.
     const boreMat = new THREE.MeshStandardMaterial({
-      color: 0x191510, roughness: 0.92, metalness: 0.05, side: THREE.BackSide,
+      color: S.bore, roughness: 0.92, metalness: 0.05, side: THREE.BackSide,
       envMapIntensity: 0.34,
     });
     chimeMats.push(boreMat);
@@ -539,15 +793,18 @@ export function createStage(opts) {
       const outerGeo = new THREE.CylinderGeometry(R_TUBE, R_TUBE, L, 20, 1, true);
       // A 4 percent hue spread across the set. Nobody consciously notices it;
       // it is what stops six identical cylinders looking clone-stamped.
-      const h = THREE.MathUtils.lerp(35, 205, n > 1 ? i / (n - 1) : 0.5) / 360;
+      const h = THREE.MathUtils.lerp(S.tubeHueDeg[0], S.tubeHueDeg[1], n > 1 ? i / (n - 1) : 0.5) / 360;
       const mat = new THREE.MeshStandardMaterial({
-        // Saturation is kept low: a metal tints its reflection by its base
-        // colour, so anything stronger turns the far tubes visibly cyan.
-        color: new THREE.Color().setHSL(h, 0.06, 0.62, THREE.SRGBColorSpace),
-        metalness: 0.92,
-        roughness: 1.0,          // absolute roughness lives in roughMap; see makeTubeRoughnessMap
-        roughnessMap: roughMap,
-        envMapIntensity: 1.15,
+        // On the metal tubes saturation is kept very low, because a metal tints
+        // its reflection by its base colour and anything stronger turns the far
+        // tubes visibly cyan. Painted tubes have no such constraint, so the
+        // storybook set carries real colour -- with no travelling highlight to
+        // tell them apart, colour is the only thing that does.
+        color: new THREE.Color().setHSL(h, S.tubeSat, S.tubeLight, THREE.SRGBColorSpace),
+        metalness: S.tubeMetalness,
+        roughness: S.tubeRoughness,   // absolute roughness lives in roughMap; see makeTubeRoughnessMap
+        roughnessMap: S.tubeBrushed ? roughMap : null,
+        envMapIntensity: 1.15 * S.envIntensity,
         emissive: new THREE.Color(0xfff2d0),
         emissiveIntensity: 0,
       });
@@ -570,7 +827,7 @@ export function createStage(opts) {
     // Clapper: a paler cedar disk.
     const clapGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.014, 24);
     const clapMat = new THREE.MeshStandardMaterial({
-      color: 0x9c7a4f, roughness: 0.8, metalness: 0, envMapIntensity: 0.68,
+      color: S.clapper, roughness: 0.8, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
     });
     clapperMesh = new THREE.Mesh(clapGeo, clapMat);
@@ -582,7 +839,7 @@ export function createStage(opts) {
     // Wind sail: the only part the wind meaningfully pushes.
     const sailGeo = new THREE.BoxGeometry(0.11, 0.15, 0.004);
     const sailMat = new THREE.MeshStandardMaterial({
-      color: 0xc6a677, roughness: 0.7, metalness: 0, envMapIntensity: 0.68,
+      color: S.sail, roughness: 0.7, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
     });
     sailMesh = new THREE.Mesh(sailGeo, sailMat);
@@ -603,7 +860,7 @@ export function createStage(opts) {
     attr.setUsage(THREE.DynamicDrawUsage);
     cordGeo.setAttribute('position', attr);
     const cordMat = new THREE.LineBasicMaterial({
-      color: 0xd8ccb4, transparent: true, opacity: 0.85, fog: true,
+      color: S.cord, transparent: true, opacity: 0.85, fog: true,
     });
     cordLine = new THREE.LineSegments(cordGeo, cordMat);
     cordLine.frustumCulled = false;   // positions are rewritten every frame
@@ -692,7 +949,7 @@ export function createStage(opts) {
     if (!envScene) buildEnvScene();
     if (!pmrem) pmrem = new THREE.PMREMGenerator(renderer);
 
-    sunDirection(currentSunElev, _vA);
+    sunDirection(currentSunElev, _vA, S.sunAzDeg);
     envSky.material.uniforms.sunPosition.value.copy(_vA).multiplyScalar(4000);
 
     let rt = null;
@@ -711,22 +968,38 @@ export function createStage(opts) {
   }
 
   function buildEnvironment() {
-    if (envBaked) return;
+    // Nothing in the storybook style is reflective, so there is no environment
+    // map to bake -- and skipping the PMREM convolution is the single biggest
+    // saving in that style.
+    if (!S.env || envBaked) return;
     bakeEnvironment();
   }
 
   // -- sun ------------------------------------------------------------------
+  // The slider's range is authored per style: a 2..20 degree sun is what makes
+  // the golden look, and the same range under flat shading just makes a dim
+  // picture with the light coming from the side.
+  const SUN_LO = S.sky ? 2 : 26;
+  const SUN_HI = S.sky ? 20 : 74;
   let currentSunElev = THREE.MathUtils.clamp(
-    Number.isFinite(params.sunElevDeg) ? params.sunElevDeg : 11, 2, 20
+    Number.isFinite(params.sunElevDeg) ? params.sunElevDeg : S.sunElevDeg, SUN_LO, SUN_HI
   );
 
   function applySun() {
-    sunDirection(currentSunElev, _vA);
-    sky.material.uniforms.sunPosition.value.copy(_vA).multiplyScalar(4000);
+    sunDirection(currentSunElev, _vA, S.sunAzDeg);
+    if (sky) sky.material.uniforms.sunPosition.value.copy(_vA).multiplyScalar(4000);
     sun.position.copy(_vA).multiplyScalar(40);
 
     // Low sun is redder and weaker; high sun is paler and stronger.
     const t = THREE.MathUtils.clamp((currentSunElev - 4) / 12, 0, 1);
+    if (!S.sky) {
+      // Flat style: the light is authored, not simulated. The slider still
+      // swings the sun around, which moves the shading and the short shadows,
+      // but it must not push the picture toward sunset -- there is no sky here
+      // for a sunset to happen in.
+      return;
+    }
+
     _colA.setHex(0xff9d4a, THREE.SRGBColorSpace);
     _colB.setHex(0xffe3b8, THREE.SRGBColorSpace);
     sun.color.copy(_colA).lerp(_colB, t);
@@ -744,7 +1017,7 @@ export function createStage(opts) {
 
   function setSunElevation(deg) {
     if (!Number.isFinite(deg)) return;
-    const d = THREE.MathUtils.clamp(deg, 2, 20);
+    const d = THREE.MathUtils.clamp(deg, SUN_LO, SUN_HI);
     if (Math.abs(d - currentSunElev) <= 0.5) return;   // PMREM bakes are not free
     currentSunElev = d;
     applySun();
@@ -758,7 +1031,7 @@ export function createStage(opts) {
   let outputPass = null;
 
   function buildComposer() {
-    if (composer || softwareGL) return;
+    if (composer || softwareGL || !S.bloom) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     composer = new EffectComposer(renderer);
     composer.setPixelRatio(renderer.getPixelRatio());
@@ -981,16 +1254,38 @@ export function createStage(opts) {
   // Backing off and dropping the aim keeps the subject and its downwind side in
   // frame. Applied only when the orientation class actually changes, so it
   // cannot fight a visitor who has zoomed in.
-  const BASE_DIST = 3.45;
+  const BASE_DIST = S.baseDist || 3.45;
+  let viewHeight = S.viewHeight || 3.5;
   let lastPortrait = null;
 
   function applyFraming(portrait) {
+    if (S.ortho) {
+      // Re-frame by changing how much world the frustum covers. The eye does
+      // not move, so this cannot walk the camera into the porch.
+      viewHeight = portrait ? S.viewHeightPortrait : S.viewHeight;
+      controls.target.set(S.camTarget[0], portrait ? S.camTarget[1] + 0.10 : S.camTarget[1], S.camTarget[2]);
+      applyOrthoFrustum();
+      controls.update();
+      return;
+    }
     _vA.subVectors(camera.position, controls.target);
     const len = _vA.length() || BASE_DIST;
-    const want = portrait ? 4.75 : BASE_DIST;
-    controls.target.set(0, portrait ? 1.52 : 1.44, 0);
+    const want = portrait ? S.baseDistPortrait : BASE_DIST;
+    controls.target.set(0, portrait ? S.camTargetPortraitY : S.camTarget[1], 0);
     camera.position.copy(controls.target).addScaledVector(_vA, want / len);
     controls.update();
+  }
+
+  function applyOrthoFrustum() {
+    const w = Math.max(1, container.clientWidth || canvas.clientWidth || 1);
+    const h = Math.max(1, container.clientHeight || canvas.clientHeight || 1);
+    const hh = viewHeight / 2;
+    const hw = hh * (w / h);
+    camera.left = -hw;
+    camera.right = hw;
+    camera.top = hh;
+    camera.bottom = -hh;
+    camera.updateProjectionMatrix();
   }
 
   function resize() {
@@ -1002,8 +1297,12 @@ export function createStage(opts) {
       lastPortrait = portrait;
       applyFraming(portrait);
     }
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    if (S.ortho) {
+      applyOrthoFrustum();
+    } else {
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
     renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tier.dprCap));
     renderer.setSize(w, h, false);
     if (composer) {
@@ -1038,7 +1337,7 @@ export function createStage(opts) {
       flow: [Math.round(windFlow.x * 1000) / 1000, Math.round(windFlow.y * 1000) / 1000],
       speedMs: Math.round(windSpeedMs * 1000) / 1000,
       speedMph: Math.round(windSpeedMph * 10) / 10,
-      cloudDrift: [Math.round(cloudDrift.x * 1e6) / 1e6, Math.round(cloudDrift.y * 1e6) / 1e6],
+      cloudDrift: cloudDrift ? [Math.round(cloudDrift.x * 1e6) / 1e6, Math.round(cloudDrift.y * 1e6) / 1e6] : null,
       fogDensity: Math.round(scene.fog.density * 1e5) / 1e5,
       cordLean: Math.round((windSpeedMs / (windSpeedMs + 18.0)) * 1000) / 1000,
     };
@@ -1067,7 +1366,7 @@ export function createStage(opts) {
   // The honest number is slow: real cloud is kilometres away and creeps. That
   // is the point. The streaks, grass and ribbon are the wind cues; the sky is
   // scenery, and scenery that races reads as wrong before anyone can say why.
-  const cloudDrift = sky.material.uniforms.cloudDrift.value;
+  const cloudDrift = sky ? sky.material.uniforms.cloudDrift.value : null;
   const CLOUD_HEIGHT = 900;          // stratocumulus base, m
   const CLOUD_GRADIENT = 1.8;        // wind aloft against wind at the porch
 
@@ -1075,8 +1374,8 @@ export function createStage(opts) {
   // horizon goes milky before anything else tells you it is blowing hard. Kept
   // deliberately small: this is a second-order cue, and at full strength it
   // reads as fog rolling in rather than as wind.
-  const FOG_CALM = 0.018;
-  const FOG_BLOWN = 0.032;
+  const FOG_CALM = S.fogCalm;
+  const FOG_BLOWN = S.fogBlown;
   const FOG_FULL_MS = 15.0;        // ~34 mph, where the haze tops out
 
   let lastRenderMs = -1;
@@ -1091,11 +1390,13 @@ export function createStage(opts) {
     lastRenderMs = nowMs;
 
     // mix(1.0, 0.1, cloudElevation), matching the shader's own projection.
-    const cloudElev = 1.0 - 0.9 * sky.material.uniforms.cloudElevation.value;
-    const cloudRate = windSpeedMs * CLOUD_GRADIENT * sky.material.uniforms.cloudScale.value
-      / (CLOUD_HEIGHT * cloudElev);
-    cloudDrift.x -= windFlow.x * cloudRate * dt;
-    cloudDrift.y -= windFlow.y * cloudRate * dt;
+    if (cloudDrift) {
+      const cloudElev = 1.0 - 0.9 * sky.material.uniforms.cloudElevation.value;
+      const cloudRate = windSpeedMs * CLOUD_GRADIENT * sky.material.uniforms.cloudScale.value
+        / (CLOUD_HEIGHT * cloudElev);
+      cloudDrift.x -= windFlow.x * cloudRate * dt;
+      cloudDrift.y -= windFlow.y * cloudRate * dt;
+    }
 
     const hazeT = Math.min(1, windSpeedMs / FOG_FULL_MS);
     scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
@@ -1155,6 +1456,10 @@ export function createStage(opts) {
   }
 
   function cameraDistance() {
+    // For an ortho camera the eye sits 40 m back and its distance is
+    // meaningless; what "how big is the subject on screen" actually means here
+    // is the frustum height, and that is what the audio panner wants.
+    if (S.ortho) return viewHeight / Math.max(camera.zoom, 1e-3);
     return camera.position.distanceTo(controls.target);
   }
 
@@ -1187,8 +1492,10 @@ export function createStage(opts) {
     }
     scene.environment = null;
 
-    sky.geometry.dispose();
-    sky.material.dispose();
+    if (sky) {
+      sky.geometry.dispose();
+      sky.material.dispose();
+    }
     groundGeo.dispose();
     groundMat.dispose();
     beamGeo.dispose();
@@ -1220,6 +1527,10 @@ export function createStage(opts) {
     syncRig,
     flashTube,
     setSunElevation,
+    sunRange: () => [SUN_LO, SUN_HI],
+    sunElevation: () => currentSunElev,
+    palette: S,
+    style: S.name,
     setTier,
     resize,
     render,

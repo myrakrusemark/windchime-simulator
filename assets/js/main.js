@@ -35,7 +35,8 @@ const DEFAULTS = {
 	attack: 0.002,
 	decay: 8.0,            // T60 of the fundamental, seconds
 	loudness: 0.5,
-	sunElevDeg: 11,
+	sunElevDeg: null,     // null means "whatever the active style calls default"
+	style: 'storybook',   // 'storybook' (flat, orthographic) or 'golden' (lit, perspective)
 	quality: 'auto',
 	paused: false
 };
@@ -117,6 +118,13 @@ try {
 
 		const d = finite( parseFloat( q.get( 'dir' ) ), DEFAULTS.dirDeg );
 		params.dirDeg = ( ( d % 360 ) + 360 ) % 360;
+
+	}
+
+	if ( q.has( 'style' ) ) {
+
+		const st = String( q.get( 'style' ) );
+		if ( st === 'storybook' || st === 'golden' ) params.style = st;
 
 	}
 
@@ -219,6 +227,7 @@ const dom = {
 	sunSlider: $( 'sunSlider' ),
 	sunValue: $( 'sunValue' ),
 	qualitySelect: $( 'qualitySelect' ),
+	styleSelect: $( 'styleSelect' ),
 	windCard: $( 'windCard' ),
 	windSpeedText: $( 'windSpeedText' ),
 	windCompassNeedle: $( 'windCompassNeedle' ),
@@ -260,12 +269,29 @@ try {
 
 }
 
+// The sun slider's range and default are authored per style, so they come back
+// from the stage rather than being fixed in the HTML.
+let sunLo = 2;
+let sunHi = 20;
+
 if ( ! stage ) {
 
 	noteError( 'webgl-unavailable', null );
 	if ( dom.fallbackNotice ) dom.fallbackNotice.classList.remove( 'hidden' );
+	if ( ! Number.isFinite( params.sunElevDeg ) ) params.sunElevDeg = 11;
 
 } else {
+
+	const r = stage.sunRange ? stage.sunRange() : [ 2, 20 ];
+	sunLo = r[ 0 ];
+	sunHi = r[ 1 ];
+	params.sunElevDeg = stage.sunElevation();
+	if ( dom.sunSlider ) {
+
+		dom.sunSlider.min = String( sunLo );
+		dom.sunSlider.max = String( sunHi );
+
+	}
 
 	try {
 
@@ -279,7 +305,7 @@ if ( ! stage ) {
 
 	try {
 
-		viz = createWindViz( { scene: stage.scene, camera: stage.camera, wind, params, tier } );
+		viz = createWindViz( { scene: stage.scene, camera: stage.camera, wind, params, tier, palette: stage.palette } );
 
 	} catch ( err ) {
 
@@ -382,6 +408,7 @@ function syncControlValues() {
 	if ( dom.sunSlider ) dom.sunSlider.value = String( params.sunElevDeg );
 	setText( dom.sunValue, Math.round( params.sunElevDeg ) + ' deg' );
 	if ( dom.qualitySelect ) dom.qualitySelect.value = params.quality;
+	if ( dom.styleSelect ) dom.styleSelect.value = params.style;
 
 }
 
@@ -536,10 +563,38 @@ bindRange( dom.loudnessSlider, ( v ) => {
 
 bindRange( dom.sunSlider, ( v ) => {
 
-	params.sunElevDeg = clamp( v, 2, 20 );
+	params.sunElevDeg = clamp( v, sunLo, sunHi );
 	setText( dom.sunValue, Math.round( params.sunElevDeg ) + ' deg' );
 
 } );
+
+// Changing the look swaps the camera's projection type, every material, the
+// lighting model and whether there is an environment map at all. That is a
+// different stage, not a setting on this one, so it reloads rather than
+// pretending to hot-swap. The location box's contents survive in the URL.
+if ( dom.styleSelect ) {
+
+	dom.styleSelect.addEventListener( 'change', () => {
+
+		const next = dom.styleSelect.value;
+		if ( next !== 'storybook' && next !== 'golden' ) return;
+		try {
+
+			const u = new URL( window.location.href );
+			u.searchParams.set( 'style', next );
+			const typed = dom.locationInput && dom.locationInput.value.trim();
+			if ( typed ) u.searchParams.set( 'q', typed.slice( 0, 120 ) );
+			window.location.assign( u.toString() );
+
+		} catch ( err ) {
+
+			noteError( 'style-switch-failed', err );
+
+		}
+
+	} );
+
+}
 
 if ( dom.qualitySelect ) {
 
@@ -998,7 +1053,7 @@ function handleContextRestored() {
 		if ( stage ) {
 
 			stage.buildChime( rig.tubes );
-			viz = createWindViz( { scene: stage.scene, camera: stage.camera, wind, params, tier } );
+			viz = createWindViz( { scene: stage.scene, camera: stage.camera, wind, params, tier, palette: stage.palette } );
 			builtDeferred = false;
 			builtEnvironment = false;
 			stageAlive = true;
