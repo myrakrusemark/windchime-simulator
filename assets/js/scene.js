@@ -1045,22 +1045,31 @@ export function createStage(opts) {
   }
 
   // -- render ---------------------------------------------------------------
-  // Cloud drift. cloudUV in the Sky shader is direction.xz projected onto the
-  // cloud plane, so its two axes ARE world x and z; an offset added to the
-  // lookup shifts the pattern the other way, hence the minus.
+  // Cloud drift, derived from the cloud geometry rather than tuned by eye.
   //
-  // The rate is not derived from a cloud altitude. Doing it honestly -- pick a
-  // height, convert metres to the shader's direction-ratio space -- lands around
-  // 5e-10 UV per second, which is motionless. Cloud reads as moving on screen
-  // because it is enormous and you watch it for a while, not because its angular
-  // rate is large, and the sky here is a backdrop the eye visits for a second.
-  // So this keeps the drift rate that was already tuned to look right at the
-  // default 12 mph and scales it linearly with wind speed and steers it with
-  // wind direction. It accumulates rather than being recomputed from a clock, so
-  // a change of direction bends the cloud track instead of teleporting it.
+  // The Sky shader builds its lookup as
+  //     cloudUV = direction.xz / (direction.y * elevation) * cloudScale
+  // and samples fbm(cloudUV * 1000). For a deck at height H, direction.xz over
+  // direction.y is just worldXZ / H, so
+  //     cloudUV = worldXZ * cloudScale / (H * elevation)
+  // and a deck moving at V metres per second advances cloudUV at
+  //     V * cloudScale / (H * elevation)
+  // per second. No free constant, and it stays right if cloudScale or
+  // cloudElevation are retuned. The offset is subtracted because shifting the
+  // sample point one way slides the pattern the other.
+  //
+  // This replaced a fixed 0.0055 UV/s crawl, which works out to a cloud field
+  // crossing its own feature width about every fifth of a second -- roughly
+  // 20 km/s at this scale. It went unnoticed because render() used to discard
+  // any frame over 250 ms, so under software rendering the clock never ticked
+  // and the sky was simply frozen.
+  //
+  // The honest number is slow: real cloud is kilometres away and creeps. That
+  // is the point. The streaks, grass and ribbon are the wind cues; the sky is
+  // scenery, and scenery that races reads as wrong before anyone can say why.
   const cloudDrift = sky.material.uniforms.cloudDrift.value;
-  const CLOUD_UV_PER_S_AT_REF = 0.0055;   // the previously tuned constant crawl
-  const CLOUD_REF_MS = 5.36;              // 12 mph, the default wind
+  const CLOUD_HEIGHT = 900;          // stratocumulus base, m
+  const CLOUD_GRADIENT = 1.8;        // wind aloft against wind at the porch
 
   // Dust haze. Dry meadow in a stiff wind genuinely lifts material, and the
   // horizon goes milky before anything else tells you it is blowing hard. Kept
@@ -1081,7 +1090,10 @@ export function createStage(opts) {
     if (!(dt > 0)) dt = 0; else if (dt > 0.25) dt = 0.25;
     lastRenderMs = nowMs;
 
-    const cloudRate = CLOUD_UV_PER_S_AT_REF * (windSpeedMs / CLOUD_REF_MS);
+    // mix(1.0, 0.1, cloudElevation), matching the shader's own projection.
+    const cloudElev = 1.0 - 0.9 * sky.material.uniforms.cloudElevation.value;
+    const cloudRate = windSpeedMs * CLOUD_GRADIENT * sky.material.uniforms.cloudScale.value
+      / (CLOUD_HEIGHT * cloudElev);
     cloudDrift.x -= windFlow.x * cloudRate * dt;
     cloudDrift.y -= windFlow.y * cloudRate * dt;
 
