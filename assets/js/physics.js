@@ -146,6 +146,18 @@ const TUBE_R = 0.014;              // outer radius
 const TUBE_OD = 0.028;
 const CD_TUBE = 1.15;              // cylinder in crossflow
 
+// Axial twist of a tube on its cord. See the torsion block in the aero pass.
+const TWO_PI = Math.PI * 2;
+// Effective offset of a tube's centre of pressure from its axis: the seam, the
+// hang holes and the cut ends, lumped. 0.47 mm puts the twist mode near 0.3 Hz
+// at 12 mph -- slow enough to read as a lazy wind-up, not a vibration.
+const TWIST_ARM = 4.7e-4;
+// Cord torsion, N.m/rad, and its damping. The cord is weak in torsion; the
+// damping is the light one a fibre cord actually has, so a tube hunts around
+// its heading for several cycles instead of snapping to it.
+const TWIST_K = 2.6e-4;
+const TWIST_C = 3.0e-5;
+
 // Tubes must not be able to render through one another. At the 4.6 degree
 // steady lean they never would - adjacent ring points sit 82 mm apart against
 // a 28 mm tube diameter - but a gust, a grab or a scale change can swing two
@@ -232,6 +244,7 @@ const GRAB_REACH = 0.6;            // m from the body's own cord anchor
 
 const _wind = new Vector3();
 const _q = new Quaternion();
+const _qRoll = new Quaternion();
 const _up = new Vector3(0, 1, 0);
 const _axis = new Vector3();
 const _pa = [0, 0, 0];
@@ -470,7 +483,14 @@ export function createRig(freqs) {
         f1: freqForLength(L),
         ringAngle: Math.PI * 2 * order.indexOf(i) / N,
         radius: TUBE_R,
-        mass: TUBE_LINDENS * L
+        mass: TUBE_LINDENS * L,
+        // Axial twist DOF.
+        roll: 0,
+        rollVel: 0,
+        // Where this tube's aerodynamic asymmetry points at build time. Spread
+        // by the golden angle so no two tubes start aligned: real ones are
+        // never in phase, and without it the whole ring twists as one piece.
+        markOffset: (i * 2.39996) % TWO_PI
       });
     }
 
@@ -588,7 +608,7 @@ export function createRig(freqs) {
   function buildState() {
     const tubes = [];
     for (let i = 0; i < N; i++) {
-      tubes.push({ top: [0, 0, 0], bottom: [0, 0, 0], quat: [0, 0, 0, 1], ring: 0 });
+      tubes.push({ top: [0, 0, 0], bottom: [0, 0, 0], quat: [0, 0, 0, 1], roll: 0, ring: 0 });
     }
     // N + 5 cords, in the order cordLinks was filled: three bridle strands, N
     // tube cords, the clapper cord, the sail cord. scene.js sizes its line
@@ -772,6 +792,7 @@ export function createRig(freqs) {
     for (let i = 0; i < N; i++) {
       const L = rig.tubes[i].L;
       const a3 = (TUBE0 + 2 * i) * 3, b3 = a3 + 3;
+      let crossflow = 0, cfX = 0, cfZ = 0;
       let axx = pos[b3] - pos[a3], axy = pos[b3 + 1] - pos[a3 + 1], axz = pos[b3 + 2] - pos[a3 + 2];
       const al = Math.sqrt(axx * axx + axy * axy + axz * axz);
       if (al < 1e-9) continue;
@@ -787,7 +808,48 @@ export function createRig(freqs) {
         const k = kArea * pm;
         const t3 = e === 0 ? (TUBE0 + 2 * i) : (TUBE0 + 2 * i + 1);
         addForce(t3, k * px, k * py, k * pz);
+        if (e === 1) { crossflow = pm; cfX = px; cfZ = pz; }
       }
+
+      // Axial twist. The two particles that carry a tube sit on its centre line,
+      // so the solver has no representation of spin and setFromUnitVectors
+      // returns a roll-free minimum-arc frame -- left alone, a tube can swing
+      // but never turns, which is wrong: a real chime's tubes visibly wind and
+      // unwind on their cords, and the brushed highlight running down an
+      // extruded tube makes even a slow turn easy to see.
+      //
+      // What does NOT drive this is vortex shedding. At 12 mph a 28 mm tube
+      // sheds at St*U/D, about 38 Hz, and the torsion mode on a cord sits near
+      // a third of a hertz -- a hundred times below the forcing, so the response
+      // is a fraction of a degree. Modelled that way it is invisible, which is
+      // the physically correct answer to the wrong question.
+      //
+      // What actually turns a tube is that it is not perfectly axisymmetric --
+      // the seam, the drilled hang holes, the cut ends -- so its centre of
+      // pressure sits a fraction of a millimetre off the axis. That offset makes
+      // the crossflow force weathervane the tube until the offset points
+      // downwind, and the tube then hunts around that heading as the wind
+      // direction wanders. TWIST_ARM is that effective offset, not a hole
+      // position: it is what sets the mode frequency, and it is small because
+      // the tube is nearly round.
+      //
+      // Integrated as a scalar DOF, not a rotational body: it reads the solver
+      // and feeds nothing back, so it cannot destabilise the rig.
+      const t = rig.tubes[i];
+      const Izz = t.mass * TUBE_R * TUBE_R;   // thin-walled cylinder about its own axis
+      // Crossflow heading in the horizontal plane, and the tube's own reference
+      // mark. Both measured the same way, so their difference is the angle of
+      // attack the asymmetry sees.
+      const cfAngle = Math.atan2(cfZ, cfX);
+      const mark = t.roll + t.markOffset;
+      const force = 0.5 * RHO * CD_TUBE * (TUBE_OD * L) * crossflow * crossflow;
+      const align = -force * TWIST_ARM * Math.sin(mark - cfAngle);
+      // Cord torsion is genuinely weak but nonzero, and it is what returns a
+      // tube to rest in dead air instead of leaving it parked at a random angle.
+      const alpha = (align - TWIST_K * t.roll - TWIST_C * t.rollVel) / Math.max(Izz, 1e-9);
+      t.rollVel += alpha * h;
+      t.roll += t.rollVel * h;
+      if (!Number.isFinite(t.roll) || !Number.isFinite(t.rollVel)) { t.roll = 0; t.rollVel = 0; }
     }
 
     // --- CLAPPER ----------------------------------------------------------
@@ -1462,6 +1524,13 @@ export function createRig(freqs) {
       _axis.set(tx - bx, ty - by, tz - bz);
       if (_axis.lengthSq() < 1e-12) _axis.set(0, 1, 0); else _axis.normalize();
       _q.setFromUnitVectors(_up, _axis);
+      // setFromUnitVectors is the minimum-arc rotation and so carries no roll.
+      // Post-multiply the tube's own twist about its axis, which in the tube's
+      // local frame is +Y. Post- and not pre-multiply: the twist happens in the
+      // tube's frame, after it has been swung into place.
+      _qRoll.setFromAxisAngle(_up, rig.tubes[i].roll);
+      _q.multiply(_qRoll);
+      e.roll = rig.tubes[i].roll;
       e.quat[0] = _q.x; e.quat[1] = _q.y; e.quat[2] = _q.z; e.quat[3] = _q.w;
     }
 

@@ -1394,11 +1394,21 @@ export function createWindViz(opts) {
 			fillShrubs();
 		},
 
-		update(dt, tSec, anchor) {
+		update(dt, tSec, anchor, plateCentre) {
 			// The flow texture is re-baked in place by wind.js; re-point the uniform
 			// in case it only exists after the first bake.
 			if (wind.flowTexture && uniforms.uFlow.value !== wind.flowTexture) {
 				uniforms.uFlow.value = wind.flowTexture;
+			}
+			// Track the chime's shadow disc to where the chime actually is. The
+			// whole assembly swings on its bridle, so the plate centroid is the
+			// bundle's horizontal position; the disc height stays fixed because it
+			// stands for the middle of the tubes, which hang the same distance
+			// below the plate however far the rig leans.
+			if (plateCentre && Number.isFinite(plateCentre[0])) {
+				const c = uniforms.uChimeCentre.value;
+				c.x = plateCentre[0];
+				c.z = plateCentre[2];
 			}
 			uniforms.uTime.value = tSec;
 			refreshSun();

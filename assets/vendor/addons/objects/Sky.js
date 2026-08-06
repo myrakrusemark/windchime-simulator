@@ -4,6 +4,7 @@ import {
 	Mesh,
 	ShaderMaterial,
 	UniformsUtils,
+	Vector2,
 	Vector3
 } from 'three';
 
@@ -85,6 +86,13 @@ Sky.SkyShader = {
 		'up': { value: new Vector3( 0, 1, 0 ) },
 		'cloudScale': { value: 0.0002 },
 		'cloudSpeed': { value: 0.0001 },
+		// LOCAL MODIFICATION (wind chime simulator). Stock Sky drifts the cloud
+		// layer as `time * cloudSpeed` added equally to u and v, which pins it to
+		// a constant crawl along one hardcoded diagonal. This project drives the
+		// clouds from the same wind field as everything else, so the offset has
+		// to be a real 2D vector the app integrates itself. cloudSpeed is left in
+		// place and unused so the stock uniform set still validates.
+		'cloudDrift': { value: new Vector2() },
 		'cloudCoverage': { value: 0.4 },
 		'cloudDensity': { value: 0.4 },
 		'cloudElevation': { value: 0.5 },
@@ -175,6 +183,7 @@ Sky.SkyShader = {
 		uniform vec3 up;
 		uniform float cloudScale;
 		uniform float cloudSpeed;
+		uniform vec2 cloudDrift;   // LOCAL MODIFICATION: see the uniform block above
 		uniform float cloudCoverage;
 		uniform float cloudDensity;
 		uniform float cloudElevation;
@@ -280,7 +289,7 @@ Sky.SkyShader = {
 				float elevation = mix( 1.0, 0.1, cloudElevation );
 				vec2 cloudUV = direction.xz / ( direction.y * elevation );
 				cloudUV *= cloudScale;
-				cloudUV += time * cloudSpeed;
+				cloudUV += cloudDrift;   // LOCAL MODIFICATION: was time * cloudSpeed
 
 				// Multi-octave noise for fluffy clouds
 				float cloudNoise = fbm( cloudUV * 1000.0 );

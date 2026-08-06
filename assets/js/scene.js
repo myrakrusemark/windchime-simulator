@@ -5,8 +5,12 @@
  * chime's meshes and materials, the cords, a procedurally generated environment
  * map, the post chain, resize, and the invisible grab proxies.
  *
- * This module knows nothing about wind or sound. It is handed a RigState once
- * per frame and moves things to match. Units are metres, Y up, +X east.
+ * This module knows nothing about sound, and it does not simulate wind. It is
+ * handed a RigState once per frame and moves things to match. It also takes a
+ * two-number summary of the wind (mean flow vector and speed) through setWind,
+ * because three things that live here are genuinely wind-driven and cannot be
+ * derived from the rig alone: the cloud layer, the dust haze, and which way a
+ * slack cord bellies. Units are metres, Y up, +X east.
  */
 
 import * as THREE from 'three';
@@ -326,9 +330,11 @@ export function createStage(opts) {
   // 0.62 to 0.20 moved that region by twelve levels out of 255 and took the
   // whole picture down with it). What actually fixes a featureless white wall
   // is putting something IN it, so this build turns the addon's cloud layer on:
-  // the cloud mask breaks the glare into lit edges and shaded bellies, and
-  // because the layer drifts with the wind it is one more channel telling you
-  // which way the air is moving.
+  // the cloud mask breaks the glare into lit edges and shaded bellies. The
+  // layer is then drifted from the live wind vector in render(), which makes it
+  // one more channel telling you which way the air is moving -- see the cloud
+  // drift block there. Stock Sky cannot do that, so assets/vendor's copy carries
+  // a marked two-line change swapping its scalar clock for a drift vector.
   const sky = new Sky();
   sky.scale.setScalar(4500);
   sky.material.uniforms.turbidity.value = 6.0;
@@ -817,10 +823,23 @@ export function createStage(opts) {
     // Quadratic sag: at slack 0 the cord is a straight taut line, at slack 0.3
     // it visibly bellies. Cords going slack and snapping taut is a wind cue in
     // its own right, and it comes free from the unilateral constraints.
+    //
+    // The belly is not straight down. A slack cord is a light body with a lot of
+    // side area and nothing holding it, so the air pushes the middle downwind
+    // while the ends stay put -- the catenary leans. The lean is the ratio of
+    // drag to weight, saturating once the cord is streaming, so this uses a
+    // half-angle that reaches about 40 degrees at 15 m/s and never goes past 45,
+    // where a cord would be blowing straight out sideways.
+    const sag = 0.55 * rest * (slack > 0 ? slack : 0);
     _vA.set(a[0], a[1], a[2]);
     _vB.set(b[0], b[1], b[2]);
     _vMid.addVectors(_vA, _vB).multiplyScalar(0.5);
-    _vMid.y -= 0.55 * rest * (slack > 0 ? slack : 0);
+    if (sag > 0) {
+      const lean = windSpeedMs / (windSpeedMs + 18.0);   // 0 calm, 0.45 at 15 m/s
+      _vMid.y -= sag * (1 - lean);
+      _vMid.x += windFlow.x * sag * lean;
+      _vMid.z += windFlow.y * sag * lean;
+    }
 
     for (let s = 0; s <= CORD_SEGMENTS; s++) {
       const u = s / CORD_SEGMENTS;
@@ -993,19 +1012,81 @@ export function createStage(opts) {
     }
   }
 
+  // -- wind coupling --------------------------------------------------------
+  // A two-number summary of the field, pushed in once per frame. Everything
+  // here reads the mean, never a point sample: clouds, haze and cord sag are
+  // all bulk effects and would only shimmer if they chased the turbulence.
+  const windFlow = new THREE.Vector2(1, 0);   // unit vector the air blows TOWARD, in world XZ
+  let windSpeedMs = 0;
+
+  function setWind(meanVec, speedMph) {
+    const mx = meanVec && Number.isFinite(meanVec[0]) ? meanVec[0] : 0;
+    const mz = meanVec && Number.isFinite(meanVec[2]) ? meanVec[2] : 0;
+    const mag = Math.hypot(mx, mz);
+    if (mag > 1e-4) windFlow.set(mx / mag, mz / mag);
+    windSpeedMs = mag;
+    if (Number.isFinite(speedMph)) windSpeedMph = speedMph;
+  }
+
+  let windSpeedMph = 0;
+
+  // What the renderer currently believes the air is doing, and what it did with
+  // it. Reported into the snapshot so the cloud, haze and cord-lean couplings
+  // can be checked by reading a number instead of by staring at a screenshot.
+  function windReadout() {
+    return {
+      flow: [Math.round(windFlow.x * 1000) / 1000, Math.round(windFlow.y * 1000) / 1000],
+      speedMs: Math.round(windSpeedMs * 1000) / 1000,
+      speedMph: Math.round(windSpeedMph * 10) / 10,
+      cloudDrift: [Math.round(cloudDrift.x * 1e6) / 1e6, Math.round(cloudDrift.y * 1e6) / 1e6],
+      fogDensity: Math.round(scene.fog.density * 1e5) / 1e5,
+      cordLean: Math.round((windSpeedMs / (windSpeedMs + 18.0)) * 1000) / 1000,
+    };
+  }
+
   // -- render ---------------------------------------------------------------
-  // Cloud drift. The Sky addon advances its cloud layer off a `time` uniform,
-  // so the layer moves at whatever rate this clock runs. Real cloud is a long
-  // way up and moves at the gradient wind rather than at porch height, hence
-  // the deliberately slow constant: it should read over ten seconds, not one.
+  // Cloud drift. cloudUV in the Sky shader is direction.xz projected onto the
+  // cloud plane, so its two axes ARE world x and z; an offset added to the
+  // lookup shifts the pattern the other way, hence the minus.
+  //
+  // The rate is not derived from a cloud altitude. Doing it honestly -- pick a
+  // height, convert metres to the shader's direction-ratio space -- lands around
+  // 5e-10 UV per second, which is motionless. Cloud reads as moving on screen
+  // because it is enormous and you watch it for a while, not because its angular
+  // rate is large, and the sky here is a backdrop the eye visits for a second.
+  // So this keeps the drift rate that was already tuned to look right at the
+  // default 12 mph and scales it linearly with wind speed and steers it with
+  // wind direction. It accumulates rather than being recomputed from a clock, so
+  // a change of direction bends the cloud track instead of teleporting it.
+  const cloudDrift = sky.material.uniforms.cloudDrift.value;
+  const CLOUD_UV_PER_S_AT_REF = 0.0055;   // the previously tuned constant crawl
+  const CLOUD_REF_MS = 5.36;              // 12 mph, the default wind
+
+  // Dust haze. Dry meadow in a stiff wind genuinely lifts material, and the
+  // horizon goes milky before anything else tells you it is blowing hard. Kept
+  // deliberately small: this is a second-order cue, and at full strength it
+  // reads as fog rolling in rather than as wind.
+  const FOG_CALM = 0.018;
+  const FOG_BLOWN = 0.032;
+  const FOG_FULL_MS = 15.0;        // ~34 mph, where the haze tops out
+
   let lastRenderMs = -1;
 
   function render() {
     const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     let dt = lastRenderMs < 0 ? 0 : (nowMs - lastRenderMs) / 1000;
-    if (!(dt > 0) || dt > 0.25) dt = 0;
+    // Clamp a long frame, do not discard it. Discarding meant the sky froze on
+    // exactly the machines that render slowly -- below 4 fps every frame was
+    // over the old 0.25 s limit, so the clouds never moved once.
+    if (!(dt > 0)) dt = 0; else if (dt > 0.25) dt = 0.25;
     lastRenderMs = nowMs;
-    sky.material.uniforms.time.value += dt * 55;
+
+    const cloudRate = CLOUD_UV_PER_S_AT_REF * (windSpeedMs / CLOUD_REF_MS);
+    cloudDrift.x -= windFlow.x * cloudRate * dt;
+    cloudDrift.y -= windFlow.y * cloudRate * dt;
+
+    const hazeT = Math.min(1, windSpeedMs / FOG_FULL_MS);
+    scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
 
     renderer.info.reset();
     controls.update();
@@ -1122,6 +1203,8 @@ export function createStage(opts) {
     get composer() { return composer; },
     buildChime,
     buildEnvironment,
+    setWind,
+    windReadout,
     syncRig,
     flashTube,
     setSunElevation,

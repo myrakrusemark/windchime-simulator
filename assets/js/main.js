@@ -1312,6 +1312,11 @@ function frame( nowMs ) {
 
 		try {
 
+			// The cloud layer, the dust haze and the direction a slack cord
+			// bellies are all bulk wind effects the rig state cannot describe, so
+			// the scene gets the mean vector directly. Pushed before syncRig
+			// because writeCord reads it in the same call.
+			stage.setWind( wind.state.meanVec, wind.state.speedMph );
 			stage.syncRig( rig.state );
 			stageFailures = 0;
 
@@ -1328,7 +1333,7 @@ function frame( nowMs ) {
 
 		try {
 
-			viz.update( dt, wind.state.time, rig.state.anchorBelowPlate );
+			viz.update( dt, wind.state.time, rig.state.anchorBelowPlate, rig.state.plate.pos );
 			vizFailures = 0;
 
 		} catch ( err ) {
@@ -1538,6 +1543,7 @@ function snapshot() {
 	let sailPos = [ 0, 0, 0 ];
 	let sailOffset = [ 0, 0, 0 ];
 	let clapperPos = [ 0, 0, 0 ];
+	let platePos = [ 0, 0, 0 ];
 	let leanDeg = 0;
 
 	try {
@@ -1547,6 +1553,7 @@ function snapshot() {
 		sailOffset = vec3out( s.offset );
 		leanDeg = round3( s.leanDeg );
 		clapperPos = vec3out( rig.state.clapper.pos );
+		platePos = vec3out( rig.state.plate.pos );
 		// Sampled at the sail, not the origin: this is the wind that is doing
 		// the work on the rig.
 		wind.sample( _windVec, s.pos[ 0 ], s.pos[ 1 ], s.pos[ 2 ] );
@@ -1604,10 +1611,21 @@ function snapshot() {
 		drawCalls: info.drawCalls | 0,
 		triangles: info.triangles | 0,
 		particles: {
-			streaks: viz && viz.counts ? viz.counts.streaks | 0 : 0,
+			// streaks and shrubCards are POOL sizes; leaves and grass are live
+			// counts. Streak alpha is thresholded on local wind speed, so in a
+			// lull most of the pool is allocated and invisible -- the two kinds of
+			// number are not comparable and the names say which is which.
+			streakPool: viz && viz.counts ? viz.counts.streaks | 0 : 0,
+			shrubCardPool: viz && viz.counts ? viz.counts.shrubCards | 0 : 0,
+			ribbonNodes: tier.ribbonSegs | 0,
 			leaves: viz && viz.counts ? viz.counts.leaves | 0 : 0,
 			grass: viz && viz.counts ? viz.counts.grass | 0 : 0
 		},
+		// The wind couplings that live in the renderer rather than in the rig.
+		// Without these the only way to check that clouds, haze and cord lean
+		// actually follow the wind is to stare at a screenshot.
+		air: stage && stage.windReadout ? stage.windReadout() : null,
+		plate: { pos: platePos },
 		sail: { pos: sailPos, leanDeg, offset: sailOffset },
 		clapper: { pos: clapperPos },
 		tubeLengths: lengths,
