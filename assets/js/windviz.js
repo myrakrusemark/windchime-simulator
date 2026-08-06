@@ -104,6 +104,8 @@ const _seg = new THREE.Vector3();
 const _mat = new THREE.Matrix4();
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
+const _q3 = new THREE.Quaternion();
+const _ndc = new THREE.Vector3();
 const _sunDir = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
@@ -125,7 +127,7 @@ export function createWindViz(opts) {
 	const pcol = (key, fallback) => new THREE.Color(PAL[key] !== undefined ? PAL[key] : fallback);
 
 
-	const counts = { trails: 0, leaves: 0 };
+	const counts = { trails: 0, leaves: 0, looping: 0 };
 
 
 	// STREAMERS
@@ -156,7 +158,7 @@ export function createWindViz(opts) {
 	const TRAIL_NODES = 44;
 	const TRAIL_SUBSTEP_CAP = 44;
 	// Mean seconds between loop attempts, per streamer. Lower it for more loops.
-	const LOOP_MEAN_S = 12;
+	const LOOP_MEAN_S = 6;
 
 	let streakGeo = null;
 	let streakMat = null;
@@ -294,8 +296,21 @@ export function createWindViz(opts) {
 		const dirRad = wind.state.dirDeg * Math.PI / 180;
 		const fx = -Math.sin(dirRad);
 		const fz = Math.cos(dirRad);
-		// The swirl plane: one axis horizontal and across the flow, the other up.
-		const p1x = -fz, p1z = fx;
+		// Two swirl planes, and which one is in use is the whole difference
+		// between the two behaviours.
+		//
+		// The SNAKE turns in the plane ACROSS the flow: horizontal-perpendicular
+		// and up. Superimposed on the drift that draws a long lateral S, and if
+		// you held it on it would draw a helix -- a corkscrew, which never
+		// reverses and never crosses itself.
+		//
+		// The LOOP turns in the vertical plane ALONG the flow: the flow direction
+		// itself and up. A quarter of the way round the added velocity points
+		// straight up; halfway round it points straight BACKWARDS, and because it
+		// is more than twice the drift the streamer genuinely reverses, goes over
+		// the top and crosses its own path. That doubling back is what makes it a
+		// loop rather than a roll.
+		const snakeX = -fz, snakeZ = fx;
 
 		const mean = wind.state.speedMph * 0.44704 * wind.state.gust;
 		// Node spacing, and therefore the drawn length, scales with speed: a
@@ -305,6 +320,7 @@ export function createWindViz(opts) {
 		const col = tColAttr.array;
 
 		camera.getWorldDirection(_camDir);
+		let loopingNow = 0;
 
 		const cr = trailColor ? trailColor.r : 1;
 		const cg = trailColor ? trailColor.g : 1;
@@ -334,7 +350,16 @@ export function createWindViz(opts) {
 				// radius is amp * meanSpeed / omega, and it has to stay under the
 				// drawn trail length or the loop never appears whole.
 				tLoopAmp[i] = 2.2 + trailRnd() * 0.9;
-				tLoopOmega[i] = 34 + trailRnd() * 14;
+				// Omega sets the SIZE: smaller turns a wider loop. At 41 it stood
+				// 0.59 m tall, correct but easy to miss; this puts it near 0.8,
+				// about a third of the frame height, while still leaving lead-in
+				// and lead-out inside the 2.9 m of drawn trail.
+				tLoopOmega[i] = 28 + trailRnd() * 8;
+				// Enter at phase zero, where the swirl points straight downwind:
+				// the streamer accelerates along its existing course, then rises
+				// into the loop. Entering at an arbitrary phase puts a kink at the
+				// mouth of it.
+				tPhase[i] = 0;
 			}
 
 			// -- advance the head, laying nodes at a fixed distance -----------
@@ -363,13 +388,27 @@ export function createWindViz(opts) {
 				if (looping) tLoopLeft[i] -= dPhase;
 				const a = (looping ? tLoopAmp[i] : tAmp[i]) * mean;
 				const ph = tPhase[i];
-				const swx = a * Math.cos(ph) * p1x;
+				const bx = looping ? fx : snakeX;
+				const bz = looping ? fz : snakeZ;
+				const swx = a * Math.cos(ph) * bx;
 				const swy = a * Math.sin(ph);
-				const swz = a * Math.cos(ph) * p1z;
+				const swz = a * Math.cos(ph) * bz;
 
-				// Relax toward the air plus the swirl, exponentially, so the step
-				// is stable at any frame time.
-				const f = 1 - Math.exp(-12.0 * h);
+				// Relax toward the air plus the swirl, exponentially, so the step is
+				// stable at any frame time.
+				//
+				// A streamer in a loop couples to the air FAR harder. This is not
+				// a fudge: the relaxation is a first-order low-pass on the swirl,
+				// and a loop turns at about 41 rad/s while the ordinary rate of 12
+				// passes only 12/sqrt(12^2 + 41^2), about 28 percent of it. That
+				// left the transverse speed below the drift, so the path bent but
+				// never reversed -- the loop could not close no matter how large
+				// the amplitude was set. Integrated over one revolution the
+				// along-flow velocity bottomed out at +1.3 m/s at 12, and at -5.4
+				// at 55, which is the streamer genuinely travelling backwards.
+				// Physically it stands up too: a tight eddy carries a steep
+				// pressure gradient, and the lighter the mote the closer it tracks.
+				const f = 1 - Math.exp(-(looping ? 55.0 : 12.0) * h);
 				tVel[i3] += (_w.x + swx - tVel[i3]) * f;
 				tVel[i3 + 1] += (_w.y + swy - tVel[i3 + 1]) * f;
 				tVel[i3 + 2] += (_w.z + swz - tVel[i3 + 2]) * f;
@@ -393,6 +432,7 @@ export function createWindViz(opts) {
 			}
 
 			// -- write the ribbon --------------------------------------------
+			if (tLoopLeft[i] > 0) loopingNow++;
 			const filled = tFilled[i];
 			// Fade in as the trail is laid, out at the end of its life, and away
 			// from anything between the camera and the subject: a streamer half a
@@ -459,6 +499,7 @@ export function createWindViz(opts) {
 			}
 		}
 
+		counts.looping = loopingNow;
 		tPosAttr.needsUpdate = true;
 		tColAttr.needsUpdate = true;
 	}
@@ -609,6 +650,14 @@ export function createWindViz(opts) {
 	let prevGust = 1;
 	let vizTime = 0;
 
+	// Is this point outside what the camera can see? The margin is generous: a
+	// leaf is a centimetres-wide thing whose projected position is its centre,
+	// and the point is to be sure it is gone, not to cull tightly.
+	function offScreen(x, y, z) {
+		_ndc.set(x, y, z).project(camera);
+		return Math.abs(_ndc.x) > 1.18 || Math.abs(_ndc.y) > 1.18 || Math.abs(_ndc.z) > 1;
+	}
+
 	function updateLeaves(dt, tSec) {
 		const n = tier.leaves;
 		const dirRad = wind.state.dirDeg * Math.PI / 180;
@@ -620,8 +669,11 @@ export function createWindViz(opts) {
 
 		// A gust front announces itself with a burst of leaves at the upwind edge,
 		// so you see the leading edge arrive before anything on the chime reacts.
+		// Gated on the actual wind, not just the gust multiplier: gust is a ratio,
+		// so it still swings above 1.35 when the mean is zero, and a burst of
+		// eighteen leaves was arriving out of dead calm.
 		const g = wind.state.gust;
-		if (prevGust < 1.35 && g >= 1.35) {
+		if (wind.state.speedMph > 4 && prevGust < 1.35 && g >= 1.35) {
 			for (let k = 0; k < 18; k++) if (!spawnLeaf(fx, fz, true)) break;
 		}
 		prevGust = g;
@@ -687,8 +739,16 @@ export function createWindViz(opts) {
 				}
 			}
 
+			// Leaving the domain is safely out of shot -- it is eight metres out,
+			// and the frame covers about four. Lying on the grass is not: a
+			// grounded leaf used to be recycled five seconds later wherever it
+			// happened to be, which for one on the lawn in front of you meant
+			// blinking out of existence in full view. It now stays until it is
+			// off screen, and a rising wind lifts it again long before that.
+			// The pool cannot starve as a result: the same wind that would want
+			// new leaves is the wind that picks these ones back up.
 			const out = x < -DOM_HX || x > DOM_HX || z < -DOM_HZ || z > DOM_HZ || y > DOM_Y1;
-			if (out || lGround[i] > 5.0) {
+			if (out || (lGround[i] > 5.0 && offScreen(x, y, z))) {
 				lActive[i] = 0;
 				leafActiveCount--;
 				_mat.makeScale(0, 0, 0);
@@ -701,6 +761,17 @@ export function createWindViz(opts) {
 			_q1.setFromAxisAngle(_axis, lSpin[i]);
 			_q2.setFromAxisAngle(_e1.set(0, 1, 0), flutter * 1.1);
 			_q1.multiply(_q2);
+			// Now that a leaf can lie on the lawn indefinitely, it has to lie
+			// down: the tumble leaves it at whatever angle it landed at, and one
+			// standing on its edge in the grass for a minute reads as a bug. The
+			// blade is modelled in its local XY plane, so face-up is a quarter
+			// turn about X, then a yaw about world up to keep its heading.
+			if (lGround[i] > 0) {
+				_q2.setFromAxisAngle(_e1.set(1, 0, 0), -Math.PI * 0.5);
+				_q3.setFromAxisAngle(_e2.set(0, 1, 0), lSpin[i]);
+				_q2.premultiply(_q3);
+				_q1.slerp(_q2, clamp(lGround[i] / 0.7, 0, 1));
+			}
 			_pos.set(x, y, z);
 			_scl.set(lSize[i], lSize[i] * 1.6, lSize[i]);
 			_mat.compose(_pos, _q1, _scl);

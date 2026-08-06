@@ -47,7 +47,7 @@ const TIERS = {
 		// A handful of long streamers, not a particle field: see the STREAMERS
 		// note in windviz.js for why three reads as wind and three hundred reads
 		// as snow.
-		trails: 12,
+		trails: 6,
 		leaves: 60,
 		ribbonSegs: 14,
 		shadowMapSize: 2048,
@@ -58,7 +58,7 @@ const TIERS = {
 	},
 	low: {
 		name: 'low',
-		trails: 9,
+		trails: 4,
 		leaves: 22,
 		ribbonSegs: 9,
 		shadowMapSize: 1024,
@@ -1695,6 +1695,7 @@ function snapshot() {
 			// gated on wind speed, so in a lull the pool is allocated and
 			// invisible; the two numbers do not mean the same thing.
 			trails: viz && viz.counts ? viz.counts.trails | 0 : 0,
+			looping: viz && viz.counts ? viz.counts.looping | 0 : 0,
 			ribbonNodes: tier.ribbonSegs | 0,
 			leaves: viz && viz.counts ? viz.counts.leaves | 0 : 0
 		},
