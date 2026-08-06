@@ -129,7 +129,7 @@ const STYLES = {
     envIntensity: 0,
     flatten: true,
 
-    ground: 0xa8b072,
+    ground: 0x83b06d,
     groundVariation: 0.10,
     // Soft sky occlusion is what grounds an object under a real sky. Under flat
     // shading it just reads as a stain on the lawn, so most of it comes out.

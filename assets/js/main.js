@@ -358,6 +358,28 @@ let lastInteractionMs = performance.now();
 let hudIdle = false;
 let autoRotateSuspended = true;   // starts suspended until the first idle window
 
+// The learn section is a plain anchor target, so pressing "How it works" leaves
+// #learn in the address bar -- and the next load lands the visitor in the
+// documentation with the simulation scrolled off the top. Browsers also restore
+// the previous scroll offset on reload, which does the same thing without any
+// hash at all. The simulation IS the page; it always opens on it.
+try {
+
+	if ( 'scrollRestoration' in history ) history.scrollRestoration = 'manual';
+	if ( window.location.hash ) {
+
+		history.replaceState( null, '', window.location.pathname + window.location.search );
+
+	}
+
+	window.scrollTo( 0, 0 );
+
+} catch ( err ) {
+
+	noteError( 'scroll-reset-failed', err );
+
+}
+
 const reducedMotion = ( window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ) ) || null;
 
 // Weather bookkeeping for the snapshot and the poller.
@@ -580,6 +602,7 @@ if ( dom.styleSelect ) {
 		try {
 
 			const u = new URL( window.location.href );
+			u.hash = '';
 			u.searchParams.set( 'style', next );
 			const typed = dom.locationInput && dom.locationInput.value.trim();
 			if ( typed ) u.searchParams.set( 'q', typed.slice( 0, 120 ) );
