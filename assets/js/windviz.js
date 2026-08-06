@@ -154,7 +154,9 @@ export function createWindViz(opts) {
 	// object and behave consistently when a gust hits them.
 
 	const TRAIL_NODES = 44;
-	const TRAIL_SUBSTEP_CAP = 28;
+	const TRAIL_SUBSTEP_CAP = 44;
+	// Mean seconds between loop attempts, per streamer. Lower it for more loops.
+	const LOOP_MEAN_S = 12;
 
 	let streakGeo = null;
 	let streakMat = null;
@@ -162,6 +164,9 @@ export function createWindViz(opts) {
 	// Head state, then the node history, newest first (index 0 is the head).
 	let tPos = null, tVel = null, tNodes = null, tFilled = null;
 	let tPhase = null, tOmega = null, tAmp = null, tAge = null, tLife = null;
+	// Loop state, separate from the snake above: radians of the current
+	// revolution still to turn, and the amplitude and rate to turn them at.
+	let tLoopLeft = null, tLoopAmp = null, tLoopOmega = null;
 	let tPosAttr = null, tColAttr = null;
 
 	const trailRnd = mulberry32(0x1357);
@@ -199,18 +204,11 @@ export function createWindViz(opts) {
 		// Roughly one streamer in five gets a transverse component strong enough
 		// to beat the drift and close the path into a loop. The rest snake.
 		tPhase[i] = trailRnd() * TAU;
-		// The loop's radius is amp * meanSpeed / omega, and for a curl to CLOSE
-		// rather than draw a long arc that radius has to be small enough that the
-		// circumference fits inside the drawn length -- about 2.9 m here. The
-		// first cut used omega near 2.5, which gives a 2.6 m radius: a loop wider
-		// than the frame, so it read as a lazy bend and never as a curl.
-		if (trailRnd() < 0.22) {
-			tAmp[i] = 1.20 + trailRnd() * 0.70;
-			tOmega[i] = 22 + trailRnd() * 12;
-		} else {
-			tAmp[i] = 0.16 + trailRnd() * 0.30;
-			tOmega[i] = 0.65 + trailRnd() * 0.85;
-		}
+		// Every streamer snakes. Looping is a separate, rare event -- see the
+		// loop block in updateStreaks.
+		tAmp[i] = 0.16 + trailRnd() * 0.30;
+		tOmega[i] = 0.65 + trailRnd() * 0.85;
+		tLoopLeft[i] = 0;
 
 		// Collapse the whole ribbon onto the spawn point so the previous life's
 		// trail does not snap across the frame on the frame it is reused.
@@ -273,6 +271,9 @@ export function createWindViz(opts) {
 		tAmp = new Float32Array(n);
 		tAge = new Float32Array(n);
 		tLife = new Float32Array(n);
+		tLoopLeft = new Float32Array(n);
+		tLoopAmp = new Float32Array(n);
+		tLoopOmega = new Float32Array(n);
 
 		const dirRad = wind.state.dirDeg * Math.PI / 180;
 		for (let i = 0; i < n; i++) {
@@ -315,6 +316,27 @@ export function createWindViz(opts) {
 
 			tAge[i] += dt;
 
+			// A loop is an EVENT, not a property of the streamer. Holding the
+			// transverse rotation on for a streamer's whole life drew a helix --
+			// loop after loop after loop, a corkscrew -- which is not what a
+			// gust does. This fires rarely, turns exactly ONE revolution, and
+			// hands the streamer back to its gentle snake. LOOP_MEAN_S is the
+			// mean time between attempts per streamer; with the pool cycling,
+			// one shows up in frame every few seconds.
+			if (tLoopLeft[i] <= 0 && mean > 1.2 &&
+				trailRnd() < 1 - Math.exp(-dt / LOOP_MEAN_S)) {
+				tLoopLeft[i] = TAU;
+				// How OPEN the loop is comes from the ratio of transverse speed
+				// to drift. Over 1.0 the path closes at all; at 1.25 it closes by
+				// a quarter and draws a tight cusp you have to look for. These
+				// put the transverse path at rather more than twice the drift, so
+				// the loop is a round one you can see. Omega then sets its size:
+				// radius is amp * meanSpeed / omega, and it has to stay under the
+				// drawn trail length or the loop never appears whole.
+				tLoopAmp[i] = 2.2 + trailRnd() * 0.9;
+				tLoopOmega[i] = 34 + trailRnd() * 14;
+			}
+
 			// -- advance the head, laying nodes at a fixed distance -----------
 			let left = dt;
 			let guard = 0;
@@ -327,13 +349,19 @@ export function createWindViz(opts) {
 				let x = tPos[i3], y = tPos[i3 + 1], z = tPos[i3 + 2];
 				wind.sample(_w, x, y, z);
 
-				// The transverse rotation that makes the path snake or curl. The
-				// phase MUST advance per substep, not per frame: a curl runs near
-				// 28 rad/s, which is 2.8 radians of jump per frame at 10 fps, and
-				// the loop aliased into a sawtooth.
-				tPhase[i] += tOmega[i] * h;
+				// The transverse rotation. The phase MUST advance per substep, not
+				// per frame: a loop runs near 28 rad/s, which is 2.8 radians of
+				// jump per frame at 10 fps, and it aliased into a sawtooth.
+				const looping = tLoopLeft[i] > 0;
+				const om = looping ? tLoopOmega[i] : tOmega[i];
+				const dPhase = om * h;
+				tPhase[i] += dPhase;
 				if (tPhase[i] > TAU) tPhase[i] -= TAU;
-				const a = tAmp[i] * mean;
+				// The phase VALUE stays continuous across the switch, only its
+				// rate changes, so the swirl direction never jumps and the
+				// streamer enters and leaves its loop without a kink.
+				if (looping) tLoopLeft[i] -= dPhase;
+				const a = (looping ? tLoopAmp[i] : tAmp[i]) * mean;
 				const ph = tPhase[i];
 				const swx = a * Math.cos(ph) * p1x;
 				const swy = a * Math.sin(ph);
