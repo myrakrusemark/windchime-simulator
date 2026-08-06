@@ -175,6 +175,15 @@ const probe = await page.evaluate(() => {
   return out;
 });
 
+// The page catches subsystem failures so one bad module cannot blank the whole
+// thing, and records them in the snapshot rather than throwing. That is right
+// for a visitor and wrong for a verifier: a run where createStage failed and the
+// page fell back to no-WebGL was reporting ok, because nothing reached the
+// console as an error. Read the page's own error list.
+if (probe.debug && Array.isArray(probe.debug.errors) && probe.debug.errors.length) {
+  errors.push(`snapshot errors: ${probe.debug.errors.join(', ')}`);
+}
+
 // Compare first and last frame byte-wise: identical bytes means nothing moved.
 let animated = null;
 if (shots.length >= 2) {

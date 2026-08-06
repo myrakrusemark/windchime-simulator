@@ -50,22 +50,15 @@ const DOM_Y1 = 4.5;
 
 // Sun azimuth is fixed by the locked spec (scene.js owns the light; we only
 // need the same direction for the analytic grass shading and the rim term).
-const SUN_AZ_DEG = 205;
 
 // Grass field extent and the drip line under the chime where nothing grows.
-const GRASS_R = 14.0;
-const GRASS_R_BARE = 0.35;
-const BLADE_LEN = 0.22;
 // The storybook style is a mown lawn, not a hay meadow: at 0.22 m and a camera
 // looking down 30 degrees the sward closes over and the ground colour never
 // shows, which is most of what that idiom is made of.
-const BLADE_LEN_FLAT = 0.10;
 
 // The chime's bounding disc, used for the analytic grass shadow. One disc is a
 // coarse stand-in for a 1 m tall assembly, but at an 11 degree sun the shadow
 // lands 8 m downsun as a soft smear, which is all the eye reads anyway.
-const CHIME_DISC_Y = 1.55;
-const CHIME_DISC_R = 0.13;
 
 const noise = new ImprovedNoise();
 
@@ -114,89 +107,6 @@ const _q2 = new THREE.Quaternion();
 const _sunDir = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
-// Shader fragments shared by grass and shrubs
-// ---------------------------------------------------------------------------
-
-// Both read the flow texture wind.js bakes at grass height and decode it the
-// same way. flowInfo carries the constants so neither shader hardcodes them.
-const FLOW_DECODE = /* glsl */`
-	vec2 sampleFlow(vec2 worldXZ) {
-		vec2 fuv = (worldXZ + uFlowExtent * 0.5) / uFlowExtent;
-		return (texture2D(uFlow, fuv).rg * 2.0 - 1.0) * uFlowScale;
-	}
-`;
-
-// Fragment tail matched to three's built-in materials so these custom shaders
-// tone-map and fog exactly like the ground plane next to them. The renderer
-// disables TONE_MAPPING automatically when drawing into the composer's HDR
-// target, so the same code is correct on both the high and the low tier.
-const FRAG_TAIL = /* glsl */`
-	#include <tonemapping_fragment>
-	#include <colorspace_fragment>
-	#include <fog_fragment>
-`;
-
-// ANALYTIC SUN OCCLUSION, and the single biggest thing standing between this
-// picture and a golden hour.
-//
-// The grass carries its own lighting, so it was never in the shadow pass at
-// all -- and grass is exactly what the shadow needs to land on, because a
-// blade is VERTICAL and an 11 degree sun hits it head on. The sun is the
-// dominant light on every blade in the meadow, which makes a shadow across it
-// the strongest tonal event available, and there was not one.
-//
-// A shadow map would work, but the caster set here is four boxes and a disc, so
-// marching the sun ray against them directly is cheaper, needs no bias, never
-// aliases, and costs one ray-slab test per blade in the vertex shader. It also
-// stays correct out to the fog line, where a 2048 map would already be mush.
-//
-// sunOcclusion returns 1 in full sun and dips toward SHADE_FLOOR in shadow.
-const SUN_OCCLUSION = /* glsl */`
-	uniform vec3 uSunDir;
-	uniform vec3 uChimeCentre;
-	uniform float uChimeRadius;
-	uniform float uRoof;   // 0 when the style hangs the chime from a bare beam
-
-	// Fraction of the ray from p toward the sun that passes through an
-	// axis-aligned box, as a soft 0..1 hit. Soft because a slab test with a hard
-	// edge crawls with vertex density on 12 mm blades.
-	float boxShade(vec3 p, vec3 d, vec3 lo, vec3 hi) {
-		vec3 inv = 1.0 / d;
-		vec3 t0 = (lo - p) * inv;
-		vec3 t1 = (hi - p) * inv;
-		vec3 tn = min(t0, t1);
-		vec3 tf = max(t0, t1);
-		float tNear = max(max(tn.x, tn.y), tn.z);
-		float tFar  = min(min(tf.x, tf.y), tf.z);
-		// Overlap in metres along the ray, saturating over one box thickness.
-		float pass = min(tFar, 1.0e4) - max(tNear, 0.0);
-		return smoothstep(0.0, 0.05, pass);
-	}
-
-	float sunOcclusion(vec3 p) {
-		// A ray that is not going up cannot reach the sun at all.
-		vec3 d = uSunDir;
-		if (d.y < 0.01) return 1.0;
-
-		float s = 0.0;
-		// Porch roof slab, cedar beam, post. Kept in step with scene.js by hand.
-		s = max(s, uRoof * 0.82 * boxShade(p, d, vec3(-1.5, 2.75, -0.7), vec3(1.5, 2.81, 0.7)));
-		s = max(s, 0.70 * boxShade(p, d, vec3(-1.3, 2.60, -0.045), vec3(1.3, 2.72, 0.045)));
-		s = max(s, 0.78 * boxShade(p, d, vec3(-1.30, 0.0, -0.05), vec3(-1.20, 2.60, 0.05)));
-
-		// The chime itself, as the disc that bounds the tube bundle. Walk to its
-		// height and see whether we land inside it.
-		float tHit = (uChimeCentre.y - p.y) / max(d.y, 0.05);
-		if (tHit > 0.0) {
-			vec2 hit = p.xz + d.xz * tHit;
-			float r = distance(hit, uChimeCentre.xz);
-			s = max(s, 0.52 * (1.0 - smoothstep(uChimeRadius * 0.45, uChimeRadius * 1.7, r)));
-		}
-		return 1.0 - s;
-	}
-`;
-
-// ---------------------------------------------------------------------------
 // createWindViz
 // ---------------------------------------------------------------------------
 
@@ -213,543 +123,10 @@ export function createWindViz(opts) {
 	// rather than carrying a second, quietly diverging palette.
 	const PAL = opts.palette || {};
 	const pcol = (key, fallback) => new THREE.Color(PAL[key] !== undefined ? PAL[key] : fallback);
-	// Linear-space RGB triples for the shaders, which do their own lighting.
-	const bladeLen = PAL.flatten ? BLADE_LEN_FLAT : BLADE_LEN;
-	let flutterPhase = 0;
-	const plin = (key, fallback) => {
-		const c = pcol(key, fallback).clone().convertSRGBToLinear();
-		return new THREE.Vector3(c.r, c.g, c.b);
-	};
 
-	const flowInfo = (wind && wind.flowInfo) || { size: 64, extent: 32, height: 0.30, scale: 12 };
 
-	// A neutral stand-in so that, if the flow texture is not up yet on the very
-	// first frames, the grass stands still rather than lying flat at the
-	// sampler's default white (which decodes to a 17 m/s gale).
-	const neutralFlow = new THREE.DataTexture(
-		new Uint8Array([128, 128, 0, 255]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType
-	);
-	neutralFlow.needsUpdate = true;
+	const counts = { trails: 0, leaves: 0 };
 
-	const counts = { grass: 0, trails: 0, leaves: 0, shrubCards: 0 };
-
-	// Shared uniforms. The same objects are handed to the grass and the shrub
-	// material so a single write updates both.
-	const uniforms = {
-		uFlow: { value: wind && wind.flowTexture ? wind.flowTexture : neutralFlow },
-		uFlowExtent: { value: flowInfo.extent },
-		uFlowScale: { value: flowInfo.scale },
-		uTime: { value: 0 },
-		uSunDir: { value: new THREE.Vector3(-0.415, 0.191, 0.890) },
-		uSunColor: { value: new THREE.Color(0xffc07a) },
-		uGrassRoot: { value: plin('grassRoot', 0x444620) },
-		// 0 keeps the golden hour lighting model; 1 flattens to near-albedo with
-		// a soft lambert wash and no backlit rim, which is what the storybook
-		// style needs -- a rim term is a photograph of grass, not a drawing of it.
-		uFlatten: { value: PAL.flatten ? 1.0 : 0.0 },
-		// Accumulated flutter phase, advanced on the CPU at a rate proportional
-		// to the wind. It replaces `uTime * (base + k * ws)`, which looks
-		// equivalent and is not: multiplying an ever-growing clock by a term that
-		// changes every frame jumps the phase by clock * delta, so after five
-		// minutes a hundredth of a metre per second of gust jerked every blade
-		// through a radian and a half. Integrating the rate instead is continuous
-		// by construction, and it stops dead when the air does.
-		uFlutter: { value: 0 },
-		uRoof: { value: PAL.porchRoof === false ? 0.0 : 1.0 },
-		uGrassTip: { value: plin('grassTip', 0xb0a04d) },
-		uChimeCentre: { value: new THREE.Vector3(0, CHIME_DISC_Y, 0) },
-		uChimeRadius: { value: CHIME_DISC_R }
-	};
-
-	let lastSunElev = -999;
-
-	function refreshSun() {
-		const el = clamp(Number(params.sunElevDeg) || 11, 2, 20);
-		if (Math.abs(el - lastSunElev) < 0.25) return;
-		lastSunElev = el;
-		const a = SUN_AZ_DEG * Math.PI / 180;
-		const e = el * Math.PI / 180;
-		uniforms.uSunDir.value.set(
-			Math.sin(a) * Math.cos(e),
-			Math.sin(e),
-			-Math.cos(a) * Math.cos(e)
-		).normalize();
-		// Warmer and dimmer the lower it sits, matching scene.js's light colour.
-		const k = smoothstep(4, 16, el);
-		uniforms.uSunColor.value.setRGB(1.0, 0.62 + 0.26 * k, 0.30 + 0.42 * k, THREE.SRGBColorSpace);
-	}
-	refreshSun();
-
-	// =======================================================================
-	// GRASS
-	// =======================================================================
-	//
-	// One draw call. Positions and per-blade randomness live in instance
-	// attributes; the bend comes from the flow texture in the vertex shader, so
-	// nine thousand blades cost nothing on the CPU.
-	//
-	// The blades are at 0.22 m, where the log wind profile gives about 41
-	// percent of the reference wind, against 61 percent at the sail. The grass
-	// is therefore SUPPOSED to move less than the chime. Do not scale this up.
-
-	let grassGeo = null;
-	let grassMat = null;
-	let grassMesh = null;
-	// Reach of the meadow. Pulled in on the low tier so the reduced blade count
-	// lands where it can be seen instead of being spread to the fog line; the
-	// far field is carried by the ground map and the fog either way.
-	let grassRadius = tier.name === 'low' ? 8.5 : GRASS_R;
-
-	const GRASS_VERT = /* glsl */`
-		attribute vec3 iPos;
-		attribute float iRot;
-		attribute float iScale;
-		attribute float iPhase;
-		attribute float iTint;
-
-		uniform sampler2D uFlow;
-		uniform float uFlowExtent;
-		uniform float uFlowScale;
-		uniform float uTime;
-		uniform vec3 uSunColor;
-		uniform vec3 uGrassRoot;
-		uniform vec3 uGrassTip;
-		uniform float uFlatten;
-		uniform float uFlutter;
-
-		varying vec3 vLit;
-
-		#include <common>
-		#include <fog_pars_vertex>
-		${FLOW_DECODE}
-		${SUN_OCCLUSION}
-
-		void main() {
-			float h = uv.y;                       // 0 at the root, 1 at the tip
-			vec3 p = position;
-			p.x *= mix(1.0, 0.16, h);             // taper the blade to a point
-			p *= iScale;
-			float len = ${bladeLen.toFixed(3)} * iScale;
-
-			float c = cos(iRot), s = sin(iRot);
-			mat2 rot = mat2(c, -s, s, c);
-			p.xz = rot * p.xz;
-			vec3 n = vec3(0.0, 0.0, 1.0);
-			n.xz = rot * n.xz;
-
-			vec2 w = sampleFlow(iPos.xz);
-			float ws = length(w);
-			vec2 wd = ws > 1e-3 ? w / ws : vec2(1.0, 0.0);
-
-			// Cubic-ish bend profile: the root barely moves, the tip does the work.
-			float bend = h * h * (0.5 + 0.5 * h) * clamp(ws * 0.09, 0.0, 1.15);
-			p.xz += wd * bend * len;
-			// A bent blade is SHORTER. Without this term the field reads as a
-			// wobbling flag instead of grass laid over by wind.
-			p.y -= bend * bend * 0.45 * len;
-
-			// Cross-wind flutter, per blade, faster in stronger wind.
-			vec2 perp = vec2(-wd.y, wd.x);
-			// Per-blade frequency spread comes from a CONSTANT taken off the
-			// blade's own phase, never from ws, so no blade's rate changes under
-			// it. The gate kills the shimmer below about a metre per second: a
-			// lawn in still air is still, and a small amplitude at an unchanged
-			// frequency reads as buzzing rather than as a light breeze.
-			float flutter = smoothstep(0.0, 1.10, ws) * ws;
-			p.xz += perp * sin(uFlutter * (0.82 + 0.36 * fract(iPhase)) + iPhase) * 0.012 * flutter * h;
-
-			// Tip the normal over with the bend so the sheen travels with the wave.
-			n = normalize(n + vec3(wd.x, 0.0, wd.y) * bend * 1.6);
-
-			vec3 world = iPos + p;
-			vec4 mvPosition = modelViewMatrix * vec4(world, 1.0);
-			gl_Position = projectionMatrix * mvPosition;
-
-			// Half lambert: a blade is thin enough that light wraps right around it.
-			float lam = 0.5 + 0.5 * dot(n, uSunDir);
-			lam *= lam;
-			// Backlit rim - at eleven degrees the whole meadow lights from behind.
-			vec3 vdir = normalize(world - cameraPosition);
-			float rim = pow(clamp(dot(vdir, uSunDir), 0.0, 1.0), 4.0) * (0.30 + 0.70 * h);
-
-			// Sun occlusion from the porch and the chime, evaluated once per blade
-			// at its root: a 0.22 m blade is far shorter than the softness of the
-			// edges it sits under, so per-vertex would only cost more.
-			float shade = sunOcclusion(iPos + vec3(0.0, 0.06, 0.0));
-
-			// Warm meadow rather than cool olive. At golden hour dry grass runs
-			// amber at the tips and stays green only down in the sward, and that
-			// warm-over-green split is most of what says "low sun" here.
-			vec3 albedo = mix(uGrassRoot, uGrassTip, h) * (1.0 + (iTint - 0.5) * 0.16);
-
-			// The rim term is direct sun through a thin blade, so it takes the
-			// shadow at full strength; the half-lambert term is mostly skylight
-			// and keeps a floor.
-			vec3 litGolden = albedo * (0.55 + 1.90 * lam * mix(0.34, 1.0, shade))
-			              + uSunColor * rim * 0.9 * shade;
-			// Flat: the blade keeps its own colour, shading only enough to tell a
-			// lit face from a shaded one, and the porch's shadow still lands.
-			vec3 litFlat = albedo * (0.92 + 0.22 * lam) * mix(0.66, 1.0, shade);
-			vLit = mix(litGolden, litFlat, uFlatten);
-
-			#include <fog_vertex>
-		}
-	`;
-
-	const GRASS_FRAG = /* glsl */`
-		varying vec3 vLit;
-		#include <common>
-		#include <fog_pars_fragment>
-		void main() {
-			gl_FragColor = vec4(vLit, 1.0);
-			${FRAG_TAIL}
-		}
-	`;
-
-	function buildGrass() {
-		const n = tier.grass;
-
-		// A third of the blades has to cover the same near field, so on the low
-		// tier each one is wider and the field is pulled in (see grassRadius).
-		// Matching the count instead would put phones and the software rasteriser
-		// - which is most of who sees the low tier - in front of stubble on a
-		// painted plane, which is not what the high tier is showing.
-		const src = new THREE.PlaneGeometry(tier.name === 'low' ? 0.019 : 0.012, bladeLen, 1, 3);
-		src.translate(0, bladeLen * 0.5, 0);   // root the blade at y = 0
-
-		grassGeo = new THREE.InstancedBufferGeometry();
-		grassGeo.index = src.index;
-		grassGeo.setAttribute('position', src.getAttribute('position'));
-		grassGeo.setAttribute('normal', src.getAttribute('normal'));
-		grassGeo.setAttribute('uv', src.getAttribute('uv'));
-
-		grassGeo.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3));
-		grassGeo.setAttribute('iRot', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		grassGeo.setAttribute('iScale', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		grassGeo.setAttribute('iPhase', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		grassGeo.setAttribute('iTint', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		grassGeo.instanceCount = 0;   // nothing drawn until buildDeferred fills it
-		grassGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.5, 0), grassRadius + 1);
-
-		grassMat = new THREE.ShaderMaterial({
-			uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]),
-			vertexShader: GRASS_VERT,
-			fragmentShader: GRASS_FRAG,
-			fog: true,
-			side: THREE.DoubleSide
-		});
-		// merge() deep-clones, so re-point the shared uniforms by hand.
-		for (const k in uniforms) grassMat.uniforms[k] = uniforms[k];
-
-		grassMesh = new THREE.Mesh(grassGeo, grassMat);
-		grassMesh.frustumCulled = false;   // instances live far outside the base geometry
-		grassMesh.castShadow = false;
-		grassMesh.receiveShadow = false;
-		grassMesh.renderOrder = 0;
-		grassMesh.name = 'wcs-grass';
-		scene.add(grassMesh);
-	}
-
-	function fillGrass() {
-		const n = tier.grass;
-		const rnd = mulberry32(0x9E37);
-		const aPos = grassGeo.getAttribute('iPos');
-		const aRot = grassGeo.getAttribute('iRot');
-		const aScale = grassGeo.getAttribute('iScale');
-		const aPhase = grassGeo.getAttribute('iPhase');
-		const aTint = grassGeo.getAttribute('iTint');
-
-		let written = 0;
-		let guard = 0;
-		while (written < n && guard < n * 64) {
-			guard++;
-			// Uniform over the disc, then rejected against the density falloff so
-			// blades crowd near the chime where the camera actually looks.
-			const r = grassRadius * Math.sqrt(rnd());
-			if (r < GRASS_R_BARE) continue;              // the drip line under the chime
-			const density = 1 / (1 + (r * r) / 9);
-			if (rnd() > density) continue;
-
-			const a = rnd() * TAU;
-			const x = Math.cos(a) * r;
-			const z = Math.sin(a) * r;
-
-			aPos.setXYZ(written, x, 0, z);
-			aRot.setX(written, rnd() * TAU);
-			// Height varies in patches, not per blade - real turf grows in clumps.
-			const patch = noise.noise(x * 0.35, 0.0, z * 0.35);
-			aScale.setX(written, 0.62 + 0.55 * rnd() + 0.35 * patch);
-			aPhase.setX(written, rnd() * TAU);
-			aTint.setX(written, clamp(0.5 + 0.9 * noise.noise(x * 0.22, 3.7, z * 0.22) + 0.25 * (rnd() - 0.5), 0, 1));
-			written++;
-		}
-
-		aPos.needsUpdate = true;
-		aRot.needsUpdate = true;
-		aScale.needsUpdate = true;
-		aPhase.needsUpdate = true;
-		aTint.needsUpdate = true;
-		grassGeo.instanceCount = written;
-		counts.grass = written;
-	}
-
-	// =======================================================================
-	// SHRUBS
-	// =======================================================================
-	//
-	// Alpha-tested leaf cards clustered into three masses behind the chime.
-	// They read the same flow texture as the grass but respond slower and
-	// wider, the way a mass with real branch stiffness does.
-
-	let shrubGeo = null;
-	let shrubMat = null;
-	let shrubMesh = null;
-	let shrubTex = null;
-
-	// Placed OFF the default camera's sight line. The spec wants the tube
-	// bottoms read against dark foliage and the tops against bright sky, which
-	// is right, but a mass sitting square behind the chime swallowed the sail and
-	// the lower half of the bundle. These flank it instead.
-	// Kept clear of the default camera's sight line by at least 8 degrees, which
-	// is the chime's own angular half-width plus a margin. The first cluster used
-	// to sit 6.3 degrees off axis with a 6.2 degree angular radius, so its edge
-	// grazed the tube bottoms and the sail and read as foliage growing through
-	// the chime.
-	const SHRUB_CLUSTERS = PAL.shrubClusters || [
-		{ x: -3.00, y: 0.60, z: 5.60, r: 1.05 },
-		{ x: -6.80, y: 0.70, z: -1.60, r: 1.15 },
-		{ x: -2.40, y: 0.45, z: 7.40, r: 0.90 }
-	];
-
-	// A leaf-cluster mask built as raw bytes. No canvas, so this module never
-	// touches the DOM.
-	function makeLeafClusterTexture() {
-		const sc = pcol('shrub', 0x5f6b3a);
-		const shrubR = sc.r, shrubG = sc.g, shrubB = sc.b;
-		const S = 64;
-		const data = new Uint8Array(S * S * 4);
-		const rnd = mulberry32(0x51F0);
-		// Many small lobes rather than a few big ones: a card has to survive being
-		// scaled up until the cards knit into a mass, and one fat blob at that size
-		// reads as a balloon.
-		const lobes = [];
-		for (let i = 0; i < 16; i++) {
-			lobes.push({
-				cx: 0.5 + (rnd() - 0.5) * 0.66,
-				cy: 0.5 + (rnd() - 0.5) * 0.66,
-				rx: 0.055 + rnd() * 0.085,
-				ry: 0.045 + rnd() * 0.070,
-				rot: rnd() * TAU
-			});
-		}
-		for (let j = 0; j < S; j++) {
-			for (let i = 0; i < S; i++) {
-				const u = (i + 0.5) / S;
-				const v = (j + 0.5) / S;
-				let cover = 0;
-				for (let k = 0; k < lobes.length; k++) {
-					const L = lobes[k];
-					const dx = u - L.cx, dy = v - L.cy;
-					const c = Math.cos(L.rot), s = Math.sin(L.rot);
-					const px = (dx * c + dy * s) / L.rx;
-					const py = (-dx * s + dy * c) / L.ry;
-					const d = px * px + py * py;
-					if (d < 1) cover = Math.max(cover, 1 - d);
-				}
-				// Erode the edges with noise so no two cards silhouette alike.
-				const e = 0.5 + 0.5 * noise.noise(u * 14, v * 14, 4.2);
-				const alpha = cover > 0 ? clamp((cover * 3.4) * (0.55 + 0.75 * e), 0, 1) : 0;
-				const shade = 0.62 + 0.38 * e;
-				const o = (j * S + i) * 4;
-				// Keyed off the palette's shrub colour rather than a nursery green,
-				// or the bushes read as plastic against the meadow.
-				data[o] = Math.round(255 * shrubR * shade);
-				data[o + 1] = Math.round(255 * shrubG * shade);
-				data[o + 2] = Math.round(255 * shrubB * shade);
-				data[o + 3] = Math.round(255 * alpha);
-			}
-		}
-		const tex = new THREE.DataTexture(data, S, S, THREE.RGBAFormat, THREE.UnsignedByteType);
-		tex.colorSpace = THREE.SRGBColorSpace;
-		tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-		tex.minFilter = THREE.LinearMipmapLinearFilter;
-		tex.magFilter = THREE.LinearFilter;
-		tex.generateMipmaps = true;
-		tex.needsUpdate = true;
-		return tex;
-	}
-
-	const SHRUB_VERT = /* glsl */`
-		uniform float uFlatten;
-		uniform float uFlutter;
-		attribute vec3 iPos;
-		attribute float iRot;
-		attribute float iScale;
-		attribute float iPhase;
-		attribute float iSway;
-
-		uniform sampler2D uFlow;
-		uniform float uFlowExtent;
-		uniform float uFlowScale;
-		uniform float uTime;
-		uniform vec3 uSunColor;
-
-		varying vec2 vUv;
-		varying vec3 vLit;
-
-		#include <common>
-		#include <fog_pars_vertex>
-		${FLOW_DECODE}
-		${SUN_OCCLUSION}
-
-		void main() {
-			vUv = uv;
-
-			// Cheap per-card pitch from the phase; saves an attribute.
-			float pitch = fract(sin(iPhase * 12.9898) * 43758.5453) * 1.2 - 0.6;
-
-			vec3 p = position * iScale;
-			float cp = cos(pitch), sp = sin(pitch);
-			p.yz = mat2(cp, -sp, sp, cp) * p.yz;
-			float c = cos(iRot), s = sin(iRot);
-			p.xz = mat2(c, -s, s, c) * p.xz;
-
-			vec3 nrm = vec3(0.0, 0.0, 1.0);
-			nrm.yz = mat2(cp, -sp, sp, cp) * nrm.yz;
-			nrm.xz = mat2(c, -s, s, c) * nrm.xz;
-
-			vec2 w = sampleFlow(iPos.xz);
-			float ws = length(w);
-			vec2 wd = ws > 1e-3 ? w / ws : vec2(1.0, 0.0);
-
-			// A branch leans further than a grass blade and lags behind it.
-			float bend = ws * 0.06 * iSway;
-			vec3 world = iPos + p;
-			world.xz += wd * bend;
-			world.y -= bend * bend * 0.30;
-			float shrubFlutter = smoothstep(0.0, 1.30, ws) * min(ws, 8.0);
-			world.xz += vec2(-wd.y, wd.x) * sin(uFlutter * (0.55 + 0.24 * fract(iPhase)) + iPhase) * 0.028 * shrubFlutter * 0.12 * iSway;
-
-			vec4 mvPosition = modelViewMatrix * vec4(world, 1.0);
-			gl_Position = projectionMatrix * mvPosition;
-
-			float lam = 0.5 + 0.5 * dot(nrm, uSunDir);
-			lam *= lam;
-			vec3 vdir = normalize(world - cameraPosition);
-			float rim = pow(clamp(dot(vdir, uSunDir), 0.0, 1.0), 3.0);
-			float shade = sunOcclusion(world);
-			// Foliage is deep: the interior of the mass is in its own shade, so key
-			// the ambient off how far the card sits up the bush.
-			vec3 litGolden = vec3(0.42 + 0.30 * iSway + 1.45 * lam * mix(0.34, 1.0, shade))
-			               + uSunColor * rim * 0.70 * shade;
-			// Flat: the leaf texture carries the colour, so this only has to say
-			// which side of the bush the light is on.
-			vec3 litFlat = vec3((0.84 + 0.26 * lam) * mix(0.76, 1.0, shade));
-			vLit = mix(litGolden, litFlat, uFlatten);
-
-			#include <fog_vertex>
-		}
-	`;
-
-	const SHRUB_FRAG = /* glsl */`
-		uniform sampler2D uLeafTex;
-		varying vec2 vUv;
-		varying vec3 vLit;
-		#include <common>
-		#include <fog_pars_fragment>
-		void main() {
-			vec4 t = texture2D(uLeafTex, vUv);
-			// Alpha test rather than blending: no sorting cost, no depth sorting bugs.
-			if (t.a < 0.5) discard;
-			gl_FragColor = vec4(t.rgb * vLit, 1.0);
-			${FRAG_TAIL}
-		}
-	`;
-
-	function buildShrubs() {
-		const n = tier.shrubCards;
-		shrubTex = makeLeafClusterTexture();
-
-		const src = new THREE.PlaneGeometry(1, 1, 1, 1);
-		shrubGeo = new THREE.InstancedBufferGeometry();
-		shrubGeo.index = src.index;
-		shrubGeo.setAttribute('position', src.getAttribute('position'));
-		shrubGeo.setAttribute('normal', src.getAttribute('normal'));
-		shrubGeo.setAttribute('uv', src.getAttribute('uv'));
-		shrubGeo.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3));
-		shrubGeo.setAttribute('iRot', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		shrubGeo.setAttribute('iScale', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		shrubGeo.setAttribute('iPhase', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		shrubGeo.setAttribute('iSway', new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
-		shrubGeo.instanceCount = 0;
-		shrubGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1, -3), 8);
-
-		shrubMat = new THREE.ShaderMaterial({
-			uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]),
-			vertexShader: SHRUB_VERT,
-			fragmentShader: SHRUB_FRAG,
-			fog: true,
-			side: THREE.DoubleSide
-		});
-		for (const k in uniforms) shrubMat.uniforms[k] = uniforms[k];
-		shrubMat.uniforms.uLeafTex = { value: shrubTex };
-
-		shrubMesh = new THREE.Mesh(shrubGeo, shrubMat);
-		shrubMesh.frustumCulled = false;
-		shrubMesh.name = 'wcs-shrubs';
-		scene.add(shrubMesh);
-	}
-
-	function fillShrubs() {
-		const n = tier.shrubCards;
-		const rnd = mulberry32(0x2C1B);
-		const aPos = shrubGeo.getAttribute('iPos');
-		const aRot = shrubGeo.getAttribute('iRot');
-		const aScale = shrubGeo.getAttribute('iScale');
-		const aPhase = shrubGeo.getAttribute('iPhase');
-		const aSway = shrubGeo.getAttribute('iSway');
-
-		// Share the cards out by cluster volume so the big bush is the dense one.
-		let total = 0;
-		for (const c of SHRUB_CLUSTERS) total += c.r * c.r * c.r;
-
-		let written = 0;
-		for (let ci = 0; ci < SHRUB_CLUSTERS.length && written < n; ci++) {
-			const c = SHRUB_CLUSTERS[ci];
-			const share = ci === SHRUB_CLUSTERS.length - 1
-				? n - written
-				: Math.round(n * (c.r * c.r * c.r) / total);
-			for (let k = 0; k < share && written < n; k++) {
-				// Bias outward: a bush is mostly a shell, and interior cards are
-				// invisible geometry you still pay for.
-				const rho = c.r * Math.pow(rnd(), 0.35);
-				const th = rnd() * TAU;
-				const ph = Math.acos(2 * rnd() - 1);
-				const x = c.x + rho * Math.sin(ph) * Math.cos(th);
-				const y = c.y + rho * Math.cos(ph) * 0.85;
-				const z = c.z + rho * Math.sin(ph) * Math.sin(th);
-				if (y < 0.05) continue;   // nothing below the soil
-
-				aPos.setXYZ(written, x, y, z);
-				aRot.setX(written, rnd() * TAU);
-				// Sized so neighbouring cards overlap even at the low tier's card
-				// count; separated cards read as floating balls, not as a bush.
-				aScale.setX(written, (0.44 + 0.30 * rnd()) * (0.7 + 0.4 * c.r));
-				aPhase.setX(written, rnd() * TAU);
-				// Cards near the top of the mass sway most; the base is anchored.
-				aSway.setX(written, clamp((y - c.y + c.r) / (2 * c.r), 0, 1));
-				written++;
-			}
-		}
-
-		aPos.needsUpdate = true;
-		aRot.needsUpdate = true;
-		aScale.needsUpdate = true;
-		aPhase.needsUpdate = true;
-		aSway.needsUpdate = true;
-		shrubGeo.instanceCount = written;
-		counts.shrubCards = written;
-	}
 
 	// STREAMERS
 	// =======================================================================
@@ -1532,13 +909,9 @@ export function createWindViz(opts) {
 	// Assembly
 	// =======================================================================
 
-	buildGrass();
-	buildShrubs();
 	buildStreaks();
 	buildLeaves();
 	buildRibbon();
-
-	let deferredDone = false;
 
 	function disposeMesh(mesh, geo, mat) {
 		if (mesh) {
@@ -1554,51 +927,15 @@ export function createWindViz(opts) {
 
 		counts,
 
-		// Filling nine thousand blade transforms costs about 15 ms. Deferring it
-		// to frame 2 is the whole reason first paint is instant.
-		buildDeferred() {
-			if (deferredDone) return;
-			deferredDone = true;
-			fillGrass();
-			fillShrubs();
-		},
+		// Kept as a no-op: the meadow used to fill nine thousand blade transforms
+		// here, which cost about 15 ms and was the whole reason it was deferred
+		// past first paint. The static ground cover lives in scene.js now and is
+		// cheap enough to build outright, but main.js still calls this.
+		buildDeferred() {},
 
 		update(dt, tSec, anchor, plateCentre) {
-			// The flow texture is re-baked in place by wind.js; re-point the uniform
-			// in case it only exists after the first bake.
-			if (wind.flowTexture && uniforms.uFlow.value !== wind.flowTexture) {
-				uniforms.uFlow.value = wind.flowTexture;
-			}
-			// Track the chime's shadow disc to where the chime actually is. The
-			// whole assembly swings on its bridle, so the plate centroid is the
-			// bundle's horizontal position; the disc height stays fixed because it
-			// stands for the middle of the tubes, which hang the same distance
-			// below the plate however far the rig leans.
-			if (plateCentre && Number.isFinite(plateCentre[0])) {
-				const c = uniforms.uChimeCentre.value;
-				c.x = plateCentre[0];
-				c.z = plateCentre[2];
-			}
-			uniforms.uTime.value = tSec;
-			refreshSun();
-			// A ShaderMaterial only re-uploads its uniform block when the renderer
-			// happens to rebind it or when this flag is set. Setting it is a boolean
-			// write and it removes any dependence on scene draw order.
-			if (grassMat) grassMat.uniformsNeedUpdate = true;
-			if (shrubMat) shrubMat.uniformsNeedUpdate = true;
-
 			const step = clamp(dt, 0, 0.100);
 			vizTime += step;
-			// One rate for every oscillator in the scene, proportional to the air
-			// that is actually moving. At the default 12 mph it lands near the
-			// 5 rad/s the grass used to run at; in dead calm it is zero and the
-			// whole meadow holds still.
-			const meanMs = wind.state.speedMph * 0.44704 * wind.state.gust;
-			flutterPhase += meanMs * 1.05 * step;
-			// Wrapped well away from the precision floor: a float32 uniform at
-			// 1e6 radians has lost the fractional part a sine needs.
-			if (flutterPhase > TAU * 1024) flutterPhase -= TAU * 1024;
-			uniforms.uFlutter.value = flutterPhase;
 			updateStreaks(step);
 			updateLeaves(step, tSec);
 			updateRibbon(step, tSec, anchor);
@@ -1606,38 +943,22 @@ export function createWindViz(opts) {
 
 		setTier(next) {
 			tier = next;
-			grassRadius = tier.name === 'low' ? 8.5 : GRASS_R;
-			disposeMesh(grassMesh, grassGeo, grassMat);
-			disposeMesh(shrubMesh, shrubGeo, shrubMat);
 			disposeMesh(streakMesh, streakGeo, streakMat);
 			disposeMesh(leafMesh, leafGeo, leafMat);
 			disposeMesh(ribMesh, ribGeo, ribMat);
-			if (shrubTex) { shrubTex.dispose(); shrubTex = null; }
 
-			buildGrass();
-			buildShrubs();
 			buildStreaks();
 			buildLeaves();
 			buildRibbon();
-
-			// A tier change happens mid-session, so fill immediately rather than
-			// leaving the ground bare for a frame.
-			fillGrass();
-			fillShrubs();
-			deferredDone = true;
 		},
 
 		dispose() {
-			disposeMesh(grassMesh, grassGeo, grassMat);
-			disposeMesh(shrubMesh, shrubGeo, shrubMat);
 			disposeMesh(streakMesh, streakGeo, streakMat);
 			disposeMesh(leafMesh, leafGeo, leafMat);
 			disposeMesh(ribMesh, ribGeo, ribMat);
-			if (shrubTex) { shrubTex.dispose(); shrubTex = null; }
-			neutralFlow.dispose();
-			grassMesh = shrubMesh = streakMesh = leafMesh = ribMesh = null;
-			grassGeo = shrubGeo = streakGeo = leafGeo = ribGeo = null;
-			grassMat = shrubMat = streakMat = leafMat = ribMat = null;
+			streakMesh = leafMesh = ribMesh = null;
+			streakGeo = leafGeo = ribGeo = null;
+			streakMat = leafMat = ribMat = null;
 		}
 	};
 

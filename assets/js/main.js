@@ -44,13 +44,11 @@ const DEFAULTS = {
 const TIERS = {
 	high: {
 		name: 'high',
-		grass: 9000,
 		// A handful of long streamers, not a particle field: see the STREAMERS
 		// note in windviz.js for why three reads as wind and three hundred reads
 		// as snow.
 		trails: 12,
 		leaves: 60,
-		shrubCards: 140,
 		ribbonSegs: 14,
 		shadowMapSize: 2048,
 		bloom: true,
@@ -60,10 +58,8 @@ const TIERS = {
 	},
 	low: {
 		name: 'low',
-		grass: 3000,
 		trails: 9,
 		leaves: 22,
-		shrubCards: 60,
 		ribbonSegs: 9,
 		shadowMapSize: 1024,
 		bloom: false,
@@ -1406,7 +1402,10 @@ function frame( nowMs ) {
 	// 9. The grass and shrub shaders read this; it re-bakes on every 3rd call.
 	try {
 
-		wind.updateFlowTexture();
+		// Nothing samples the baked flow texture any more: it existed for the
+		// grass and shrub vertex shaders, and the ground cover is static
+		// geometry in scene.js now. Left in wind.js, simply not driven.
+		// wind.updateFlowTexture();
 
 	} catch ( err ) {
 
@@ -1669,13 +1668,12 @@ function snapshot() {
 		drawCalls: info.drawCalls | 0,
 		triangles: info.triangles | 0,
 		particles: {
-			// shrubCards is a POOL size; leaves and grass are live counts. The two
-			// kinds of number are not comparable and the names say which is which.
+			// trails is a POOL size, leaves is a live count. Streamer alpha is
+			// gated on wind speed, so in a lull the pool is allocated and
+			// invisible; the two numbers do not mean the same thing.
 			trails: viz && viz.counts ? viz.counts.trails | 0 : 0,
-			shrubCardPool: viz && viz.counts ? viz.counts.shrubCards | 0 : 0,
 			ribbonNodes: tier.ribbonSegs | 0,
-			leaves: viz && viz.counts ? viz.counts.leaves | 0 : 0,
-			grass: viz && viz.counts ? viz.counts.grass | 0 : 0
+			leaves: viz && viz.counts ? viz.counts.leaves | 0 : 0
 		},
 		// The wind couplings that live in the renderer rather than in the rig.
 		// Without these the only way to check that clouds, haze and cord lean

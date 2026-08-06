@@ -152,9 +152,12 @@ const STYLES = {
     tubeRoughness: 1.0,
     tubeBrushed: false,
 
+    tufts: 95,
+    tuftRadius: 5.3,
     grassRoot: 0x8ea154,
     grassTip: 0xcdd189,
-    shrub: 0xa3c077,
+    shrub: 0x54803f,
+    bushFlat: 0.30,
     // Placed for a camera that looks DOWN: the golden set sits five to seven
     // metres out, which an orthographic frame 2.6 m tall never reaches. These
     // sit close enough to be in shot and low enough not to climb over the
@@ -228,9 +231,22 @@ const STYLES = {
     tubeRoughness: 1.0,
     tubeBrushed: true,
 
+    // A perspective camera looking ACROSS a meadow sees far more ground than an
+    // orthographic one looking down at a lawn, so this needs many more tufts
+    // over a much wider disc. They are still static and still six triangles
+    // each, which is a fraction of what nine thousand shader-driven blades cost.
+    tufts: 1500,
+    tuftRadius: 9.5,
+    tuftHeight: 0.20,
+    shrubClusters: [
+      { x: -3.00, y: 0.60, z: 5.60, r: 1.05 },
+      { x: -6.80, y: 0.70, z: -1.60, r: 1.15 },
+      { x: -2.40, y: 0.45, z: 7.40, r: 0.90 }
+    ],
     grassRoot: 0x444620,
     grassTip: 0xb0a04d,
-    shrub: 0x66753d,
+    shrub: 0x4c5a2e,
+    bushFlat: 0.22,
     streak: 0xffe9c9,
     leafPalette: [0xc46a2a, 0xd99a3c, 0x8d5a22],
     ribbon: 0xc9425a,
@@ -244,6 +260,7 @@ const _vB = new THREE.Vector3();
 const _vC = new THREE.Vector3();
 const _vMid = new THREE.Vector3();
 const _ndc = new THREE.Vector2();
+const _mat = new THREE.Matrix4();
 const _plane = new THREE.Plane();
 const _ray = new THREE.Raycaster();
 const _camDir = new THREE.Vector3();
@@ -727,6 +744,186 @@ export function createStage(opts) {
   porch.add(hook);
 
   scene.add(porch);
+
+  // -- ground cover ---------------------------------------------------------
+  //
+  // Bushes are a few overlapping spheres, not a cloud of alpha-tested leaf
+  // cards. That is how the reference art gets its silhouette: a lumpy outline
+  // made of round lobes, hard-edged against a flat lawn. Three practical wins
+  // come with it. It is one draw call for every bush in the scene. It casts a
+  // real, solid shadow, where a card cluster's shadow is a mess of pinholes.
+  // And there is no alpha, so nothing has to sort against the grass.
+  //
+  // The lawn is just the ground plane. A field of individual blades reads as
+  // stipple at this scale and spent three thousand instances doing it; a solid
+  // surface with a real shadow falling across it is both cheaper and closer to
+  // the reference. What is left of the grass is a sparse scatter of small
+  // static tufts -- the spouts that poke up here and there -- clustered toward
+  // the bushes, where growth actually gets away from a mower.
+  const cover = new THREE.Group();
+  scene.add(cover);
+
+  const coverGeoms = [];
+  const coverMats = [];
+
+  function buildGroundCover() {
+    const clusters = S.shrubClusters || [];
+
+    // One bush is a big core lobe with a ring of smaller ones around its skirt
+    // and a couple riding on top. Offsets are in units of the cluster radius so
+    // a bush of any size keeps its proportions.
+    // The skirt lobes sit well INSIDE the core's radius. Spread out they read as
+    // a pile of separate balls; overlapping they merge into one mass whose only
+    // trace of the spheres is a scalloped outline, which is the whole point.
+    const LOBES = [
+      [0.00, 0.60, 0.00, 1.00],
+      [-0.56, 0.36, 0.16, 0.72],
+      [0.52, 0.38, -0.18, 0.76],
+      [0.11, 0.33, 0.55, 0.68],
+      [-0.17, 0.36, -0.53, 0.64],
+      [-0.33, 0.84, -0.24, 0.60],
+      [0.32, 0.87, 0.21, 0.56],
+      [0.03, 1.02, -0.05, 0.48],
+    ];
+
+    if (clusters.length) {
+      // 12 x 8 segments is enough that a lobe reads as round at this scale and
+      // few enough that two dozen of them are free.
+      const bushGeo = new THREE.SphereGeometry(1, 12, 8);
+      const bushMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,   // per-instance colour carries the tint
+        roughness: 0.98,
+        metalness: 0,
+        envMapIntensity: 0.5 * S.envIntensity,
+        // A sphere under a directional light has a wide tonal range and reads as
+        // a ball. Lifting the dark end with a matching emissive compresses that
+        // range so the mass reads as one flat-ish shape with a lumpy edge, and
+        // leaves just enough gradient to say which side the sun is on.
+        emissive: new THREE.Color(S.shrub),
+        emissiveIntensity: S.bushFlat || 0,
+      });
+      const total = clusters.length * LOBES.length;
+      const bushes = new THREE.InstancedMesh(bushGeo, bushMat, total);
+      bushes.castShadow = true;
+      bushes.receiveShadow = true;
+      bushes.name = 'wcs-bushes';
+
+      const base = new THREE.Color(S.shrub);
+      let n = 0;
+      for (let c = 0; c < clusters.length; c++) {
+        const cl = clusters[c];
+        const r = cl.r || 0.4;
+        for (let k = 0; k < LOBES.length; k++) {
+          const L = LOBES[k];
+          // A little per-lobe jitter, seeded so the bush is the same shape on
+          // every visit. A bush that reshuffles itself each reload reads as
+          // noise rather than as a thing that grows there.
+          const j = hash1(c * 37.1 + k * 5.7);
+          const j2 = hash1(c * 11.3 + k * 19.4 + 0.5);
+          const s = r * L[3] * (0.86 + 0.28 * j);
+          _vA.set(
+            cl.x + L[0] * r * (0.9 + 0.2 * j2),
+            (cl.y || 0) * 0.25 + L[1] * r,
+            cl.z + L[2] * r * (0.9 + 0.2 * j)
+          );
+          _mat.makeScale(s, s * 0.86, s);   // squashed: a bush is wider than it is tall
+          _mat.setPosition(_vA.x, _vA.y, _vA.z);
+          bushes.setMatrixAt(n, _mat);
+          // Lobes that sit lower are deeper in the mass and darker; the shading
+          // a sphere gets on its own is not enough to separate them.
+          _colA.copy(base).multiplyScalar(0.86 + 0.16 * (L[1] / 1.02) + 0.04 * j);
+          bushes.setColorAt(n, _colA);
+          n++;
+        }
+      }
+      bushes.instanceMatrix.needsUpdate = true;
+      if (bushes.instanceColor) bushes.instanceColor.needsUpdate = true;
+      cover.add(bushes);
+      coverGeoms.push(bushGeo);
+      coverMats.push(bushMat);
+    }
+
+    // -- tufts --------------------------------------------------------------
+    // Three tapered blades in a fan, built once and instanced. No wind term at
+    // all: the streamers, the leaves, the telltale and the chime itself carry
+    // the wind, and grass that twitches with them was the single biggest source
+    // of visual noise in the frame.
+    const BLADES = 3;
+    const TUFT_H = S.tuftHeight || 0.105;
+    const posArr = [];
+    const nrmArr = [];
+    const idxArr = [];
+    for (let b = 0; b < BLADES; b++) {
+      const yaw = (b / BLADES) * Math.PI * 2 + 0.4;
+      const lean = 0.22 + 0.16 * hash1(b * 3.3);
+      const h = TUFT_H * (0.7 + 0.5 * hash1(b * 7.7));
+      const w = 0.011;
+      const cx = Math.cos(yaw), sz = Math.sin(yaw);
+      // Root pair, then a tip leaning downwind of its own yaw.
+      const tipX = cx * lean * h, tipZ = sz * lean * h;
+      const px = -sz * w, pz = cx * w;
+      const o = posArr.length / 3;
+      posArr.push(px, 0, pz, -px, 0, -pz, tipX, h, tipZ);
+      for (let k = 0; k < 3; k++) nrmArr.push(0, 1, 0);
+      idxArr.push(o, o + 1, o + 2);
+    }
+    const tuftGeo = new THREE.BufferGeometry();
+    tuftGeo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+    tuftGeo.setAttribute('normal', new THREE.Float32BufferAttribute(nrmArr, 3));
+    tuftGeo.setIndex(idxArr);
+
+    const tuftMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 1.0,
+      metalness: 0,
+      side: THREE.DoubleSide,
+      envMapIntensity: 0.4 * S.envIntensity,
+    });
+
+    const N_TUFTS = S.tufts || 0;
+    if (N_TUFTS > 0) {
+      const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, N_TUFTS);
+      tufts.castShadow = false;   // a 15 cm blade's shadow is below the map's resolution
+      tufts.receiveShadow = true;
+      tufts.name = 'wcs-tufts';
+
+      const root = new THREE.Color(S.grassRoot);
+      const tip = new THREE.Color(S.grassTip);
+      for (let i = 0; i < N_TUFTS; i++) {
+        const a = hash1(i * 1.37) * Math.PI * 2;
+        // Square-rooted radius spreads them evenly over the disc instead of
+        // piling them at the middle.
+        const rad = 0.7 + Math.sqrt(hash1(i * 2.71 + 0.3)) * (S.tuftRadius || 5.0);
+        let x = Math.cos(a) * rad;
+        let z = Math.sin(a) * rad;
+        // Pull a third of them in toward a bush: grass gets away from a mower
+        // at the foot of something, and the reference art puts its spouts
+        // exactly there.
+        if (clusters.length && hash1(i * 5.11 + 0.7) < 0.55) {
+          const cl = clusters[i % clusters.length];
+          const t = 0.72 + 0.5 * hash1(i * 8.9);
+          x = cl.x + (x - cl.x) * 0.16 * t + (hash1(i * 4.4) - 0.5) * 0.75;
+          z = cl.z + (z - cl.z) * 0.16 * t + (hash1(i * 6.2) - 0.5) * 0.75;
+        }
+        const s = 0.70 + 0.55 * hash1(i * 9.13);
+        _mat.makeRotationY(hash1(i * 3.91) * Math.PI * 2);
+        _mat.scale(_vB.set(s, s, s));
+        _mat.setPosition(x, 0, z);
+        tufts.setMatrixAt(i, _mat);
+        // Biased toward the root colour: the tip green is the dry, yellow end
+        // of the range, and a scatter of it across a green lawn reads as straw.
+        _colA.copy(root).lerp(tip, 0.08 + 0.42 * hash1(i * 12.7));
+        tufts.setColorAt(i, _colA);
+      }
+      tufts.instanceMatrix.needsUpdate = true;
+      if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+      cover.add(tufts);
+    }
+    coverGeoms.push(tuftGeo);
+    coverMats.push(tuftMat);
+  }
+
+  buildGroundCover();
 
   // -- chime ----------------------------------------------------------------
   const chime = new THREE.Group();
@@ -1502,6 +1699,8 @@ export function createStage(opts) {
     postGeo.dispose();
     roofGeo.dispose();
     roofMat.dispose();
+    for (const g of coverGeoms) g.dispose();
+    for (const m of coverMats) m.dispose();
     hookGeo.dispose();
     hookMat.dispose();
     cedarMat.dispose();
