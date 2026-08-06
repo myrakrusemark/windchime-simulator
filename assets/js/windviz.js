@@ -23,6 +23,22 @@ import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 // ---------------------------------------------------------------------------
 
 const TAU = Math.PI * 2;
+// Half-width of a streamer ribbon, metres. At the storybook frame height this is
+// about five pixels: a drawn line, not a solid shape.
+const TRAIL_WIDTH = 0.009;
+// Streamers live in a much tighter box than the motes did. The old field could
+// spawn anywhere in 16 x 16 m because there were hundreds of them and only the
+// ones near the camera mattered; with two or three, a trail that spawns six
+// metres off to the side is simply never seen. This box is a little wider than
+// the frame so they still enter from off-screen rather than popping in.
+// Wide enough that a streamer is well off screen before it recycles. The
+// visible ground patch is roughly 3.7 m across and 6 m deep, so this leaves
+// about two metres of margin on every side for it to fade out in unseen. Too
+// tight and a trail visibly blinks out mid-frame, which is worse than not
+// having one at all.
+const TRAIL_HX = 5.0;
+const TRAIL_HZ = 5.0;
+const TRAIL_Y1 = 3.2;
 
 // The airborne domain: a 16 x 6 x 16 m box centred on (0, 1.5, 0). Motes are
 // spawned on its upwind face and recycled when they leave, so the direction of
@@ -214,7 +230,7 @@ export function createWindViz(opts) {
 	);
 	neutralFlow.needsUpdate = true;
 
-	const counts = { grass: 0, streaks: 0, leaves: 0, shrubCards: 0 };
+	const counts = { grass: 0, trails: 0, leaves: 0, shrubCards: 0 };
 
 	// Shared uniforms. The same objects are handed to the grass and the shrub
 	// material so a single write updates both.
@@ -717,53 +733,126 @@ export function createWindViz(opts) {
 		counts.shrubCards = written;
 	}
 
-	// =======================================================================
-	// STREAKS
+	// STREAMERS
 	// =======================================================================
 	//
-	// Airborne dust, seed fluff and light debris. Simulated on the CPU because
-	// the positions have to come from the same wind.sample() the sail uses; a
-	// GPU ping-pong would be a second, silently divergent copy of the field.
+	// Airborne dust and seed fluff, drawn as a few LONG trails instead of a
+	// field of short dashes. Three hundred lozenges is a snowstorm: the eye
+	// reads a uniform stipple as something falling, not as air moving. Two or
+	// three lines that visibly follow the flow read as wind, and each one
+	// carries far more information -- a dash shows the direction at a point, a
+	// trail shows the whole path the air took to get there.
 	//
-	// Two rules carry the whole "make a gust read as a gust" requirement:
-	//   1. length = |v| * 0.055, i.e. the distance the air moved in the last
-	//      55 ms. Speed is drawn as a distance on screen, with nothing to tune.
-	//   2. opacity is thresholded on speed, so slow air is literally invisible.
-	//      A lull empties the frame; a gust front materialises out of nothing.
+	// Each streamer is a head advected through wind.sample(), leaving a ribbon
+	// of its recent positions. Nodes are laid down at a fixed DISTANCE rather
+	// than at a fixed time, so the drawn length does not change with the frame
+	// rate, and the spacing scales with speed so faster air draws a longer line.
+	// The head is advanced in substeps small enough to lay a node each time,
+	// which is what keeps the curve smooth at 10 fps as well as at 144.
+	//
+	// The wandering is not decoration. Superimposed on the drift is a slow
+	// rotation in the plane ACROSS the flow, which makes the path a helix. Below
+	// about one times the mean speed the downwind motion wins and it draws a
+	// long S; above it the transverse motion wins and the path closes into a
+	// loop -- the curl you see once in a while. Same mechanism, one number
+	// apart, so a streamer that is snaking and one that is curling are the same
+	// object and behave consistently when a gust hits them.
+
+	const TRAIL_NODES = 44;
+	const TRAIL_SUBSTEP_CAP = 28;
 
 	let streakGeo = null;
 	let streakMat = null;
 	let streakMesh = null;
-	let sPos = null, sVel = null, sSize = null, sDrag = null, sSettle = null, sAge = null, sLife = null, sAlpha = null;
+	// Head state, then the node history, newest first (index 0 is the head).
+	let tPos = null, tVel = null, tNodes = null, tFilled = null;
+	let tPhase = null, tOmega = null, tAmp = null, tAge = null, tLife = null;
+	let tPosAttr = null, tColAttr = null;
 
-	function makeLozengeGeometry() {
-		// Six vertices, four triangles, pointed at both ends. Local +Y is the
-		// length axis and local X the width, so the instance matrix can scale
-		// them independently.
-		const g = new THREE.BufferGeometry();
-		g.setAttribute('position', new THREE.Float32BufferAttribute([
-			0.0, -0.5, 0.0,
-			-0.5, -0.15, 0.0,
-			0.5, -0.15, 0.0,
-			-0.5, 0.15, 0.0,
-			0.5, 0.15, 0.0,
-			0.0, 0.5, 0.0
-		], 3));
-		g.setAttribute('uv', new THREE.Float32BufferAttribute([
-			0.5, 0.0, 0.0, 0.35, 1.0, 0.35, 0.0, 0.65, 1.0, 0.65, 0.5, 1.0
-		], 2));
-		g.setIndex([0, 2, 1, 1, 2, 4, 1, 4, 3, 3, 4, 5]);
-		g.computeVertexNormals();
-		return g;
+	const trailRnd = mulberry32(0x1357);
+
+	// Respawn on the upwind boundary. The x-faces and z-faces are chosen in
+	// proportion to the flux through each, which is exact for a horizontal flow
+	// through an axis-aligned box and keeps the inflow even on a diagonal wind.
+	function respawnTrail(i, fx, fz) {
+		const ax = Math.abs(fx), az = Math.abs(fz);
+		const sum = ax + az;
+		let x, z;
+		if (sum < 1e-5) {
+			x = (trailRnd() * 2 - 1) * TRAIL_HX;
+			z = (trailRnd() * 2 - 1) * TRAIL_HZ;
+		} else if (trailRnd() * sum < ax) {
+			x = -Math.sign(fx) * TRAIL_HX * 0.995;
+			z = (trailRnd() * 2 - 1) * TRAIL_HZ;
+		} else {
+			x = (trailRnd() * 2 - 1) * TRAIL_HX;
+			z = -Math.sign(fz) * TRAIL_HZ * 0.995;
+		}
+		// Bias low: most of what the air carries is picked up off the ground.
+		// Kept under the chime's own height so a streamer crosses the frame near
+		// the subject rather than sailing over the top of it.
+		const y = DOM_Y0 + (TRAIL_Y1 - DOM_Y0) * Math.pow(trailRnd(), 1.4);
+
+		const i3 = i * 3;
+		tPos[i3] = x; tPos[i3 + 1] = y; tPos[i3 + 2] = z;
+		wind.sample(_w, x, y, z);
+		tVel[i3] = _w.x; tVel[i3 + 1] = _w.y; tVel[i3 + 2] = _w.z;
+		tAge[i] = 0;
+		tLife[i] = 25 + trailRnd() * 20;
+		tFilled[i] = 0;
+
+		// Roughly one streamer in five gets a transverse component strong enough
+		// to beat the drift and close the path into a loop. The rest snake.
+		tPhase[i] = trailRnd() * TAU;
+		// The loop's radius is amp * meanSpeed / omega, and for a curl to CLOSE
+		// rather than draw a long arc that radius has to be small enough that the
+		// circumference fits inside the drawn length -- about 2.9 m here. The
+		// first cut used omega near 2.5, which gives a 2.6 m radius: a loop wider
+		// than the frame, so it read as a lazy bend and never as a curl.
+		if (trailRnd() < 0.22) {
+			tAmp[i] = 1.20 + trailRnd() * 0.70;
+			tOmega[i] = 22 + trailRnd() * 12;
+		} else {
+			tAmp[i] = 0.16 + trailRnd() * 0.30;
+			tOmega[i] = 0.65 + trailRnd() * 0.85;
+		}
+
+		// Collapse the whole ribbon onto the spawn point so the previous life's
+		// trail does not snap across the frame on the frame it is reused.
+		const base = i * TRAIL_NODES * 3;
+		for (let j = 0; j < TRAIL_NODES; j++) {
+			tNodes[base + j * 3] = x;
+			tNodes[base + j * 3 + 1] = y;
+			tNodes[base + j * 3 + 2] = z;
+		}
 	}
 
 	function buildStreaks() {
-		const n = tier.streaks;
-		streakGeo = makeLozengeGeometry();
-		streakGeo.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
+		const n = tier.trails;
+		const verts = n * TRAIL_NODES * 2;
 
+		streakGeo = new THREE.BufferGeometry();
+		tPosAttr = new THREE.BufferAttribute(new Float32Array(verts * 3), 3).setUsage(THREE.DynamicDrawUsage);
+		// Four components: three.js takes the fourth as alpha when the material
+		// is transparent, which is how each node fades independently.
+		tColAttr = new THREE.BufferAttribute(new Float32Array(verts * 4), 4).setUsage(THREE.DynamicDrawUsage);
+		streakGeo.setAttribute('position', tPosAttr);
+		streakGeo.setAttribute('color', tColAttr);
+
+		const idx = [];
+		for (let i = 0; i < n; i++) {
+			const o = i * TRAIL_NODES * 2;
+			for (let j = 0; j < TRAIL_NODES - 1; j++) {
+				const a = o + j * 2, b = a + 1, c = a + 2, d = a + 3;
+				idx.push(a, b, c, b, d, c);
+			}
+		}
+		streakGeo.setIndex(idx);
+
+		const c = pcol('streak', 0xffe9c9);
 		streakMat = new THREE.MeshBasicMaterial({
-			color: pcol('streak', 0xffe9c9),
+			color: 0xffffff,
+			vertexColors: true,
 			transparent: true,
 			depthWrite: false,
 			// Normal blending, not additive: additive over a bright sky is white mush.
@@ -771,171 +860,184 @@ export function createWindViz(opts) {
 			side: THREE.DoubleSide,
 			toneMapped: true
 		});
-		streakMat.onBeforeCompile = (shader) => {
-			shader.vertexShader = 'attribute float iAlpha;\nvarying float vIAlpha;\n' + shader.vertexShader
-				.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvIAlpha = iAlpha;');
-			shader.fragmentShader = 'varying float vIAlpha;\n' + shader.fragmentShader
-				.replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\n\tdiffuseColor.a *= vIAlpha;');
-		};
-		streakMat.customProgramCacheKey = () => 'wcs-streak';
 
-		streakMesh = new THREE.InstancedMesh(streakGeo, streakMat, n);
-		streakMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+		streakMesh = new THREE.Mesh(streakGeo, streakMat);
 		streakMesh.frustumCulled = false;
 		streakMesh.castShadow = false;
 		streakMesh.receiveShadow = false;
 		streakMesh.renderOrder = 3;
-		streakMesh.name = 'wcs-streaks';
+		streakMesh.name = 'wcs-streamers';
 		scene.add(streakMesh);
 
-		sPos = new Float32Array(n * 3);
-		sVel = new Float32Array(n * 3);
-		sSize = new Float32Array(n);
-		sDrag = new Float32Array(n);
-		sSettle = new Float32Array(n);
-		sAge = new Float32Array(n);
-		sLife = new Float32Array(n);
-		sAlpha = streakGeo.getAttribute('iAlpha');
+		tPos = new Float32Array(n * 3);
+		tVel = new Float32Array(n * 3);
+		tNodes = new Float32Array(n * TRAIL_NODES * 3);
+		tFilled = new Int32Array(n);
+		tPhase = new Float32Array(n);
+		tOmega = new Float32Array(n);
+		tAmp = new Float32Array(n);
+		tAge = new Float32Array(n);
+		tLife = new Float32Array(n);
 
-		const rnd = mulberry32(0x77A3);
+		const dirRad = wind.state.dirDeg * Math.PI / 180;
 		for (let i = 0; i < n; i++) {
-			// 62 percent dust, 26 percent seed fluff, 12 percent light debris.
-			// The drag coefficient is the whole point: a heavy mote LAGS a gust,
-			// and that lag is what reads as alive rather than as a texture scroll.
-			const r = rnd();
-			if (r < 0.62) { sSize[i] = 0.010; sDrag[i] = 6.0; sSettle[i] = 0.0; }
-			else if (r < 0.88) { sSize[i] = 0.022; sDrag[i] = 2.2; sSettle[i] = 0.25; }
-			else { sSize[i] = 0.016; sDrag[i] = 3.5; sSettle[i] = -0.6; }
-			sLife[i] = 14 + rnd() * 22;
-			// Seed the first fill through the whole volume so the air is already
-			// occupied on frame one instead of sweeping in from one edge.
-			sPos[i * 3] = (rnd() * 2 - 1) * DOM_HX;
-			sPos[i * 3 + 1] = DOM_Y0 + rnd() * (DOM_Y1 - DOM_Y0);
-			sPos[i * 3 + 2] = (rnd() * 2 - 1) * DOM_HZ;
-			sAge[i] = rnd() * 6;
-			wind.sample(_w, sPos[i * 3], sPos[i * 3 + 1], sPos[i * 3 + 2]);
-			sVel[i * 3] = _w.x; sVel[i * 3 + 1] = _w.y; sVel[i * 3 + 2] = _w.z;
-			sAlpha.setX(i, 0);
+			respawnTrail(i, -Math.sin(dirRad), Math.cos(dirRad));
+			// Stagger the first lives so they do not all recycle on the same
+			// frame for the rest of the session.
+			tAge[i] = trailRnd() * tLife[i] * 0.6;
 		}
-		counts.streaks = n;
+
+		trailColor = c;
+		counts.trails = n;
 	}
 
-	const streakRnd = mulberry32(0x1357);
-
-	// Respawn on the upwind boundary. The x-faces and z-faces are chosen in
-	// proportion to the flux through each, which is exact for a horizontal flow
-	// through an axis-aligned box and keeps the inflow even on a diagonal wind.
-	function respawnStreak(i, fx, fz) {
-		const ax = Math.abs(fx), az = Math.abs(fz);
-		const sum = ax + az;
-		let x, z;
-		if (sum < 1e-5) {
-			x = (streakRnd() * 2 - 1) * DOM_HX;
-			z = (streakRnd() * 2 - 1) * DOM_HZ;
-		} else if (streakRnd() * sum < ax) {
-			x = -Math.sign(fx) * DOM_HX * 0.995;
-			z = (streakRnd() * 2 - 1) * DOM_HZ;
-		} else {
-			x = (streakRnd() * 2 - 1) * DOM_HX;
-			z = -Math.sign(fz) * DOM_HZ * 0.995;
-		}
-		// Bias low: most of what the air carries is picked up off the ground.
-		const y = DOM_Y0 + (DOM_Y1 - DOM_Y0) * Math.pow(streakRnd(), 1.6);
-		sPos[i * 3] = x; sPos[i * 3 + 1] = y; sPos[i * 3 + 2] = z;
-		wind.sample(_w, x, y, z);
-		sVel[i * 3] = _w.x; sVel[i * 3 + 1] = _w.y; sVel[i * 3 + 2] = _w.z;
-		sAge[i] = 0;
-	}
+	let trailColor = null;
 
 	function updateStreaks(dt) {
-		const n = tier.streaks;
+		const n = tier.trails;
 		const dirRad = wind.state.dirDeg * Math.PI / 180;
 		const fx = -Math.sin(dirRad);
 		const fz = Math.cos(dirRad);
+		// The swirl plane: one axis horizontal and across the flow, the other up.
+		const p1x = -fz, p1z = fx;
+
+		const mean = wind.state.speedMph * 0.44704 * wind.state.gust;
+		// Node spacing, and therefore the drawn length, scales with speed: a
+		// streamer in a gust is a longer stroke as well as a faster one.
+		const seg = clamp(mean * 0.014, 0.015, 0.065);
+		const pos = tPosAttr.array;
+		const col = tColAttr.array;
 
 		camera.getWorldDirection(_camDir);
 
+		const cr = trailColor ? trailColor.r : 1;
+		const cg = trailColor ? trailColor.g : 1;
+		const cb = trailColor ? trailColor.b : 1;
+
 		for (let i = 0; i < n; i++) {
 			const i3 = i * 3;
-			let x = sPos[i3], y = sPos[i3 + 1], z = sPos[i3 + 2];
+			const base = i * TRAIL_NODES * 3;
 
-			// Relax the mote's velocity toward the air, exponentially so the step
-			// is stable at any frame time.
-			wind.sample(_w, x, y, z);
-			const f = 1 - Math.exp(-sDrag[i] * dt);
-			const vx = sVel[i3] + (_w.x - sVel[i3]) * f;
-			const vy = sVel[i3 + 1] + (_w.y + sSettle[i] - sVel[i3 + 1]) * f;
-			const vz = sVel[i3 + 2] + (_w.z - sVel[i3 + 2]) * f;
-			sVel[i3] = vx; sVel[i3 + 1] = vy; sVel[i3 + 2] = vz;
+			tAge[i] += dt;
 
-			x += vx * dt; y += vy * dt; z += vz * dt;
-			sAge[i] += dt;
+			// -- advance the head, laying nodes at a fixed distance -----------
+			let left = dt;
+			let guard = 0;
+			while (left > 1e-6 && guard < TRAIL_SUBSTEP_CAP) {
+				guard++;
+				const sp = Math.max(0.05, Math.hypot(tVel[i3], tVel[i3 + 1], tVel[i3 + 2]));
+				const h = Math.min(left, seg / sp);
+				left -= h;
 
-			if (x < -DOM_HX || x > DOM_HX || z < -DOM_HZ || z > DOM_HZ ||
-				y < DOM_Y0 || y > DOM_Y1 || sAge[i] > sLife[i]) {
-				respawnStreak(i, fx, fz);
-				x = sPos[i3]; y = sPos[i3 + 1]; z = sPos[i3 + 2];
-			} else {
-				sPos[i3] = x; sPos[i3 + 1] = y; sPos[i3 + 2] = z;
+				let x = tPos[i3], y = tPos[i3 + 1], z = tPos[i3 + 2];
+				wind.sample(_w, x, y, z);
+
+				// The transverse rotation that makes the path snake or curl. The
+				// phase MUST advance per substep, not per frame: a curl runs near
+				// 28 rad/s, which is 2.8 radians of jump per frame at 10 fps, and
+				// the loop aliased into a sawtooth.
+				tPhase[i] += tOmega[i] * h;
+				if (tPhase[i] > TAU) tPhase[i] -= TAU;
+				const a = tAmp[i] * mean;
+				const ph = tPhase[i];
+				const swx = a * Math.cos(ph) * p1x;
+				const swy = a * Math.sin(ph);
+				const swz = a * Math.cos(ph) * p1z;
+
+				// Relax toward the air plus the swirl, exponentially, so the step
+				// is stable at any frame time.
+				const f = 1 - Math.exp(-12.0 * h);
+				tVel[i3] += (_w.x + swx - tVel[i3]) * f;
+				tVel[i3 + 1] += (_w.y + swy - tVel[i3 + 1]) * f;
+				tVel[i3 + 2] += (_w.z + swz - tVel[i3 + 2]) * f;
+
+				x += tVel[i3] * h; y += tVel[i3 + 1] * h; z += tVel[i3 + 2] * h;
+				tPos[i3] = x; tPos[i3 + 1] = y; tPos[i3 + 2] = z;
+
+				const dx = x - tNodes[base], dy = y - tNodes[base + 1], dz = z - tNodes[base + 2];
+				if (dx * dx + dy * dy + dz * dz >= seg * seg) {
+					// Shift the history back one and put the head at the front.
+					tNodes.copyWithin(base + 3, base, base + (TRAIL_NODES - 1) * 3);
+					tNodes[base] = x; tNodes[base + 1] = y; tNodes[base + 2] = z;
+					if (tFilled[i] < TRAIL_NODES) tFilled[i]++;
+				}
 			}
 
-			const speed = Math.sqrt(sVel[i3] * sVel[i3] + sVel[i3 + 1] * sVel[i3 + 1] + sVel[i3 + 2] * sVel[i3 + 2]);
-			const speedNorm = clamp(speed / 9.0, 0, 1);
-
-			// Length is the distance the air travelled in the last 55 ms.
-			const len = clamp(speed * 0.055, 0.02, 0.40);
-			// Width shrinks as length grows, the way real motion blur behaves.
-			const width = sSize[i] * (0.9 - 0.5 * speedNorm);
-
-			if (speed > 1e-4) {
-				_e1.set(sVel[i3] / speed, sVel[i3 + 1] / speed, sVel[i3 + 2] / speed);
-			} else {
-				_e1.set(0, 1, 0);
+			const hx = tPos[i3], hy = tPos[i3 + 1], hz = tPos[i3 + 2];
+			if (hx < -TRAIL_HX || hx > TRAIL_HX || hz < -TRAIL_HZ || hz > TRAIL_HZ ||
+				hy < DOM_Y0 || hy > TRAIL_Y1 || tAge[i] > tLife[i]) {
+				respawnTrail(i, fx, fz);
 			}
-			_e2.crossVectors(_e1, _camDir);
-			const e2len = _e2.length();
-			if (e2len < 1e-4) {
-				// Streak pointing straight at the camera: any perpendicular will do.
-				_e2.set(-_e1.y, _e1.x, 0);
-				if (_e2.lengthSq() < 1e-8) _e2.set(1, 0, 0);
-				_e2.normalize();
-			} else {
-				_e2.multiplyScalar(1 / e2len);
-			}
-			// Ordered so the basis stays right-handed: X cross Y must give Z.
-			_e3.crossVectors(_e2, _e1);
 
-			_e2.multiplyScalar(width);
-			_e1.multiplyScalar(len);
-			_mat.makeBasis(_e2, _e1, _e3);
-			_mat.setPosition(x, y, z);
-			streakMesh.setMatrixAt(i, _mat);
-
-			// Fade in on spawn, fade out at the far boundary, and vanish entirely
-			// when the air is slow. This threshold IS the gust.
+			// -- write the ribbon --------------------------------------------
+			const filled = tFilled[i];
+			// Fade in as the trail is laid, out at the end of its life, and away
+			// from anything between the camera and the subject: a streamer half a
+			// metre from the lens is a smear across the whole shot.
+			const dcx = hx - camera.position.x;
+			const dcy = hy - camera.position.y;
+			const dcz = hz - camera.position.z;
+			const near = smoothstep(0.6, 2.2, Math.sqrt(dcx * dcx + dcy * dcy + dcz * dcz));
+			// The speed gate IS the gust: slow air is literally invisible, so a
+			// lull empties the frame and a gust front materialises out of nothing.
+			const gate = smoothstep(0.9, 3.2, mean);
+			// Fade out approaching the boundary, not on a timer: a streamer must
+			// dissolve out in the margin beyond the frame, never blink out while
+			// it is still being looked at. Age only gates the fade IN and acts as
+			// a backstop for one that is becalmed and never reaches an edge.
 			const edge = Math.min(
-				(DOM_HX - Math.abs(x)) / 1.2,
-				(DOM_HZ - Math.abs(z)) / 1.2,
-				(sLife[i] - sAge[i]) / 2.0,
+				(TRAIL_HX - Math.abs(hx)) / 0.9,
+				(TRAIL_HZ - Math.abs(hz)) / 0.9,
+				(tLife[i] - tAge[i]) / 2.0,
 				1
 			);
-			const ageFade = clamp(Math.min(sAge[i] / 0.35, edge), 0, 1);
+			const life = clamp(Math.min(tAge[i] / 0.5, edge), 0, 1);
+			const alpha = gate * near * life * 0.9;
 
-			// Fade out anything between the camera and the subject. At 900 motes
-			// a uniform field lies over the whole shot like sleet or sensor noise
-			// and stops reading as "a few things in the air catching the light";
-			// clearing the first metre and a half restores that, and it is also
-			// what real depth of field would do to a 10 mm speck this close.
-			const dx = x - camera.position.x;
-			const dy = y - camera.position.y;
-			const dz = z - camera.position.z;
-			const near = smoothstep(0.55, 1.9, Math.sqrt(dx * dx + dy * dy + dz * dz));
+			for (let j = 0; j < TRAIL_NODES; j++) {
+				const v = (i * TRAIL_NODES + j) * 2;
+				const nj = base + j * 3;
+				const x = tNodes[nj], y = tNodes[nj + 1], z = tNodes[nj + 2];
 
-			sAlpha.setX(i, smoothstep(0.15, 0.5, speedNorm) * ageFade * near * 0.85);
+				// Tangent by central difference where there is one, so the ribbon
+				// does not kink at a node.
+				const ja = Math.max(0, j - 1), jb = Math.min(TRAIL_NODES - 1, j + 1);
+				_e1.set(
+					tNodes[base + ja * 3] - tNodes[base + jb * 3],
+					tNodes[base + ja * 3 + 1] - tNodes[base + jb * 3 + 1],
+					tNodes[base + ja * 3 + 2] - tNodes[base + jb * 3 + 2]
+				);
+				if (_e1.lengthSq() < 1e-10) _e1.set(0, 1, 0); else _e1.normalize();
+
+				_e2.crossVectors(_e1, _camDir);
+				const e2len = _e2.length();
+				if (e2len < 1e-4) {
+					_e2.set(-_e1.y, _e1.x, 0);
+					if (_e2.lengthSq() < 1e-8) _e2.set(1, 0, 0);
+					_e2.normalize();
+				} else {
+					_e2.multiplyScalar(1 / e2len);
+				}
+
+				// Blunt at the head, tapering to nothing at the tail: a brush
+				// stroke, which is what a mote smeared by its own motion is.
+				const u = j / (TRAIL_NODES - 1);
+				const w = TRAIL_WIDTH * Math.pow(1 - u, 0.6);
+				const aNode = alpha * Math.pow(1 - u, 0.85) * (j < filled ? 1 : 0);
+
+				const ox = _e2.x * w, oy = _e2.y * w, oz = _e2.z * w;
+				const o0 = v * 3, o1 = o0 + 3;
+				pos[o0] = x + ox; pos[o0 + 1] = y + oy; pos[o0 + 2] = z + oz;
+				pos[o1] = x - ox; pos[o1 + 1] = y - oy; pos[o1 + 2] = z - oz;
+
+				const c0 = v * 4, c1 = c0 + 4;
+				col[c0] = cr; col[c0 + 1] = cg; col[c0 + 2] = cb; col[c0 + 3] = aNode;
+				col[c1] = cr; col[c1 + 1] = cg; col[c1 + 2] = cb; col[c1 + 3] = aNode;
+			}
 		}
 
-		streakMesh.instanceMatrix.needsUpdate = true;
-		sAlpha.needsUpdate = true;
+		tPosAttr.needsUpdate = true;
+		tColAttr.needsUpdate = true;
 	}
 
 	// =======================================================================

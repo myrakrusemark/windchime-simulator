@@ -45,8 +45,11 @@ const TIERS = {
 	high: {
 		name: 'high',
 		grass: 9000,
-		streaks: 900,
-		leaves: 90,
+		// A handful of long streamers, not a particle field: see the STREAMERS
+		// note in windviz.js for why three reads as wind and three hundred reads
+		// as snow.
+		trails: 12,
+		leaves: 60,
 		shrubCards: 140,
 		ribbonSegs: 14,
 		shadowMapSize: 2048,
@@ -58,8 +61,8 @@ const TIERS = {
 	low: {
 		name: 'low',
 		grass: 3000,
-		streaks: 300,
-		leaves: 30,
+		trails: 9,
+		leaves: 22,
 		shrubCards: 60,
 		ribbonSegs: 9,
 		shadowMapSize: 1024,
@@ -1666,11 +1669,9 @@ function snapshot() {
 		drawCalls: info.drawCalls | 0,
 		triangles: info.triangles | 0,
 		particles: {
-			// streaks and shrubCards are POOL sizes; leaves and grass are live
-			// counts. Streak alpha is thresholded on local wind speed, so in a
-			// lull most of the pool is allocated and invisible -- the two kinds of
-			// number are not comparable and the names say which is which.
-			streakPool: viz && viz.counts ? viz.counts.streaks | 0 : 0,
+			// shrubCards is a POOL size; leaves and grass are live counts. The two
+			// kinds of number are not comparable and the names say which is which.
+			trails: viz && viz.counts ? viz.counts.trails | 0 : 0,
 			shrubCardPool: viz && viz.counts ? viz.counts.shrubCards | 0 : 0,
 			ribbonNodes: tier.ribbonSegs | 0,
 			leaves: viz && viz.counts ? viz.counts.leaves | 0 : 0,
