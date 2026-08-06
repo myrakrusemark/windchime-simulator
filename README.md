@@ -32,7 +32,14 @@ The Wind Chime Simulator is a web-based application that creates a soothing ambi
 
 - `index.html`: The main HTML file that structures the web page.
 - `assets/styles.css`: The CSS file that defines the styles for the web page.
-- `assets/sim.js`: The JavaScript file that contains the logic for the wind chime simulation and API integration.
+- `assets/js/wind.js`: The wind field. Mean, gust and turbulence, sampled by everything that moves.
+- `assets/js/physics.js`: The rig. Plate, tubes, clapper and sail as a constrained particle assembly.
+- `assets/js/scene.js`: The picture. Renderer, camera, sky, light, chime meshes and cords.
+- `assets/js/windviz.js`: The visible wind. Grass, airborne streaks, leaves and the telltale ribbon.
+- `assets/js/audio.js`: Modal synthesis of a struck aluminium tube, driven by strike events.
+- `assets/js/weather.js`: Geocoding and the api.weather.gov forecast, with every failure path returning null.
+- `assets/js/main.js`: The wiring, the controls and the animation loop.
+- `assets/vendor/`: three.js r185, vendored so the page needs no build step and no CDN.
 - `assets/screen.png`: A screenshot of the Wind Chime Simulator interface.
 
 ## Credits
