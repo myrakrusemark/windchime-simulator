@@ -154,8 +154,7 @@ const STYLES = {
 
     tufts: 95,
     tuftRadius: 5.3,
-    grassRoot: 0x8ea154,
-    grassTip: 0xcdd189,
+    tuftDarken: 0.90,
     shrub: 0x54803f,
     bushFlat: 0.30,
     // Placed for a camera that looks DOWN: the golden set sits five to seven
@@ -238,13 +237,12 @@ const STYLES = {
     tufts: 1500,
     tuftRadius: 9.5,
     tuftHeight: 0.20,
+    tuftDarken: 0.90,
     shrubClusters: [
       { x: -3.00, y: 0.60, z: 5.60, r: 1.05 },
       { x: -6.80, y: 0.70, z: -1.60, r: 1.15 },
       { x: -2.40, y: 0.45, z: 7.40, r: 0.90 }
     ],
-    grassRoot: 0x444620,
-    grassTip: 0xb0a04d,
     shrub: 0x4c5a2e,
     bushFlat: 0.22,
     streak: 0xffe9c9,
@@ -766,6 +764,38 @@ export function createStage(opts) {
   const coverGeoms = [];
   const coverMats = [];
 
+  // Bush sway. Applied in the vertex shader rather than by rewriting instance
+  // matrices: one uniform write a frame moves every lobe of every bush, and the
+  // lobes keep their relative positions so the mass never comes apart.
+  //
+  // The displacement is quadratic in height above the ground, so a bush pivots
+  // at its skirt the way a rooted thing does, and it is divided by the
+  // instance's own scale because `transformed` is in the sphere's local space
+  // where a unit is one radius. instanceMatrix here is scale plus translation
+  // only, so the length of its first column IS that scale.
+  const bushUniforms = {
+    uSway: { value: new THREE.Vector2() },
+    uSwayH: { value: 1.15 },
+  };
+
+  function patchBushSway(mat) {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uSway = bushUniforms.uSway;
+      shader.uniforms.uSwayH = bushUniforms.uSwayH;
+      shader.vertexShader = 'uniform vec2 uSway;\nuniform float uSwayH;\n' + shader.vertexShader
+        .replace('#include <begin_vertex>', [
+          '#include <begin_vertex>',
+          '{',
+          '  float sc = max(length(instanceMatrix[0].xyz), 1e-4);',
+          '  vec3 wp = (instanceMatrix * vec4(transformed, 1.0)).xyz;',
+          '  float hh = clamp(wp.y / uSwayH, 0.0, 1.0);',
+          '  transformed.xz += (uSway * hh * hh) / sc;',
+          '}'
+        ].join('\n'));
+    };
+    mat.customProgramCacheKey = () => 'wcs-bush-sway';
+  }
+
   function buildGroundCover() {
     const clusters = S.shrubClusters || [];
 
@@ -802,11 +832,18 @@ export function createStage(opts) {
         emissive: new THREE.Color(S.shrub),
         emissiveIntensity: S.bushFlat || 0,
       });
+      patchBushSway(bushMat);
       const total = clusters.length * LOBES.length;
       const bushes = new THREE.InstancedMesh(bushGeo, bushMat, total);
       bushes.castShadow = true;
       bushes.receiveShadow = true;
       bushes.name = 'wcs-bushes';
+      // The shadow pass runs its own material, so without this the bush would
+      // sway while its shadow stood still.
+      const bushDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      patchBushSway(bushDepth);
+      bushes.customDepthMaterial = bushDepth;
+      coverMats.push(bushDepth);
 
       const base = new THREE.Color(S.shrub);
       let n = 0;
@@ -865,7 +902,13 @@ export function createStage(opts) {
       const o = posArr.length / 3;
       posArr.push(px, 0, pz, -px, 0, -pz, tipX, h, tipZ);
       for (let k = 0; k < 3; k++) nrmArr.push(0, 1, 0);
-      idxArr.push(o, o + 1, o + 2);
+      // Each blade is emitted TWICE with opposite winding, and the material is
+      // single-sided. DoubleSide would be one triangle and half the work, but
+      // three flips the normal on a back face -- and this normal points UP, so
+      // the flipped copy points DOWN, gets no sun at all, and the blade reads
+      // as near-black from one side. Two windings sharing one upward normal
+      // means a blade shades like the lawn it grows out of from every angle.
+      idxArr.push(o, o + 1, o + 2, o, o + 2, o + 1);
     }
     const tuftGeo = new THREE.BufferGeometry();
     tuftGeo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
@@ -876,19 +919,39 @@ export function createStage(opts) {
       color: 0xffffff,
       roughness: 1.0,
       metalness: 0,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       envMapIntensity: 0.4 * S.envIntensity,
     });
 
     const N_TUFTS = S.tufts || 0;
     if (N_TUFTS > 0) {
       const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, N_TUFTS);
-      tufts.castShadow = false;   // a 15 cm blade's shadow is below the map's resolution
-      tufts.receiveShadow = true;
+      tufts.castShadow = false;   // a 10 cm blade's shadow is below the map's resolution
+      // Nor does it receive: a thin vertical triangle carrying an upward normal
+      // is the worst case for shadow acne, and normalBias offsets along that
+      // normal, which is the one direction that cannot help here.
+      tufts.receiveShadow = false;
       tufts.name = 'wcs-tufts';
 
-      const root = new THREE.Color(S.grassRoot);
-      const tip = new THREE.Color(S.grassTip);
+      // Same hue and saturation as the bushes, at a lightness just below the
+      // lawn's. Derived from the two colours rather than written down, so the
+      // relationship survives either of them being retuned. The old olive and
+      // straw pair belonged to the lit-blade shader and read as dead grass
+      // scattered over a green lawn.
+      // BOTH ends of this have to be in the same colour space. getHSL defaults
+      // to the LINEAR working space while setHSL below is told sRGB, so reading
+      // a lightness one way and writing it back the other darkened every tuft
+      // twice -- 0.94 of the lawn came out at roughly half of it.
+      const _hsl = {};
+      new THREE.Color(S.shrub).getHSL(_hsl, THREE.SRGBColorSpace);
+      const _lawnHsl = {};
+      new THREE.Color(S.ground).getHSL(_lawnHsl, THREE.SRGBColorSpace);
+      const tuftH = _hsl.h;
+      // Saturation two thirds of the way from the lawn to the bush: the hue is
+      // the bush's, as asked, but taking its full saturation as well made the
+      // tufts pop off the lawn instead of sitting on it.
+      const tuftS = _lawnHsl.s + (_hsl.s - _lawnHsl.s) * 0.65;
+      const tuftL = _lawnHsl.l * (S.tuftDarken || 0.90);
       for (let i = 0; i < N_TUFTS; i++) {
         const a = hash1(i * 1.37) * Math.PI * 2;
         // Square-rooted radius spreads them evenly over the disc instead of
@@ -910,9 +973,8 @@ export function createStage(opts) {
         _mat.scale(_vB.set(s, s, s));
         _mat.setPosition(x, 0, z);
         tufts.setMatrixAt(i, _mat);
-        // Biased toward the root colour: the tip green is the dry, yellow end
-        // of the range, and a scatter of it across a green lawn reads as straw.
-        _colA.copy(root).lerp(tip, 0.08 + 0.42 * hash1(i * 12.7));
+        // A little lightness spread so the scatter is not one flat tone.
+        _colA.setHSL(tuftH, tuftS, tuftL * (0.90 + 0.20 * hash1(i * 12.7)), THREE.SRGBColorSpace);
         tufts.setColorAt(i, _colA);
       }
       tufts.instanceMatrix.needsUpdate = true;
@@ -1537,6 +1599,7 @@ export function createStage(opts) {
       cloudDrift: cloudDrift ? [Math.round(cloudDrift.x * 1e6) / 1e6, Math.round(cloudDrift.y * 1e6) / 1e6] : null,
       fogDensity: Math.round(scene.fog.density * 1e5) / 1e5,
       cordLean: Math.round((windSpeedMs / (windSpeedMs + 18.0)) * 1000) / 1000,
+      bushSway: [Math.round(bushUniforms.uSway.value.x * 1e4) / 1e4, Math.round(bushUniforms.uSway.value.y * 1e4) / 1e4],
     };
   }
 
@@ -1575,6 +1638,7 @@ export function createStage(opts) {
   const FOG_BLOWN = S.fogBlown;
   const FOG_FULL_MS = 15.0;        // ~34 mph, where the haze tops out
 
+  let swayPhase = 0;
   let lastRenderMs = -1;
 
   function render() {
@@ -1594,6 +1658,15 @@ export function createStage(opts) {
       cloudDrift.x -= windFlow.x * cloudRate * dt;
       cloudDrift.y -= windFlow.y * cloudRate * dt;
     }
+
+    // Light, and both amplitude and rate scale with the wind so a bush is
+    // perfectly still in dead air. The phase is integrated rather than
+    // multiplied into a clock, for the same reason the streamers' swirl is: a
+    // growing clock times a changing rate jumps.
+    swayPhase += windSpeedMs * 0.40 * dt;
+    if (swayPhase > Math.PI * 2048) swayPhase -= Math.PI * 2048;
+    const swayAmp = Math.min(windSpeedMs * 0.0105, 0.078) * (0.70 + 0.30 * Math.sin(swayPhase));
+    bushUniforms.uSway.value.set(windFlow.x * swayAmp, windFlow.y * swayAmp);
 
     const hazeT = Math.min(1, windSpeedMs / FOG_FULL_MS);
     scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
