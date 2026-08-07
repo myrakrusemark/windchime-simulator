@@ -181,20 +181,18 @@
                         <polyline id="gustSpark" fill="none"></polyline>
                     </svg>
                 </div>
+                <!-- Sits in the corner the wind readout leaves empty. Hidden
+                     until a reading lands. -->
+                <svg id="dockWeather" class="wx-icon hidden" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+                    <use id="wxUse" href="#wx-clear"></use>
+                </svg>
             </div>
                 <div class="dock-start">
                     <input type="text" id="locationInput" placeholder="City, State or Country" aria-label="Location" autocomplete="off" spellcheck="false">
                     <button id="startButton" type="button">Start Wind Chimes</button>
                 </div>
                 <p class="start-sub">Turns the sound on and uses your local weather. The chime is already moving.</p>
-                <!-- Hidden until a reading lands, so it takes no room before then.
-                     main.js sets the icon by pointing the <use> at a symbol. -->
-                <div id="dockWeather" class="dock-weather hidden">
-                    <svg class="wx-icon" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-                        <use id="wxUse" href="#wx-clear"></use>
-                    </svg>
-                    <p id="statusLine" role="status" aria-live="polite"></p>
-                </div>
+                <p id="statusLine" role="status" aria-live="polite"></p>
             </div>
             <a class="read-on" href="#learn">
                 <span>How it works</span>
