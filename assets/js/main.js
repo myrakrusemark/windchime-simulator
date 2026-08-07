@@ -58,7 +58,7 @@ const TIERS = {
 		bloom: true,
 		dprCap: 2.0,
 		partials: 5,
-		maxVoices: 16
+		maxVoices: 32
 	},
 	low: {
 		name: 'low',
@@ -69,7 +69,7 @@ const TIERS = {
 		bloom: false,
 		dprCap: 1.0,
 		partials: 3,
-		maxVoices: 8
+		maxVoices: 16
 	}
 };
 
@@ -1848,7 +1848,8 @@ window.__wcs = {
 		const tube = rig.tubes[ i ];
 		const s = 0.45;
 		// mu, the reduced mass at contact, is about 0.030 kg across the set.
-		const J = 1.45 * speed * 0.030;
+		const mu = 0.030;
+		const J = 1.45 * speed * mu;
 		const st = rig.state.tubes[ i ];
 		const pos = st
 			? [
@@ -1864,6 +1865,7 @@ window.__wcs = {
 			L: tube.L,
 			s,
 			J,
+			mu,
 			vn: speed,
 			substep: 0,
 			t: rig.simTime,

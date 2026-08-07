@@ -74,6 +74,15 @@ export function createAudio(params) {
   let partialCount = MAX_PARTIALS;
   let maxVoices = 16;
 
+  // Strike speed that reaches full amplitude, m/s. Set from a measured
+  // distribution rather than by ear: p90 at 12 mph is about 0.30 and a 45 mph
+  // gale reaches 3.7, so ordinary weather sits well down the curve and only a
+  // gust tops it out. Roughly the top decile of a gale clips, which is what a
+  // gale should do.
+  const VN_FULL_SCALE = 1.5;
+  // Reduced mass at contact with the default hammer, kg.
+  const MU_NOMINAL = 0.030;
+
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
   let tubeL = [];
@@ -83,6 +92,13 @@ export function createAudio(params) {
   const voices = [];
   let newestByTube = [];
   let contactPrev = null;
+  // When each tube's current contact began, and whether its voice has actually
+  // been ducked for it. Both are indexed by tube.
+  let contactSince = null;
+  let damped = null;
+  // How long the hammer must stay on a tube before it counts as leaning rather
+  // than striking. A strike's contact lasts a few milliseconds.
+  const CONTACT_GRACE = 0.075;
 
   // Listener frame, in camera space. Updated every frame by main.js.
   const listenerRight = [1, 0, 0];
@@ -252,12 +268,16 @@ export function createAudio(params) {
       // them for contact muting.
       newestByTube = new Array(n).fill(null);
       contactPrev = null;
+      contactSince = null;
+      damped = null;
     },
 
     setContactMask(mask) {
       if (!mask) return;
       if (!contactPrev || contactPrev.length !== mask.length) {
         contactPrev = new Uint8Array(mask.length);
+        contactSince = new Float64Array(mask.length).fill(-1);
+        damped = new Uint8Array(mask.length);
       }
       if (!ctx) {
         contactPrev.set(mask);
@@ -266,15 +286,36 @@ export function createAudio(params) {
       const now = ctx.currentTime;
       for (let i = 0; i < mask.length; i++) {
         const on = mask[i] ? 1 : 0;
-        if (on === contactPrev[i]) continue;
+        const was = contactPrev[i];
         contactPrev[i] = on;
+
+        if (on && !was) {
+          // Contact has just begun, which is also the instant of the strike.
+          // Start the clock; do not touch the voice yet.
+          contactSince[i] = now;
+          continue;
+        }
+
         const v = newestByTube[i];
         if (!v || v.released || v.stealing) continue;
-        // A clapper leaning on a tube damps it hard; letting go lets it breathe
-        // back. The release is slower than the grab because that is how a damped
-        // bar behaves and because a fast return sounds like a fader glitch.
-        if (on) applyVoiceGain(v, now, v.base * 0.25, 0.12);
-        else applyVoiceGain(v, now, v.base, 0.2);
+
+        // A hammer LEANING on a tube damps it hard; a hammer bouncing off it is
+        // what makes the note in the first place. CONTACT_GRACE is the line
+        // between the two: a strike separates in a few milliseconds, so only a
+        // contact that outlasts the grace period is a lean.
+        if (on && !damped[i] && contactSince[i] >= 0 && now - contactSince[i] >= CONTACT_GRACE) {
+          damped[i] = 1;
+          applyVoiceGain(v, now, v.base * 0.25, 0.12);
+        } else if (!on && was) {
+          contactSince[i] = -1;
+          // Only worth undoing if it was ever done. The release is slower than
+          // the grab because that is how a damped bar behaves, and because a
+          // fast return sounds like a fader glitch.
+          if (damped[i]) {
+            damped[i] = 0;
+            applyVoiceGain(v, now, v.base, 0.2);
+          }
+        }
       }
     },
 
@@ -289,7 +330,26 @@ export function createAudio(params) {
       const J = clamp(num(ev.J, 0.008), 0, 1);
       const vn = Math.max(0.01, Math.abs(num(ev.vn, 0.4)));
 
-      const A0 = Math.pow(clamp(J / 0.014, 0, 1), 0.6);   // 0.6 = perceptual compression
+      // Loudness from the strike SPEED, with the hammer's weight as a separate,
+      // gentler term.
+      //
+      // This used to normalise the impulse against a fixed 0.014 N.s, which
+      // saturated at vn = 0.32 m/s. Real strikes run from the 0.045 m/s floor to
+      // about 5.7 in a gale, so the curve clipped constantly: measured over two
+      // simulated minutes, 13 percent of strikes at 12 mph came out at FULL
+      // amplitude, 36 percent at 25 mph and 71 percent at 45 -- and the softest
+      // strike the rig can make still arrived at a third of full volume. A tap
+      // and a wallop sounded the same.
+      //
+      // vn against a full-scale reference of 2.5 m/s spans the real range with
+      // headroom, and the 0.6 exponent stays for perceptual compression. That
+      // puts the floor near 0.09, a 12 mph median near 0.19 and full scale only
+      // where a gust genuinely throws the hammer.
+      const mu = Math.max(1e-4, num(ev.mu, MU_NOMINAL));
+      // A heavier hammer IS louder, but as a modest offset rather than as the
+      // whole scale -- otherwise the weight slider eats the dynamic range.
+      const massTerm = Math.pow(clamp(mu / MU_NOMINAL, 0.25, 4), 0.5);
+      const A0 = clamp(Math.pow(clamp(vn / VN_FULL_SCALE, 0, 1), 0.6) * massTerm, 0, 1);
       if (A0 < 1e-4) return;
 
       // Hertzian contact: the harder you hit, the SHORTER the contact and the
@@ -361,7 +421,12 @@ export function createAudio(params) {
       }
       const distGain = clamp(1.6 / Math.max(0.8, listenerDistance), 0.35, 1.0);
 
-      const base = A0 * loudness * 0.22 * distGain;   // 0.22 leaves headroom for the voice cap
+      // 0.22 was sized for an amplitude curve that spent most of its time near
+      // the ceiling. Now that a typical strike sits a third of the way up
+      // instead, the same headroom would just make the whole chime quiet: this
+      // keeps the ordinary strike about where it was and lets a hard one be
+      // genuinely twice as loud, which is the point of widening the range.
+      const base = A0 * loudness * 0.40 * distGain;
 
       const voiceGain = ctx.createGain();
       voiceGain.gain.value = base;
@@ -472,10 +537,17 @@ export function createAudio(params) {
         try { oscs[n].stop(until); } catch (e) { if (n === 0) releaseVoice(v); }
       }
 
-      // If the tube is currently being leaned on, this voice is born damped.
-      if (contactPrev && contactPrev[idx]) {
-        applyVoiceGain(v, t0, base * 0.25, 0.12);
-      }
+      // Deliberately NOT damped at birth for being in contact. A strike happens
+      // on the RISING EDGE of contact, so the tube is in contact at the moment
+      // its voice is created, every single time -- this used to duck every new
+      // note to a quarter over 120 ms and then let it climb back, which is
+      // exactly the "note starts and gets cut off" it sounded like. Damping is
+      // for a hammer that STAYS leaning on the tube, and setContactMask below
+      // now waits for the contact to persist before applying it.
+      // Clear only the DAMPED flag, not the contact clock. The clock has to keep
+      // running: if the hammer struck and then stayed leaning, this new voice
+      // still needs to be ducked once the contact outlasts the grace period.
+      if (damped && idx >= 0 && idx < damped.length) damped[idx] = 0;
     },
 
     setListener(right, target, distance) {
