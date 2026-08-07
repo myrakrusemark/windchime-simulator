@@ -1448,6 +1448,11 @@ export function createRig(freqs) {
               s: MathUtils.clamp(rec.s, 0.02, 0.98),
               J,
               vn,
+              // The reduced mass at contact. Audio needs it separately from J
+              // because the hammer's weight is now user-adjustable: J alone
+              // cannot tell a hard strike from a heavy hammer, and normalising
+              // loudness against a fixed impulse made a heavy hammer clip.
+              mu,
               substep: rig.substepIndex | 0,
               t: rig.simTime,
               pos: [
