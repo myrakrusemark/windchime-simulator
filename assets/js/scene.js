@@ -1657,13 +1657,19 @@ export function createStage(opts) {
   //
   // So the target rises as the frame shrinks, just enough to hold KEEP_TOP_Y at
   // the upper edge, and never falls below the height the framing chose. It only
-  // starts to bite once the frame is shorter than about 1.6 m, which is roughly
+  // starts to bite once the frame is shorter than about 1.5 m, which is roughly
   // half way in; wider than that the plate is comfortably inside already.
+  //
+  // KEEP_TOP_Y lands between the two extremes on purpose. Holding the plate well
+  // clear of the edge pushed the target to 1.80 at the stop, which threw away
+  // more of the tubes than it was worth; leaving it alone kept the target at
+  // 1.45 and lost the plate entirely. This sits in the middle, with a sliver of
+  // cord still showing above the plate at full zoom.
   //
   // Moving the target PANS rather than tilts: OrbitControls preserves the
   // camera's offset from the target across an update, so the camera comes with
   // it. That holds for the perspective style too.
-  const KEEP_TOP_Y = 2.30;   // top plate sits at 2.05, so this leaves cord showing
+  const KEEP_TOP_Y = 2.18;   // top plate sits at 2.05, so this leaves cord showing
 
   function frameHalfHeight() {
     if (S.ortho) return viewHeight / Math.max(camera.zoom, 1e-3) * 0.5;
