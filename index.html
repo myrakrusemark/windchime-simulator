@@ -68,6 +68,12 @@
             <p id="statusLine" role="status" aria-live="polite"></p>
         </div>
 
+        <!-- Sits below the chime, in the middle band. Browsers will not start an
+             AudioContext without a gesture, so this is the page asking for one. -->
+        <div id="audioToast" role="status" aria-live="polite">
+            <span>Click or tap anywhere to hear the wind chime</span>
+        </div>
+
         <div class="hud-bottom">
             <div id="windCard">
                 <svg class="compass" viewBox="0 0 60 60" aria-hidden="true" focusable="false">

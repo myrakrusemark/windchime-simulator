@@ -232,6 +232,7 @@ body.contentPage {
 #hudOverlay.idle .hud-title p,
 #hudOverlay.idle .hud-mid,
 #hudOverlay.idle .hud-bottom,
+#hudOverlay.idle #audioToast,
 #hudOverlay.idle #menuToggle {
     opacity: 0;
     transition: opacity 2200ms ease-in;
@@ -305,6 +306,60 @@ body.contentPage {
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
+}
+
+/* Audio toast --------------------------------------------------------------
+   Absolutely placed rather than put in the grid: the middle band is the start
+   block in the top-left corner, and this has to sit centred UNDER the chime,
+   which hangs down the middle of the frame. 72 percent clears the sail and
+   stays above the wind card.
+
+   Never clickable. The whole point is that the gesture can be anywhere, so
+   swallowing the one aimed at the toast itself would be the one way to make it
+   not work. */
+#audioToast {
+    position: absolute;
+    left: 50%;
+    top: 72%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    padding: 11px 20px;
+    border-radius: 22px;
+    font-size: 0.92rem;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    background: rgba(24, 20, 16, 0.42);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    animation: toast-breathe 2.6s ease-in-out infinite;
+    transition: opacity 500ms ease, transform 500ms ease;
+}
+
+/* main.js adds .done the moment audio is actually running. */
+#audioToast.done {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+    animation: none;
+}
+
+@keyframes toast-breathe {
+    0%, 100% { opacity: 0.72; }
+    50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #audioToast { animation: none; opacity: 0.92; }
+}
+
+@media (max-width: 560px) {
+    #audioToast {
+        font-size: 0.84rem;
+        white-space: normal;
+        max-width: 62vw;
+        text-align: center;
+    }
 }
 
 
