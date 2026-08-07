@@ -166,8 +166,8 @@ body.contentPage {
 
 #windCard,
 #menuToggle,
-.start-pill,
 .read-on,
+#hudDock,
 #sliderMenu {
     background: rgba(24, 20, 16, 0.42);
     -webkit-backdrop-filter: blur(14px) saturate(1.2);
@@ -179,9 +179,8 @@ body.contentPage {
 /* Where the blur is unavailable the panel has to carry its own contrast,
    because a bright sky behind it would otherwise eat the text. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    #windCard,
+    #hudDock,
     #menuToggle,
-    .start-pill,
     .read-on,
     #sliderMenu {
         background: rgba(24, 20, 16, 0.72);
@@ -199,6 +198,9 @@ body.contentPage {
     z-index: 2;
     pointer-events: none;
     display: grid;
+    /* Three rows with only two children, so both are placed explicitly. The
+       middle band used to hold the location control and is now empty space the
+       chime hangs in. */
     grid-template-rows: auto 1fr auto;
     padding: 20px;
     box-sizing: border-box;
@@ -223,14 +225,13 @@ body.contentPage {
    meant to notice starting. */
 .hud-title h1,
 .hud-title p,
-.hud-mid,
+#hudDock,
 .hud-bottom,
 #menuToggle {
     transition: opacity 180ms ease-out;
 }
 
 #hudOverlay.idle .hud-title p,
-#hudOverlay.idle .hud-mid,
 #hudOverlay.idle .hud-bottom,
 #hudOverlay.idle #audioToast,
 #hudOverlay.idle #menuToggle {
@@ -249,7 +250,7 @@ body.contentPage {
 #hudOverlay.idle #locationInput,
 #hudOverlay.idle #startButton,
 #hudOverlay.idle #menuToggle,
-#hudOverlay.idle #windCard,
+#hudOverlay.idle #hudDock,
 #hudOverlay.idle .read-on {
     pointer-events: none;
 }
@@ -257,12 +258,13 @@ body.contentPage {
 #locationInput,
 #startButton,
 #menuToggle,
-#windCard,
+#hudDock,
 .read-on {
     pointer-events: auto;
 }
 
 .hud-top {
+    grid-row: 1;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -292,16 +294,9 @@ body.contentPage {
    covers the tubes and a bottom-aligned one covers the sail, which was measured
    on both. The corner is the only place that leaves the subject alone at every
    window size. */
-.hud-mid {
-    align-self: start;
-    justify-self: start;
-    margin-top: 18px;
-    width: 100%;
-    max-width: 430px;
-    text-align: left;
-}
 
 .hud-bottom {
+    grid-row: 3;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
@@ -365,30 +360,8 @@ body.contentPage {
 
 /* Start pill ---------------------------------------------------------------- */
 
-.start-pill {
-    display: flex;
-    align-items: stretch;
-    padding: 6px;
-    gap: 6px;
-    border-radius: 26px;
-}
 
-.start-pill #locationInput {
-    flex: 1 1 auto;
-    min-width: 0;
-    min-height: 44px;
-    background: rgba(255, 255, 255, 0.10);
-    border: none;
-    border-radius: 20px;
-    color: #ffffff;
-    font-size: 1rem;
-    padding: 0 16px;
-}
 
-.start-pill #locationInput:focus {
-    outline: 2px solid rgba(217, 144, 60, 0.8);
-    outline-offset: -2px;
-}
 
 #startButton {
     flex: 0 0 auto;
@@ -408,14 +381,6 @@ body.contentPage {
     background: #eda44e;
 }
 
-.start-sub {
-    margin: 10px 0 0 0;
-    font-size: 0.82rem;
-    /* Was 0.7. Small pale text at 70 percent over the sun's glow in the sky was
-       barely there; the halo below does the rest. */
-    opacity: 0.9;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
-}
 
 #statusLine {
     margin: 6px 0 0 0;
@@ -428,14 +393,89 @@ body.contentPage {
 
 /* Wind card ---------------------------------------------------------------- */
 
+/* The dock: wind readout and weather control as one panel. The dial says what
+   the wind IS, the box says where to get it from -- one idea, so one box. */
+/* The start subtext is hidden in the dock rather than deleted. It was written
+   for a wide block in the top-left corner; here it is three lines of a small
+   panel, and the toast under the chime already says the part about turning the
+   sound on. The markup stays so the wording is one CSS line away from coming
+   back. */
+#hudDock .start-sub {
+    display: none;
+}
+
+#hudDock {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 12px 14px 13px 14px;
+    border-radius: 20px;
+    box-sizing: border-box;
+    width: 352px;
+    max-width: calc(100vw - 40px);
+    /* Flex items default to min-width:auto, which is their CONTENT width -- the
+       compass, the button and the input together, so the dock refused to shrink
+       and ran 404 px wide on a 390 px phone. */
+    min-width: 0;
+    pointer-events: auto;
+}
+
+/* Inside the dock now, so it carries no chrome of its own -- a panel drawn
+   inside a panel reads as a mistake. */
 #windCard {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    min-width: 190px;
+    background: none;
+    border: none;
+    padding: 0;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     box-sizing: border-box;
 }
+
+.dock-start {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+    /* Where even a shrunken input would be unusable, the button drops onto its
+       own line rather than squeezing it to nothing. */
+    flex-wrap: wrap;
+}
+
+.dock-start #locationInput {
+    flex: 1 1 120px;
+    min-width: 0;
+    min-height: 38px;
+    background: rgba(255, 255, 255, 0.10);
+    border: none;
+    border-radius: 14px;
+    color: #ffffff;
+    font-size: 0.92rem;
+    padding: 0 12px;
+}
+
+.dock-start #locationInput:focus {
+    outline: 2px solid rgba(217, 144, 60, 0.8);
+    outline-offset: -2px;
+}
+
+.dock-start #startButton {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 14px;
+    background: #d9903c;
+    color: #2a1c0c;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.dock-start #startButton:hover { background: #e8a352; }
 
 #windCard .compass {
     width: 60px;
@@ -823,32 +863,32 @@ input[type="text"] {
         display: none;
     }
 
-    .hud-mid {
+    /* The dock takes the full width it can get, and the subtext goes: on a
+       short screen it would push the panel up over the sail. */
+    #hudDock {
+        width: 100%;
         max-width: 100%;
-        margin-top: 12px;
     }
 
-    .start-pill {
-        flex-direction: column;
-        border-radius: 20px;
+    /* The dock reaches roughly three quarters of the way up a phone screen, so
+       the toast has to sit above it rather than on top of it. */
+    #audioToast {
+        top: 58%;
     }
 
-    /* A stacked pill already eats 110 px of a short screen; the subtext would
-       push the block down onto the top plate. The button says what it does. */
     .start-sub {
         display: none;
     }
 
     .hud-bottom {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
         gap: 8px;
     }
 
     /* The wind card collapses to a compass and one line of text. */
     #windCard {
         min-width: 0;
-        padding: 8px 12px;
         gap: 8px;
     }
 
@@ -862,7 +902,7 @@ input[type="text"] {
     }
 
     .read-on {
-        align-self: center;
+        align-self: flex-end;
     }
 
     /* The drawer becomes a bottom sheet. Sliding up from the thumb beats

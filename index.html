@@ -59,15 +59,6 @@
             </button>
         </div>
 
-        <div class="hud-mid">
-            <div class="start-pill">
-                <input type="text" id="locationInput" placeholder="City, State or Country" aria-label="Location" autocomplete="off" spellcheck="false">
-                <button id="startButton" type="button">Start Wind Chimes</button>
-            </div>
-            <p class="start-sub">Turns the sound on and uses your local weather. The chime is already moving.</p>
-            <p id="statusLine" role="status" aria-live="polite"></p>
-        </div>
-
         <!-- Sits below the chime, in the middle band. Browsers will not start an
              AudioContext without a gesture, so this is the page asking for one. -->
         <div id="audioToast" role="status" aria-live="polite">
@@ -75,6 +66,11 @@
         </div>
 
         <div class="hud-bottom">
+            <!-- The weather control and the wind readout are one panel: the box
+                 tells the chime WHICH wind to blow and the dial shows what it is
+                 blowing. Splitting them across opposite corners made two
+                 unrelated widgets out of one idea. -->
+            <div id="hudDock">
             <div id="windCard">
                 <svg class="compass" viewBox="0 0 60 60" aria-hidden="true" focusable="false">
                     <circle cx="30" cy="30" r="25" class="compass-ring"></circle>
@@ -94,6 +90,13 @@
                         <polyline id="gustSpark" fill="none"></polyline>
                     </svg>
                 </div>
+            </div>
+                <div class="dock-start">
+                    <input type="text" id="locationInput" placeholder="City, State or Country" aria-label="Location" autocomplete="off" spellcheck="false">
+                    <button id="startButton" type="button">Start Wind Chimes</button>
+                </div>
+                <p class="start-sub">Turns the sound on and uses your local weather. The chime is already moving.</p>
+                <p id="statusLine" role="status" aria-live="polite"></p>
             </div>
             <a class="read-on" href="#learn">
                 <span>How it works</span>
