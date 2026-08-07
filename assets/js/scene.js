@@ -1521,13 +1521,17 @@ export function createStage(opts) {
   const BASE_DIST = S.baseDist || 3.45;
   let viewHeight = S.viewHeight || 3.5;
   let lastPortrait = null;
+  // The target height the framing WANTS at a wide view. render() lifts the live
+  // target above this as the view tightens; see keepTopInShot.
+  let baseTargetY = S.camTarget[1];
 
   function applyFraming(portrait) {
     if (S.ortho) {
       // Re-frame by changing how much world the frustum covers. The eye does
       // not move, so this cannot walk the camera into the porch.
       viewHeight = portrait ? S.viewHeightPortrait : S.viewHeight;
-      controls.target.set(S.camTarget[0], portrait ? S.camTarget[1] + 0.10 : S.camTarget[1], S.camTarget[2]);
+      baseTargetY = portrait ? S.camTarget[1] + 0.10 : S.camTarget[1];
+      controls.target.set(S.camTarget[0], baseTargetY, S.camTarget[2]);
       applyOrthoFrustum();
       controls.update();
       return;
@@ -1535,7 +1539,8 @@ export function createStage(opts) {
     _vA.subVectors(camera.position, controls.target);
     const len = _vA.length() || BASE_DIST;
     const want = portrait ? S.baseDistPortrait : BASE_DIST;
-    controls.target.set(0, portrait ? S.camTargetPortraitY : S.camTarget[1], 0);
+    baseTargetY = portrait ? S.camTargetPortraitY : S.camTarget[1];
+    controls.target.set(0, baseTargetY, 0);
     camera.position.copy(controls.target).addScaledVector(_vA, want / len);
     controls.update();
   }
@@ -1643,6 +1648,35 @@ export function createStage(opts) {
   const FOG_BLOWN = S.fogBlown;
   const FOG_FULL_MS = 15.0;        // ~34 mph, where the haze tops out
 
+  // Zooming in must not lose the top of the chime.
+  //
+  // The orbit target is a fixed height, so tightening the view shrinks the frame
+  // around that point -- and at full zoom that left the middle of the tubes and
+  // the sail in shot while the top plate and its cords went off the top. The
+  // plate is the more interesting end: it is where the whole rig hangs from.
+  //
+  // So the target rises as the frame shrinks, just enough to hold KEEP_TOP_Y at
+  // the upper edge, and never falls below the height the framing chose. It only
+  // starts to bite once the frame is shorter than about 1.6 m, which is roughly
+  // half way in; wider than that the plate is comfortably inside already.
+  //
+  // Moving the target PANS rather than tilts: OrbitControls preserves the
+  // camera's offset from the target across an update, so the camera comes with
+  // it. That holds for the perspective style too.
+  const KEEP_TOP_Y = 2.30;   // top plate sits at 2.05, so this leaves cord showing
+
+  function frameHalfHeight() {
+    if (S.ortho) return viewHeight / Math.max(camera.zoom, 1e-3) * 0.5;
+    return camera.position.distanceTo(controls.target) * Math.tan(camera.fov * DEG * 0.5);
+  }
+
+  function keepTopInShot(dt) {
+    const want = Math.max(baseTargetY, KEEP_TOP_Y - frameHalfHeight());
+    // Eased rather than snapped, so a zoom does not also jolt the view.
+    const k = dt > 0 ? Math.min(1, dt * 7) : 1;
+    controls.target.y += (want - controls.target.y) * k;
+  }
+
   let swayPhase = 0;
   let lastRenderMs = -1;
 
@@ -1675,6 +1709,8 @@ export function createStage(opts) {
 
     const hazeT = Math.min(1, windSpeedMs / FOG_FULL_MS);
     scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
+
+    keepTopInShot(dt);
 
     renderer.info.reset();
     controls.update();
