@@ -73,6 +73,8 @@ const STYLES = {
     camPos: [2.83, 3.20, -2.22],
     camTarget: [0, 1.45, 0],
     porchRoof: false,
+    // [lowest, highest] camera elevation above the horizon, degrees.
+    elevRange: [20, 80],
 
     // Flat, slightly warm off-white. A gradient sky pulls the eye up and out of
     // the frame; a flat one keeps it on the object.
@@ -184,6 +186,7 @@ const STYLES = {
     camTarget: [0, 1.44, 0],
     baseDist: 3.45,
     baseDistPortrait: 4.75,
+    elevRange: [1.5, 70],
     camTargetPortraitY: 1.52,
 
     sky: true,
@@ -568,8 +571,18 @@ export function createStage(opts) {
     controls.minDistance = 1.2;
     controls.maxDistance = 7;
   }
-  controls.minPolarAngle = 0.35;
-  controls.maxPolarAngle = 1.62;   // never dips under the ground plane
+  // Camera elevation limits, in degrees above the horizon, per style. The old
+  // pair were shared and the low one was 1.62 rad of polar angle -- which is
+  // 2.8 degrees BELOW horizontal, so the camera could sink under the ground and
+  // look up through it. Anywhere near the horizon also puts the far edge of the
+  // 60 m ground plane in shot, which reads as the world running out.
+  //
+  // The floor has to be per style: storybook looks DOWN at a lawn from 26
+  // degrees and can afford a high floor, while golden's whole composition is a
+  // near-horizontal view across a meadow from 3.6 and would be thrown out of
+  // frame by the same number.
+  controls.minPolarAngle = (90 - S.elevRange[1]) * DEG;
+  controls.maxPolarAngle = (90 - S.elevRange[0]) * DEG;
   controls.enablePan = false;      // panning is how you lose the subject
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.12; // slow enough to feel like drifting air
