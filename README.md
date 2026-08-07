@@ -26,7 +26,8 @@ The Wind Chime Simulator is a web-based application that creates a soothing ambi
 - CSS3
 - JavaScript
 - Web Audio API
-- OpenWeatherMap API (for weather data)
+- three.js r185, vendored
+- api.weather.gov, the National Weather Service forecast API
 
 ## File Structure
 
@@ -44,8 +45,21 @@ The Wind Chime Simulator is a web-based application that creates a soothing ambi
 
 ## Credits
 
-The Wind Chime Simulator was created by [Your Name]. It utilizes the OpenWeatherMap API for retrieving real-time weather data.
+Built by Myra Krusemark. Forecast data comes from api.weather.gov, run by the National
+Weather Service, which does not endorse this project. Rendering uses
+[three.js](https://github.com/mrdoob/three.js) under the MIT licence.
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+Two licences, split by what the file is.
+
+- **Code** is under the [MIT License](LICENSE). That covers the JavaScript, HTML, CSS,
+  Python and tooling. Reuse it, keep the copyright notice.
+- **Creative assets** are under [CC BY 4.0](LICENSE-ASSETS). That covers the scene and
+  environment assets, any authored audio, and the modal synthesis material library,
+  meaning the tuned coefficient sets that decide how each material sounds. Reuse those
+  with credit and a link to the licence.
+
+[`NOTICE`](NOTICE) states which licence reaches which file. [`ASSETS.md`](ASSETS.md)
+records the source and licence of every third-party asset, and the sourcing rules for
+adding more.

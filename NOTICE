@@ -1,0 +1,50 @@
+Wind Chime Simulator
+Copyright (c) 2024-2026 Myra Krusemark
+
+This project carries two licences, one for the code and one for the creative
+assets. Which one applies depends on the file.
+
+
+CODE, under the MIT Licence
+---------------------------
+
+Full text in LICENSE.
+
+Covers every source file in the repository: JavaScript, HTML, CSS, Python, the
+build and verification tooling, and the configuration. Reuse requires keeping
+the copyright notice and the licence text.
+
+
+CREATIVE ASSETS, under CC BY 4.0
+--------------------------------
+
+Full text in LICENSE-ASSETS. Deed at https://creativecommons.org/licenses/by/4.0/
+
+Covers the authored creative work:
+
+  - Scene and environment assets under assets/, including geometry, textures,
+    materials and lightmaps
+  - Impulse responses and any authored audio
+  - The modal synthesis material library, meaning the tuned coefficient sets
+    that define how each material sounds
+
+Reuse requires credit to Myra Krusemark and a link to the licence.
+
+The material library is the part worth attributing. The synthesis code is
+ordinary; the tuned coefficients are the work.
+
+
+THIRD-PARTY MATERIAL
+--------------------
+
+Neither licence above applies to third-party files. Those carry their own
+terms, recorded per file in ASSETS.md.
+
+  three.js r185, under the MIT Licence
+  Copyright (c) 2010-2025 three.js authors
+  https://github.com/mrdoob/three.js
+  Vendored under assets/vendor/ so the page needs no build step and no CDN.
+
+Weather data comes from api.weather.gov, a United States government service
+whose output is in the public domain. The simulator is not endorsed by the
+National Weather Service.
