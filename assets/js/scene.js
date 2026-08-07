@@ -30,6 +30,15 @@ const HOOK_Y = 2.60;          // the porch beam underside; the rig hangs from he
 const R_TUBE = 0.014;         // tube outer radius, m (28 mm OD aluminium)
 const R_BORE = 0.0125;        // inner bore radius, m (25 mm ID)
 const CORD_SEGMENTS = 6;      // line segments per cord; enough to read a belly of sag
+// Half-extent of the ground plane, m. It has to outrun the shallowest sight
+// line: an orthographic camera's rays are parallel, so at the lowest tilt and
+// the widest zoom the ray leaving the TOP of the frame reaches the ground about
+// 27 m out. At the old 30 m that cleared by three metres, which is close enough
+// that a small change to the tilt floor or the zoom range would have put the
+// plane's edge in shot -- and beyond the edge there is only background colour,
+// which reads as the world running out. The bake below uses the same number, so
+// the porch's occlusion stays where the porch is.
+const GROUND_HALF = 45;
 const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------------------------
@@ -74,7 +83,7 @@ const STYLES = {
     camTarget: [0, 1.45, 0],
     porchRoof: false,
     // [lowest, highest] camera elevation above the horizon, degrees.
-    elevRange: [20, 80],
+    elevRange: [8, 80],
 
     // Flat, slightly warm off-white. A gradient sky pulls the eye up and out of
     // the frame; a flat one keeps it on the object.
@@ -365,7 +374,7 @@ function makeTubeRoughnessMap() {
  */
 function makeGroundMap(withRoof, base, variation, occStrength) {
   const S = 256;
-  const HALF = 30;                    // the plane is 60 x 60 m
+  const HALF = GROUND_HALF;
   const M = HALF * 2 / S;             // metres per texel
   const data = new Uint8Array(S * S * 4);
 
@@ -684,7 +693,7 @@ export function createStage(opts) {
   scene.add(hemi);
 
   // -- ground and porch -----------------------------------------------------
-  const groundGeo = new THREE.PlaneGeometry(60, 60);
+  const groundGeo = new THREE.PlaneGeometry(GROUND_HALF * 2, GROUND_HALF * 2);
   // envMapIntensity well under 1 on every matte surface. The baked sky is a
   // real radiance map and a flat plane has no ambient occlusion of its own, so
   // taking it at full strength floods the picture and flattens the sun out of
