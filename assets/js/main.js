@@ -1338,7 +1338,11 @@ function updateHud() {
 	// is still the thing they came to press hides the only call to action on the
 	// page. Opacity on #hudOverlay composites the whole subtree, so a child
 	// cannot opt back out of it — the gate has to be on applying it at all.
-	if ( ! hudIdle && audioUnlocked && idleFor > 8000 && dom.hudOverlay ) {
+	// Not while the settings drawer is open: that is a deliberate mode, and
+	// fading the HUD out from under someone reading the sliders is wrong.
+	const menuOpen = !! ( dom.sliderMenu && dom.sliderMenu.classList.contains( 'visible' ) );
+
+	if ( ! hudIdle && audioUnlocked && ! menuOpen && idleFor > 8000 && dom.hudOverlay ) {
 
 		dom.hudOverlay.classList.add( 'idle' );
 		hudIdle = true;

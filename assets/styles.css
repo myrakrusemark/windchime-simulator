@@ -208,9 +208,42 @@ body.contentPage {
     transition: opacity 900ms ease;
 }
 
-/* main.js adds .idle after 8 seconds without pointer movement. */
-#hudOverlay.idle {
-    opacity: 0.25;
+/* main.js adds .idle after 8 seconds without pointer movement, once the visitor
+   has actually started. Everything goes; only the title stays, ghosted in the
+   corner, so the page still says what it is while you watch it.
+
+   This CANNOT be done by fading #hudOverlay itself. Opacity composites the whole
+   subtree, so a child can never be less transparent than its parent, and the
+   title could not stay up while the rest of it went to nothing. Each group
+   fades on its own, which is also why the transition lives on the groups. */
+.hud-title h1,
+.hud-title p,
+.hud-mid,
+.hud-bottom,
+#menuToggle {
+    transition: opacity 900ms ease;
+}
+
+#hudOverlay.idle .hud-title p,
+#hudOverlay.idle .hud-mid,
+#hudOverlay.idle .hud-bottom,
+#hudOverlay.idle #menuToggle {
+    opacity: 0;
+}
+
+#hudOverlay.idle .hud-title h1 {
+    opacity: 0.2;
+}
+
+/* Nothing invisible stays clickable. A click then lands on the canvas, which
+   wakes the HUD, and the controls are back and legible before anything can be
+   pressed by accident. */
+#hudOverlay.idle #locationInput,
+#hudOverlay.idle #startButton,
+#hudOverlay.idle #menuToggle,
+#hudOverlay.idle #windCard,
+#hudOverlay.idle .read-on {
+    pointer-events: none;
 }
 
 #locationInput,
