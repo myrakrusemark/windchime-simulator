@@ -28,8 +28,24 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const HOOK_Y = 2.60;          // the porch beam underside; the rig hangs from here
 const R_TUBE = 0.014;         // tube outer radius, m (28 mm OD aluminium)
+// Radius of the suspension disk. It MUST stay larger than physics.js's R_RING
+// (0.082), which is where the tube cords hang from: at 0.070 against a ring of
+// 0.082 every cord left the disk 12 mm beyond its own edge and read as tied to
+// thin air. A real chime drills its holes inside the rim, so the disk overhangs
+// the tubes. physics.js carries the same number as PLATE_R for its drag area
+// and its porch collision.
+const R_PLATE = 0.098;
 const R_BORE = 0.0125;        // inner bore radius, m (25 mm ID)
 const CORD_SEGMENTS = 6;      // line segments per cord; enough to read a belly of sag
+// Half-extent of the ground plane, m. It has to outrun the shallowest sight
+// line: an orthographic camera's rays are parallel, so at the lowest tilt and
+// the widest zoom the ray leaving the TOP of the frame reaches the ground about
+// 27 m out. At the old 30 m that cleared by three metres, which is close enough
+// that a small change to the tilt floor or the zoom range would have put the
+// plane's edge in shot -- and beyond the edge there is only background colour,
+// which reads as the world running out. The bake below uses the same number, so
+// the porch's occlusion stays where the porch is.
+const GROUND_HALF = 45;
 const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------------------------
@@ -73,6 +89,8 @@ const STYLES = {
     camPos: [2.83, 3.20, -2.22],
     camTarget: [0, 1.45, 0],
     porchRoof: false,
+    // [lowest, highest] camera elevation above the horizon, degrees.
+    elevRange: [8, 80],
 
     // Flat, slightly warm off-white. A gradient sky pulls the eye up and out of
     // the frame; a flat one keeps it on the object.
@@ -184,6 +202,7 @@ const STYLES = {
     camTarget: [0, 1.44, 0],
     baseDist: 3.45,
     baseDistPortrait: 4.75,
+    elevRange: [1.5, 70],
     camTargetPortraitY: 1.52,
 
     sky: true,
@@ -362,7 +381,7 @@ function makeTubeRoughnessMap() {
  */
 function makeGroundMap(withRoof, base, variation, occStrength) {
   const S = 256;
-  const HALF = 30;                    // the plane is 60 x 60 m
+  const HALF = GROUND_HALF;
   const M = HALF * 2 / S;             // metres per texel
   const data = new Uint8Array(S * S * 4);
 
@@ -568,8 +587,18 @@ export function createStage(opts) {
     controls.minDistance = 1.2;
     controls.maxDistance = 7;
   }
-  controls.minPolarAngle = 0.35;
-  controls.maxPolarAngle = 1.62;   // never dips under the ground plane
+  // Camera elevation limits, in degrees above the horizon, per style. The old
+  // pair were shared and the low one was 1.62 rad of polar angle -- which is
+  // 2.8 degrees BELOW horizontal, so the camera could sink under the ground and
+  // look up through it. Anywhere near the horizon also puts the far edge of the
+  // 60 m ground plane in shot, which reads as the world running out.
+  //
+  // The floor has to be per style: storybook looks DOWN at a lawn from 26
+  // degrees and can afford a high floor, while golden's whole composition is a
+  // near-horizontal view across a meadow from 3.6 and would be thrown out of
+  // frame by the same number.
+  controls.minPolarAngle = (90 - S.elevRange[1]) * DEG;
+  controls.maxPolarAngle = (90 - S.elevRange[0]) * DEG;
   controls.enablePan = false;      // panning is how you lose the subject
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.12; // slow enough to feel like drifting air
@@ -671,7 +700,7 @@ export function createStage(opts) {
   scene.add(hemi);
 
   // -- ground and porch -----------------------------------------------------
-  const groundGeo = new THREE.PlaneGeometry(60, 60);
+  const groundGeo = new THREE.PlaneGeometry(GROUND_HALF * 2, GROUND_HALF * 2);
   // envMapIntensity well under 1 on every matte surface. The baked sky is a
   // real radiance map and a flat plane has no ambient occlusion of its own, so
   // taking it at full strength floods the picture and flattens the sun out of
@@ -1029,7 +1058,7 @@ export function createStage(opts) {
     const n = tubes.length;
 
     // Suspension disk.
-    const plateGeo = new THREE.CylinderGeometry(0.070, 0.070, 0.012, 32);
+    const plateGeo = new THREE.CylinderGeometry(R_PLATE, R_PLATE, 0.012, 32);
     const plateMat = new THREE.MeshStandardMaterial({
       color: S.plate, roughness: 0.85, metalness: 0, envMapIntensity: 0.56 * S.envIntensity,
     });
@@ -1521,13 +1550,17 @@ export function createStage(opts) {
   const BASE_DIST = S.baseDist || 3.45;
   let viewHeight = S.viewHeight || 3.5;
   let lastPortrait = null;
+  // The target height the framing WANTS at a wide view. render() lifts the live
+  // target above this as the view tightens; see keepTopInShot.
+  let baseTargetY = S.camTarget[1];
 
   function applyFraming(portrait) {
     if (S.ortho) {
       // Re-frame by changing how much world the frustum covers. The eye does
       // not move, so this cannot walk the camera into the porch.
       viewHeight = portrait ? S.viewHeightPortrait : S.viewHeight;
-      controls.target.set(S.camTarget[0], portrait ? S.camTarget[1] + 0.10 : S.camTarget[1], S.camTarget[2]);
+      baseTargetY = portrait ? S.camTarget[1] + 0.10 : S.camTarget[1];
+      controls.target.set(S.camTarget[0], baseTargetY, S.camTarget[2]);
       applyOrthoFrustum();
       controls.update();
       return;
@@ -1535,7 +1568,8 @@ export function createStage(opts) {
     _vA.subVectors(camera.position, controls.target);
     const len = _vA.length() || BASE_DIST;
     const want = portrait ? S.baseDistPortrait : BASE_DIST;
-    controls.target.set(0, portrait ? S.camTargetPortraitY : S.camTarget[1], 0);
+    baseTargetY = portrait ? S.camTargetPortraitY : S.camTarget[1];
+    controls.target.set(0, baseTargetY, 0);
     camera.position.copy(controls.target).addScaledVector(_vA, want / len);
     controls.update();
   }
@@ -1643,6 +1677,41 @@ export function createStage(opts) {
   const FOG_BLOWN = S.fogBlown;
   const FOG_FULL_MS = 15.0;        // ~34 mph, where the haze tops out
 
+  // Zooming in must not lose the top of the chime.
+  //
+  // The orbit target is a fixed height, so tightening the view shrinks the frame
+  // around that point -- and at full zoom that left the middle of the tubes and
+  // the sail in shot while the top plate and its cords went off the top. The
+  // plate is the more interesting end: it is where the whole rig hangs from.
+  //
+  // So the target rises as the frame shrinks, just enough to hold KEEP_TOP_Y at
+  // the upper edge, and never falls below the height the framing chose. It only
+  // starts to bite once the frame is shorter than about 1.5 m, which is roughly
+  // half way in; wider than that the plate is comfortably inside already.
+  //
+  // KEEP_TOP_Y lands between the two extremes on purpose. Holding the plate well
+  // clear of the edge pushed the target to 1.80 at the stop, which threw away
+  // more of the tubes than it was worth; leaving it alone kept the target at
+  // 1.45 and lost the plate entirely. This sits in the middle, with a sliver of
+  // cord still showing above the plate at full zoom.
+  //
+  // Moving the target PANS rather than tilts: OrbitControls preserves the
+  // camera's offset from the target across an update, so the camera comes with
+  // it. That holds for the perspective style too.
+  const KEEP_TOP_Y = 2.18;   // top plate sits at 2.05, so this leaves cord showing
+
+  function frameHalfHeight() {
+    if (S.ortho) return viewHeight / Math.max(camera.zoom, 1e-3) * 0.5;
+    return camera.position.distanceTo(controls.target) * Math.tan(camera.fov * DEG * 0.5);
+  }
+
+  function keepTopInShot(dt) {
+    const want = Math.max(baseTargetY, KEEP_TOP_Y - frameHalfHeight());
+    // Eased rather than snapped, so a zoom does not also jolt the view.
+    const k = dt > 0 ? Math.min(1, dt * 7) : 1;
+    controls.target.y += (want - controls.target.y) * k;
+  }
+
   let swayPhase = 0;
   let lastRenderMs = -1;
 
@@ -1675,6 +1744,8 @@ export function createStage(opts) {
 
     const hazeT = Math.min(1, windSpeedMs / FOG_FULL_MS);
     scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
+
+    keepTopInShot(dt);
 
     renderer.info.reset();
     controls.update();

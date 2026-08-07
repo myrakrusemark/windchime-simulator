@@ -103,11 +103,19 @@ const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 const HOOK_CORD = 0.550;           // assembly pendulum period 1.49 s: a calm sway
 
 const PLATE_A = 0.055;             // circumradius of the 3-particle plate
+// Radius of the VISIBLE suspension disk. Mirrored in scene.js as R_PLATE, the
+// same way R_TUBE and HOOK_Y are -- scene.js does not import from here. It has
+// to exceed R_RING below, which is where the tube cords hang: at 0.070 against
+// a ring of 0.082 the cords left the disk 12 mm short of its own edge and read
+// as tied to thin air.
+const PLATE_R = 0.098;
 const PLATE_MASS = 0.150;
 const PLATE_EDGE = PLATE_A * Math.sqrt(3);
 const PLATE_Y = 2.05;
 const PLATE_THETA = [Math.PI * 0.5, Math.PI * 7 / 6, Math.PI * 11 / 6];
-const PLATE_DRAG_AREA = 0.140 * 0.012;   // edge-on only; the face is horizontal
+// Edge-on only; the face is horizontal. Diameter times thickness, so it tracks
+// the rendered disk.
+const PLATE_DRAG_AREA = PLATE_R * 2 * 0.012;
 const CD_PLATE = 1.1;
 
 // THE PLATE HANGS ON A THREE-CORD BRIDLE, not on one cord to its middle, and
@@ -293,7 +301,7 @@ const SAIL_YAW_NOISE_U2 = 5.36 * 5.36;
 // The heights below are the beam underside and the roof underside from
 // scene.js. Keep them in step by hand: physics.js deliberately knows nothing
 // about the scene graph.
-const PLATE_HIT_R = 0.070;         // the rendered disk radius
+const PLATE_HIT_R = PLATE_R;       // the rendered disk radius
 let CLAPPER_HIT_R = CLAPPER_R;
 const SAIL_HIT_R = 0.060;
 const TUBE_HIT_R = TUBE_R;
@@ -308,6 +316,23 @@ const MU_K = 0.35;
 const CLEAR_HYSTERESIS = 0.040;    // s a tube must be free before a new strike counts
 const REFRACTORY = 0.090;          // s between strikes on one tube: 11 Hz reads as a buzz
 const MIN_STRIKE_VN = 0.045;       // m/s below which a touch is not a strike
+// Tube against tube. The threshold is higher than the clapper's because tubes
+// graze each other constantly in any real wind and only a genuine clack should
+// speak; the refractory is shorter because a run of clacks IS the sound, where
+// a rattling clapper is a buzz. Restitution is higher too: aluminium on
+// aluminium is a far more elastic contact than the wooden clapper on a tube.
+const MIN_TUBE_VN = 0.075;
+const TUBE_REFRACTORY = 0.055;
+const TUBE_RESTITUTION = 0.72;
+// Token bucket on tube-pair strikes, pairs per second and burst depth. Not a
+// musical limit -- the per-pair refractory is that -- but a bound on how fast
+// voices can be created. Eight tubes in a 60 mph gale reach about 98 pairs a
+// second, and every pair is TWO voices; the voice pool caps how many can sound
+// at once but not how many can be built per second. Ordinary weather never
+// touches this: six tubes at 60 mph run about 22 pairs a second, and at 25 mph
+// under 2. Anything dropped here is one clack among dozens already ringing.
+const TUBE_RATE = 55;
+const TUBE_BURST = 18;
 
 const GRAB_K = 55.0;               // grab spring, 1/s^2 per unit of position error
 // The grab damping is specified as v *= 0.82 per substep. Expressed as a rate
@@ -456,6 +481,7 @@ export function createRig(freqs) {
     errors: [],
     simTime: 0,
     strikeCount: 0,
+    tubeStrikeCount: 0,
     substepIndex: 0,
     grabbed: null
   };
@@ -1179,7 +1205,23 @@ export function createRig(freqs) {
   // Tube against tube. Both are capsules spanning the visible tube exactly
   // (t = 0 to t = 1 by extrapolation from the gyration particles), so what is
   // separated is the object you can see rather than an invisible proxy.
-  function solveTubeSeparation() {
+  // Tube-vs-tube contact records, one per unordered pair, indexed
+  // i * MAX_TUBES + j with i < j. Eight tubes is the slider's maximum, so this
+  // is 64 slots of which 28 are ever used -- small enough that indexing
+  // arithmetic beats searching a list.
+  const MAX_TUBES = 8;
+  const pairHit = new Uint8Array(MAX_TUBES * MAX_TUBES);
+  const pairIn = new Uint8Array(MAX_TUBES * MAX_TUBES);
+  const pairVn = new Float64Array(MAX_TUBES * MAX_TUBES);
+  const pairMu = new Float64Array(MAX_TUBES * MAX_TUBES);
+  const pairS = new Float64Array(MAX_TUBES * MAX_TUBES);
+  const pairT = new Float64Array(MAX_TUBES * MAX_TUBES);
+  const pairLast = new Float64Array(MAX_TUBES * MAX_TUBES).fill(-1e9);
+  const pairPos = new Float64Array(MAX_TUBES * MAX_TUBES * 3);
+  let tubeTokens = TUBE_BURST;
+
+  function solveTubeSeparation(detect) {
+    if (detect) pairHit.fill(0);
     for (let i = 0; i < N; i++) {
       const ai = (TUBE0 + 2 * i) * 3, bi = ai + 3;
       const t1x = CA_TOP * pos[ai] + CB_TOP * pos[bi];
@@ -1226,6 +1268,28 @@ export function createRig(freqs) {
         const w2 = cA2 * cA2 * wA2 + cB2 * cB2 * wB2;
         const wSum = w1 + w2;
         if (wSum <= 0) continue;
+
+        if (detect && i < MAX_TUBES && j < MAX_TUBES) {
+          // Closing speed along the contact normal, taken from the velocity the
+          // substep STARTED with, exactly as the clapper contact does. Reading
+          // it after the position solve would measure the solver's own
+          // correction rather than the collision.
+          const vA1x = cA1 * vpre[ai] + cB1 * vpre[bi];
+          const vA1y = cA1 * vpre[ai + 1] + cB1 * vpre[bi + 1];
+          const vA1z = cA1 * vpre[ai + 2] + cB1 * vpre[bi + 2];
+          const vA2x = cA2 * vpre[aj] + cB2 * vpre[bj];
+          const vA2y = cA2 * vpre[aj + 1] + cB2 * vpre[bj + 1];
+          const vA2z = cA2 * vpre[aj + 2] + cB2 * vpre[bj + 2];
+          const k = i * MAX_TUBES + j;
+          pairHit[k] = 1;
+          pairVn[k] = (vA1x - vA2x) * nx + (vA1y - vA2y) * ny + (vA1z - vA2z) * nz;
+          pairMu[k] = 1 / wSum;
+          pairS[k] = s;
+          pairT[k] = t;
+          pairPos[k * 3] = (c1x + c2x) * 0.5;
+          pairPos[k * 3 + 1] = (c1y + c2y) * 0.5;
+          pairPos[k * 3 + 2] = (c1z + c2z) * 0.5;
+        }
 
         const dl = (TUBE_PAIR_SEP - dist) / wSum;
         const s1a = cA1 * wA1 * dl, s1b = cB1 * wB1 * dl;
@@ -1301,7 +1365,7 @@ export function createRig(freqs) {
 
   function solveConstraints(h) {
     for (let i = 0; i < links.length; i++) solveLink(links[i], h);
-    solveTubeSeparation();
+    solveTubeSeparation(true);
     solvePorch();
     solveContacts();
     // Separation runs a second time, last. One Gauss-Seidel pass is enough at
@@ -1309,7 +1373,7 @@ export function createRig(freqs) {
     // sweep partly undoes it and the worst-case overlap crept from 0 to 13 mm
     // on a 28 mm tube. Ending the substep on separation costs 28 segment tests
     // and leaves nothing visibly interpenetrating.
-    solveTubeSeparation();
+    solveTubeSeparation(false);
   }
 
   // --- velocity pass --------------------------------------------------------
@@ -1420,6 +1484,55 @@ export function createRig(freqs) {
   }
 
   // --- strikes --------------------------------------------------------------
+
+  // Tube against tube. In a stiff wind this is most of what a real chime is
+  // doing: the clapper starts it, and then the tubes clatter against each other
+  // and against nothing else. Both tubes ring, so one contact emits two events.
+  function extractTubeStrikes(h) {
+    tubeTokens = Math.min(TUBE_BURST, tubeTokens + TUBE_RATE * h);
+    for (let i = 0; i < N && i < MAX_TUBES; i++) {
+      for (let j = i + 1; j < N && j < MAX_TUBES; j++) {
+        const k = i * MAX_TUBES + j;
+        const on = pairHit[k];
+        if (!on) { pairIn[k] = 0; continue; }
+        if (pairIn[k]) continue;         // still the same contact
+        pairIn[k] = 1;
+
+        // Closing only, and hard enough to be a clack rather than a graze.
+        const vn = -pairVn[k];
+        if (vn < MIN_TUBE_VN) continue;
+        if (rig.simTime - pairLast[k] < TUBE_REFRACTORY) continue;
+        if (tubeTokens < 1) continue;
+        tubeTokens -= 1;
+        pairLast[k] = rig.simTime;
+
+        const J = (1 + TUBE_RESTITUTION) * vn * pairMu[k];
+        const px = pairPos[k * 3], py = pairPos[k * 3 + 1], pz = pairPos[k * 3 + 2];
+        const both = [[i, pairS[k]], [j, pairT[k]]];
+        for (let e = 0; e < 2; e++) {
+          const idx = both[e][0];
+          const t = rig.tubes[idx];
+          pending.push({
+            tube: idx,
+            freq: t.f1,
+            L: t.L,
+            s: MathUtils.clamp(both[e][1], 0.02, 0.98),
+            J,
+            vn,
+            mu: pairMu[k],
+            // Metal on metal, not wood on metal. audio.js reads this to stiffen
+            // the contact, which is what makes it a clack rather than a bong.
+            kind: 'tube',
+            substep: rig.substepIndex | 0,
+            t: rig.simTime,
+            pos: [px, py, pz]
+          });
+        }
+        rig.strikeCount++;
+        rig.tubeStrikeCount++;
+      }
+    }
+  }
 
   function extractStrikes() {
     for (let i = 0; i < N; i++) {
@@ -1558,6 +1671,7 @@ export function createRig(freqs) {
     velocityPass(h);
 
     extractStrikes();
+    extractTubeStrikes(h);
     nanGuard();
   }
 

@@ -245,7 +245,8 @@ const dom = {
 	windSpeedText: $( 'windSpeedText' ),
 	windCompassNeedle: $( 'windCompassNeedle' ),
 	gustSpark: $( 'gustSpark' ),
-	hudOverlay: $( 'hudOverlay' )
+	hudOverlay: $( 'hudOverlay' ),
+	audioToast: $( 'audioToast' )
 };
 
 // ---------------------------------------------------------------------------
@@ -375,6 +376,7 @@ let builtEnvironment = false;
 
 let lastInteractionMs = performance.now();
 let hudIdle = false;
+let toastDone = false;
 let autoRotateSuspended = true;   // starts suspended until the first idle window
 
 // The learn section is a plain anchor target, so pressing "How it works" leaves
@@ -936,6 +938,23 @@ let grabPointerId = -1;
 let hoverName = null;
 let lastHoverMs = 0;
 
+// How long the pointer must be still before the HUD starts to go. Short, because
+// the fade itself is long: the controls begin dissolving almost as soon as you
+// stop, and take a couple of seconds about it. updateHud runs every tenth frame,
+// so the check granularity is a frame or two either side of this.
+const HUD_IDLE_MS = 850;
+
+function goIdle() {
+
+	if ( hudIdle || ! audioUnlocked || ! dom.hudOverlay ) return;
+	// Not while the settings drawer is open: that is a deliberate mode, and
+	// fading the HUD out from under someone reading the sliders is wrong.
+	if ( dom.sliderMenu && dom.sliderMenu.classList.contains( 'visible' ) ) return;
+	dom.hudOverlay.classList.add( 'idle' );
+	hudIdle = true;
+
+}
+
 function markInteraction() {
 
 	lastInteractionMs = performance.now();
@@ -1109,6 +1128,39 @@ if ( dom.canvas ) {
 		handleContextRestored();
 
 	}, false );
+
+}
+
+// Leaving the window is as clear a signal as going still, and clearer than
+// waiting out the timer: the pointer is not coming back to these controls until
+// it comes back to the page. pointerleave on the document catches the pointer
+// crossing the edge; blur catches the window losing focus with the pointer
+// already outside it, which a keyboard switch does.
+// Any gesture at all unlocks the audio, which is what the toast promises.
+// The canvas already did it, but a click on the HUD backdrop or a key press did
+// not, and "click anywhere" has to mean anywhere. Capture phase so a handler
+// that stops propagation cannot swallow it, and passive because none of this
+// wants to preventDefault.
+for ( const evt of [ 'pointerdown', 'keydown' ] ) {
+
+	window.addEventListener( evt, () => {
+
+		markInteraction();
+		unlockAudio();
+
+	}, { capture: true, passive: true } );
+
+}
+
+window.addEventListener( 'blur', goIdle );
+// documentElement as well as document: leave events on `document` are not
+// reliably delivered across browsers, while the root ELEMENT gets them when the
+// cursor crosses the window edge. goIdle is idempotent, so a double delivery
+// costs nothing and a missing one would leave the controls up.
+for ( const target of [ document, document.documentElement ] ) {
+
+	target.addEventListener( 'pointerleave', goIdle );
+	target.addEventListener( 'mouseleave', goIdle );
 
 }
 
@@ -1338,12 +1390,7 @@ function updateHud() {
 	// is still the thing they came to press hides the only call to action on the
 	// page. Opacity on #hudOverlay composites the whole subtree, so a child
 	// cannot opt back out of it — the gate has to be on applying it at all.
-	if ( ! hudIdle && audioUnlocked && idleFor > 8000 && dom.hudOverlay ) {
-
-		dom.hudOverlay.classList.add( 'idle' );
-		hudIdle = true;
-
-	}
+	if ( idleFor > HUD_IDLE_MS ) goIdle();
 
 	// Reduced motion: the simulation is the content and stays, but the camera
 	// stops drifting on its own.
@@ -1595,6 +1642,16 @@ function frame( nowMs ) {
 
 	}
 
+	// The toast comes down when the context is actually RUNNING, not when the
+	// gesture arrives: resume() is a promise and can be refused, and a toast
+	// that leaves on the click would be lying in exactly the case it matters.
+	if ( dom.audioToast && ! toastDone && audio && audio.ready() ) {
+
+		toastDone = true;
+		dom.audioToast.classList.add( 'done' );
+
+	}
+
 	// 13. HUD, every 10th frame.
 	if ( frames % 10 === 0 ) {
 
@@ -1784,6 +1841,7 @@ function snapshot() {
 		},
 		tubes: rig.tubes.length,
 		strikes,
+		tubeStrikes: rig.tubeStrikeCount | 0,
 		audioReady: audio ? !! audio.ready() : false,
 		errors: errors.slice(),
 		quality: tier.name,
