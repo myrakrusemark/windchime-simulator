@@ -82,6 +82,9 @@ export function createAudio(params) {
   const VN_FULL_SCALE = 1.5;
   // Reduced mass at contact with the default hammer, kg.
   const MU_NOMINAL = 0.030;
+  // Per-tube weighting for a tube-vs-tube contact, which emits one event per
+  // tube. See the note where it is applied.
+  const TUBE_PAIR_GAIN = 0.62;
 
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
@@ -345,18 +348,34 @@ export function createAudio(params) {
       // headroom, and the 0.6 exponent stays for perceptual compression. That
       // puts the floor near 0.09, a 12 mph median near 0.19 and full scale only
       // where a gust genuinely throws the hammer.
+      // Declared here, not down in the contact-time block where it is also
+      // used: the amplitude below needs it first, and a const referenced above
+      // its own declaration is a dead-zone throw, not a hoist.
+      const isTube = ev.kind === 'tube';
       const mu = Math.max(1e-4, num(ev.mu, MU_NOMINAL));
       // A heavier hammer IS louder, but as a modest offset rather than as the
       // whole scale -- otherwise the weight slider eats the dynamic range.
       const massTerm = Math.pow(clamp(mu / MU_NOMINAL, 0.25, 4), 0.5);
-      const A0 = clamp(Math.pow(clamp(vn / VN_FULL_SCALE, 0, 1), 0.6) * massTerm, 0, 1);
+      // A tube-tube contact rings BOTH tubes, so it arrives as two events. Left
+      // at full weight a pair would be twice as loud as a clapper strike of the
+      // same speed, and in a gale the clatter would bury the chime it belongs
+      // to. It is also a glancing blow between two hanging bodies rather than a
+      // square hit, so less of the energy goes into the bending modes anyway.
+      const kindGain = isTube ? TUBE_PAIR_GAIN : 1;
+      const A0 = clamp(Math.pow(clamp(vn / VN_FULL_SCALE, 0, 1), 0.6) * massTerm * kindGain, 0, 1);
       if (A0 < 1e-4) return;
 
       // Hertzian contact: the harder you hit, the SHORTER the contact and the
       // wider the excitation spectrum. One mechanism gives both "louder" and
       // "brighter", which is why a hard strike does not just sound like a soft
       // strike turned up.
-      const tauC = clamp(0.0008 * Math.pow(0.4 / vn, 0.2), 0.0004, 0.002);
+      // Aluminium on aluminium is a far stiffer contact than the wooden clapper
+      // on a tube, and a stiffer contact is a shorter one, which is what puts
+      // the energy up into the high partials. Halving the contact time is the
+      // whole difference between a clack and a bong -- the same mechanism that
+      // already makes a hard clapper strike brighter than a soft one.
+      const tauScale = isTube ? 0.5 : 1;
+      const tauC = clamp(tauScale * 0.0008 * Math.pow(0.4 / vn, 0.2), 0.0002, 0.002);
       const fc = 1 / (2 * tauC);
 
       const now = ctx.currentTime;

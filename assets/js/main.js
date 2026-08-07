@@ -1784,6 +1784,7 @@ function snapshot() {
 		},
 		tubes: rig.tubes.length,
 		strikes,
+		tubeStrikes: rig.tubeStrikeCount | 0,
 		audioReady: audio ? !! audio.ready() : false,
 		errors: errors.slice(),
 		quality: tier.name,
