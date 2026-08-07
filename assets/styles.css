@@ -216,12 +216,17 @@ body.contentPage {
    subtree, so a child can never be less transparent than its parent, and the
    title could not stay up while the rest of it went to nothing. Each group
    fades on its own, which is also why the transition lives on the groups. */
+/* Asymmetric on purpose. The transition that governs is whichever rule applies
+   AFTER the class changes, so the base state times the wake and the .idle rules
+   below time the fade. Coming back has to be quick -- you moved the mouse
+   because you want the controls -- while going is a long dissolve you are not
+   meant to notice starting. */
 .hud-title h1,
 .hud-title p,
 .hud-mid,
 .hud-bottom,
 #menuToggle {
-    transition: opacity 900ms ease;
+    transition: opacity 180ms ease-out;
 }
 
 #hudOverlay.idle .hud-title p,
@@ -229,10 +234,12 @@ body.contentPage {
 #hudOverlay.idle .hud-bottom,
 #hudOverlay.idle #menuToggle {
     opacity: 0;
+    transition: opacity 2200ms ease-in;
 }
 
 #hudOverlay.idle .hud-title h1 {
     opacity: 0.2;
+    transition: opacity 2200ms ease-in;
 }
 
 /* Nothing invisible stays clickable. A click then lands on the canvas, which

@@ -936,6 +936,23 @@ let grabPointerId = -1;
 let hoverName = null;
 let lastHoverMs = 0;
 
+// How long the pointer must be still before the HUD starts to go. Short, because
+// the fade itself is long: the controls begin dissolving almost as soon as you
+// stop, and take a couple of seconds about it. updateHud runs every tenth frame,
+// so the check granularity is a frame or two either side of this.
+const HUD_IDLE_MS = 850;
+
+function goIdle() {
+
+	if ( hudIdle || ! audioUnlocked || ! dom.hudOverlay ) return;
+	// Not while the settings drawer is open: that is a deliberate mode, and
+	// fading the HUD out from under someone reading the sliders is wrong.
+	if ( dom.sliderMenu && dom.sliderMenu.classList.contains( 'visible' ) ) return;
+	dom.hudOverlay.classList.add( 'idle' );
+	hudIdle = true;
+
+}
+
 function markInteraction() {
 
 	lastInteractionMs = performance.now();
@@ -1109,6 +1126,23 @@ if ( dom.canvas ) {
 		handleContextRestored();
 
 	}, false );
+
+}
+
+// Leaving the window is as clear a signal as going still, and clearer than
+// waiting out the timer: the pointer is not coming back to these controls until
+// it comes back to the page. pointerleave on the document catches the pointer
+// crossing the edge; blur catches the window losing focus with the pointer
+// already outside it, which a keyboard switch does.
+window.addEventListener( 'blur', goIdle );
+// documentElement as well as document: leave events on `document` are not
+// reliably delivered across browsers, while the root ELEMENT gets them when the
+// cursor crosses the window edge. goIdle is idempotent, so a double delivery
+// costs nothing and a missing one would leave the controls up.
+for ( const target of [ document, document.documentElement ] ) {
+
+	target.addEventListener( 'pointerleave', goIdle );
+	target.addEventListener( 'mouseleave', goIdle );
 
 }
 
@@ -1338,16 +1372,7 @@ function updateHud() {
 	// is still the thing they came to press hides the only call to action on the
 	// page. Opacity on #hudOverlay composites the whole subtree, so a child
 	// cannot opt back out of it — the gate has to be on applying it at all.
-	// Not while the settings drawer is open: that is a deliberate mode, and
-	// fading the HUD out from under someone reading the sliders is wrong.
-	const menuOpen = !! ( dom.sliderMenu && dom.sliderMenu.classList.contains( 'visible' ) );
-
-	if ( ! hudIdle && audioUnlocked && ! menuOpen && idleFor > 8000 && dom.hudOverlay ) {
-
-		dom.hudOverlay.classList.add( 'idle' );
-		hudIdle = true;
-
-	}
+	if ( idleFor > HUD_IDLE_MS ) goIdle();
 
 	// Reduced motion: the simulation is the content and stays, but the camera
 	// stops drifting on its own.
