@@ -28,6 +28,13 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const HOOK_Y = 2.60;          // the porch beam underside; the rig hangs from here
 const R_TUBE = 0.014;         // tube outer radius, m (28 mm OD aluminium)
+// Radius of the suspension disk. It MUST stay larger than physics.js's R_RING
+// (0.082), which is where the tube cords hang from: at 0.070 against a ring of
+// 0.082 every cord left the disk 12 mm beyond its own edge and read as tied to
+// thin air. A real chime drills its holes inside the rim, so the disk overhangs
+// the tubes. physics.js carries the same number as PLATE_R for its drag area
+// and its porch collision.
+const R_PLATE = 0.098;
 const R_BORE = 0.0125;        // inner bore radius, m (25 mm ID)
 const CORD_SEGMENTS = 6;      // line segments per cord; enough to read a belly of sag
 // Half-extent of the ground plane, m. It has to outrun the shallowest sight
@@ -1051,7 +1058,7 @@ export function createStage(opts) {
     const n = tubes.length;
 
     // Suspension disk.
-    const plateGeo = new THREE.CylinderGeometry(0.070, 0.070, 0.012, 32);
+    const plateGeo = new THREE.CylinderGeometry(R_PLATE, R_PLATE, 0.012, 32);
     const plateMat = new THREE.MeshStandardMaterial({
       color: S.plate, roughness: 0.85, metalness: 0, envMapIntensity: 0.56 * S.envIntensity,
     });

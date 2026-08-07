@@ -103,11 +103,19 @@ const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 const HOOK_CORD = 0.550;           // assembly pendulum period 1.49 s: a calm sway
 
 const PLATE_A = 0.055;             // circumradius of the 3-particle plate
+// Radius of the VISIBLE suspension disk. Mirrored in scene.js as R_PLATE, the
+// same way R_TUBE and HOOK_Y are -- scene.js does not import from here. It has
+// to exceed R_RING below, which is where the tube cords hang: at 0.070 against
+// a ring of 0.082 the cords left the disk 12 mm short of its own edge and read
+// as tied to thin air.
+const PLATE_R = 0.098;
 const PLATE_MASS = 0.150;
 const PLATE_EDGE = PLATE_A * Math.sqrt(3);
 const PLATE_Y = 2.05;
 const PLATE_THETA = [Math.PI * 0.5, Math.PI * 7 / 6, Math.PI * 11 / 6];
-const PLATE_DRAG_AREA = 0.140 * 0.012;   // edge-on only; the face is horizontal
+// Edge-on only; the face is horizontal. Diameter times thickness, so it tracks
+// the rendered disk.
+const PLATE_DRAG_AREA = PLATE_R * 2 * 0.012;
 const CD_PLATE = 1.1;
 
 // THE PLATE HANGS ON A THREE-CORD BRIDLE, not on one cord to its middle, and
@@ -293,7 +301,7 @@ const SAIL_YAW_NOISE_U2 = 5.36 * 5.36;
 // The heights below are the beam underside and the roof underside from
 // scene.js. Keep them in step by hand: physics.js deliberately knows nothing
 // about the scene graph.
-const PLATE_HIT_R = 0.070;         // the rendered disk radius
+const PLATE_HIT_R = PLATE_R;       // the rendered disk radius
 let CLAPPER_HIT_R = CLAPPER_R;
 const SAIL_HIT_R = 0.060;
 const TUBE_HIT_R = TUBE_R;
