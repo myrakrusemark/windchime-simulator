@@ -246,7 +246,9 @@ const dom = {
 	windCompassNeedle: $( 'windCompassNeedle' ),
 	gustSpark: $( 'gustSpark' ),
 	hudOverlay: $( 'hudOverlay' ),
-	audioToast: $( 'audioToast' )
+	audioToast: $( 'audioToast' ),
+	dockWeather: $( 'dockWeather' ),
+	wxUse: $( 'wxUse' )
 };
 
 // ---------------------------------------------------------------------------
@@ -895,9 +897,26 @@ function applyReading( reading, fallbackPlace ) {
 	weatherState.place = reading.place || fallbackPlace || null;
 	weatherState.at = reading.at || Date.now();
 
+	// Sky icon and conditions. The row is hidden until there is a reading, so
+	// before then the dock has no empty strip under the input.
+	if ( dom.dockWeather && dom.wxUse ) {
+
+		const sky = String( reading.sky || 'clear' );
+		// Only clear and partly have a night face; a cloud looks the same at
+		// midnight as it does at noon.
+		const night = reading.isDay === false && ( sky === 'clear' || sky === 'partly' );
+		dom.wxUse.setAttribute( 'href', '#wx-' + sky + ( night ? '-night' : '' ) );
+		dom.dockWeather.classList.remove( 'hidden' );
+
+	}
+
 	const label = weatherState.place ? weatherState.place + ': ' : '';
-	setStatus( label + compassLetters( reading.dirDeg ) + ' at ' + Math.round( reading.speedMph ) + ' mph' +
+	const bits = [];
+	if ( reading.forecast ) bits.push( reading.forecast );
+	if ( Number.isFinite( reading.tempF ) ) bits.push( Math.round( reading.tempF ) + '\u00B0F' );
+	bits.push( compassLetters( reading.dirDeg ) + ' at ' + Math.round( reading.speedMph ) + ' mph' +
 		( reading.gustMph ? ', gusting ' + Math.round( reading.gustMph ) : '' ) );
+	setStatus( label + bits.join( ' \u00B7 ' ) );
 
 }
 

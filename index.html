@@ -48,6 +48,97 @@
 
     <!-- Overlay chrome. pointer-events are off except on the actual controls,
          so an orbit drag that starts on a glass card still reaches the canvas. -->
+
+    <!-- Weather icon sheet. Drawn here rather than fetched: an icon set would
+         mean a third-party asset with its own licence and its own house style,
+         and nothing off the shelf is going to match a scene whose bushes are
+         made of overlapping circles. These use the same vocabulary -- flat
+         fills, round lobes, no strokes and no gradients. currentColor
+         throughout, so one CSS colour drives the lot. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+        <defs>
+            <!-- A cloud is three lobes and a flat base, exactly like a bush. -->
+            <g id="wx-cloudbody">
+                <circle cx="15" cy="22" r="7"></circle>
+                <circle cx="23" cy="20" r="8.5"></circle>
+                <circle cx="30" cy="24" r="6"></circle>
+                <rect x="15" y="24" width="15" height="6" rx="3"></rect>
+            </g>
+
+            <g id="wx-clear">
+                <circle cx="20" cy="20" r="8"></circle>
+                <g>
+                    <rect x="18.6" y="3" width="2.8" height="6" rx="1.4"></rect>
+                    <rect x="18.6" y="31" width="2.8" height="6" rx="1.4"></rect>
+                    <rect x="3" y="18.6" width="6" height="2.8" rx="1.4"></rect>
+                    <rect x="31" y="18.6" width="6" height="2.8" rx="1.4"></rect>
+                    <rect x="7.4" y="8.8" width="2.8" height="5.4" rx="1.4" transform="rotate(-45 8.8 11.5)"></rect>
+                    <rect x="29.8" y="25.8" width="2.8" height="5.4" rx="1.4" transform="rotate(-45 31.2 28.5)"></rect>
+                    <rect x="29.8" y="8.8" width="2.8" height="5.4" rx="1.4" transform="rotate(45 31.2 11.5)"></rect>
+                    <rect x="7.4" y="25.8" width="2.8" height="5.4" rx="1.4" transform="rotate(45 8.8 28.5)"></rect>
+                </g>
+            </g>
+
+            <!-- Night: a crescent cut from one disc by another, so it stays a
+                 single flat shape rather than a shape plus a hole. -->
+            <!-- The crescent is one arc out and a tighter one back. Both radii
+                 must be at least HALF the chord between the endpoints, or the
+                 arc is undefined and the whole path silently disappears -- which
+                 is what the first version did. Chord here is 19, so nothing
+                 under 9.5 is legal. -->
+            <g id="wx-clear-night">
+                <path d="M25.5 10.5 A 11 11 0 1 0 25.5 29.5 A 10 10 0 1 1 25.5 10.5 Z"></path>
+            </g>
+
+            <g id="wx-partly">
+                <circle cx="12" cy="12" r="6.2"></circle>
+                <rect x="10.8" y="1.4" width="2.4" height="4.4" rx="1.2"></rect>
+                <rect x="1.4" y="10.8" width="4.4" height="2.4" rx="1.2"></rect>
+                <rect x="3.2" y="3.6" width="2.4" height="4.2" rx="1.2" transform="rotate(-45 4.4 5.7)"></rect>
+                <rect x="18.6" y="3.6" width="2.4" height="4.2" rx="1.2" transform="rotate(45 19.8 5.7)"></rect>
+                <use href="#wx-cloudbody"></use>
+            </g>
+
+            <g id="wx-partly-night">
+                <path d="M18.8 7.5 A 7.5 7.5 0 1 0 18.8 20.5 A 7 7 0 1 1 18.8 7.5 Z"></path>
+                <use href="#wx-cloudbody"></use>
+            </g>
+
+            <g id="wx-cloudy">
+                <circle cx="12" cy="16" r="6"></circle>
+                <circle cx="19" cy="13" r="7"></circle>
+                <rect x="12" y="15" width="12" height="5" rx="2.5"></rect>
+                <use href="#wx-cloudbody" transform="translate(2 4)"></use>
+            </g>
+
+            <g id="wx-rain">
+                <use href="#wx-cloudbody" transform="translate(0 -3)"></use>
+                <rect x="13.5" y="28" width="2.6" height="7" rx="1.3" transform="rotate(12 14.8 31.5)"></rect>
+                <rect x="20.5" y="30" width="2.6" height="7" rx="1.3" transform="rotate(12 21.8 33.5)"></rect>
+                <rect x="27" y="28" width="2.6" height="7" rx="1.3" transform="rotate(12 28.3 31.5)"></rect>
+            </g>
+
+            <g id="wx-snow">
+                <use href="#wx-cloudbody" transform="translate(0 -3)"></use>
+                <circle cx="14.5" cy="31" r="2.1"></circle>
+                <circle cx="21.5" cy="34" r="2.1"></circle>
+                <circle cx="28.5" cy="31" r="2.1"></circle>
+            </g>
+
+            <g id="wx-storm">
+                <use href="#wx-cloudbody" transform="translate(0 -5)"></use>
+                <path d="M23.5 24 L15.5 24 L19.5 30.5 L16 30.5 L24.5 38.5 L21 30 L25 30 Z"></path>
+            </g>
+
+            <!-- Fog: the cloud sinking into stacked bars. -->
+            <g id="wx-fog">
+                <use href="#wx-cloudbody" transform="translate(0 -6)"></use>
+                <rect x="8" y="27" width="24" height="2.8" rx="1.4"></rect>
+                <rect x="11" y="33" width="18" height="2.8" rx="1.4"></rect>
+            </g>
+        </defs>
+    </svg>
+
     <div id="hudOverlay">
         <div class="hud-top">
             <div class="hud-title">
@@ -96,7 +187,14 @@
                     <button id="startButton" type="button">Start Wind Chimes</button>
                 </div>
                 <p class="start-sub">Turns the sound on and uses your local weather. The chime is already moving.</p>
-                <p id="statusLine" role="status" aria-live="polite"></p>
+                <!-- Hidden until a reading lands, so it takes no room before then.
+                     main.js sets the icon by pointing the <use> at a symbol. -->
+                <div id="dockWeather" class="dock-weather hidden">
+                    <svg class="wx-icon" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+                        <use id="wxUse" href="#wx-clear"></use>
+                    </svg>
+                    <p id="statusLine" role="status" aria-live="polite"></p>
+                </div>
             </div>
             <a class="read-on" href="#learn">
                 <span>How it works</span>
