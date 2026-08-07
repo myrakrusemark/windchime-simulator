@@ -149,6 +149,38 @@
                 </p>
             </section>
             <section>
+                <h2>Chime parts</h2>
+                <!-- min/max/step are set from PART_LIMITS in main.js at boot, so
+                     the physics stays the single source of truth for the ranges.
+                     The values here are only what shows before that runs. -->
+                <p>
+                    <label for="clapperWidthSlider">Hammer width</label>
+                    <input type="range" id="clapperWidthSlider" min="0.03" max="0.1" step="0.001" value="0.068"><br>
+                    <span id="clapperWidthValue">68 mm</span>
+                </p>
+                <p>
+                    <label for="clapperMassSlider">Hammer weight</label>
+                    <input type="range" id="clapperMassSlider" min="0.008" max="0.09" step="0.001" value="0.035"><br>
+                    <span id="clapperMassValue">35 g</span>
+                </p>
+                <p>
+                    <label for="clapperDropSlider">Hammer height</label>
+                    <input type="range" id="clapperDropSlider" min="0.25" max="0.62" step="0.005" value="0.4"><br>
+                    <span id="clapperDropValue">40 cm</span>
+                </p>
+                <p>
+                    <label for="sailMassSlider">Paddle weight</label>
+                    <input type="range" id="sailMassSlider" min="0.008" max="0.09" step="0.001" value="0.032"><br>
+                    <span id="sailMassValue">32 g</span>
+                </p>
+                <p>
+                    <label for="sailHeightSlider">Paddle height</label>
+                    <input type="range" id="sailHeightSlider" min="0.07" max="0.3" step="0.005" value="0.15"><br>
+                    <span id="sailHeightValue">150 mm</span>
+                </p>
+                <p class="menu-note">Hammer height moves the strike point up and down the tubes, which changes which overtones speak.</p>
+            </section>
+            <section>
                 <h2>View</h2>
                 <p>
                     <label for="sunSlider">Sun height</label>

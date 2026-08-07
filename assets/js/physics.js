@@ -172,27 +172,107 @@ const CB_TOP = (0 - T_A) / T_SPAN;          // -0.36595
 const CA_BOT = 1 - (1 - T_A) / T_SPAN;      // -0.36595
 const CB_BOT = (1 - T_A) / T_SPAN;          //  1.36595
 
-const CLAPPER_R = 0.034;
-const CLAPPER_MASS = 0.035;
-const CLAPPER_CORD = 0.400;        // period 1.27 s
-const CLAPPER_AREA = 0.068 * 0.014;
+// ---------------------------------------------------------------------------
+// Adjustable parts.
+//
+// These five are exposed to the user, so they are `let` and everything derived
+// from them is recomputed in setParts() rather than being folded into a
+// constant at module load. The defaults below are the values the whole rig was
+// tuned around; PART_LIMITS is the authority on their ranges and main.js reads
+// it rather than repeating the numbers in the HTML.
+//
+// Changing any of them alters particle masses, cord rest lengths or the
+// collision radius, so the caller has to rebuild the rig afterwards.
+// ---------------------------------------------------------------------------
+
+export const PART_DEFAULTS = {
+  clapperWidth: 0.068,   // disk DIAMETER; the gap to the tubes is set from it
+  clapperMass: 0.035,
+  clapperDrop: 0.400,    // below the top plate; period 1.27 s at the default
+  sailMass: 0.032,
+  sailHeight: 0.15,
+};
+
+export const PART_LIMITS = {
+  // The upper bound is where the disk closes the gap to the tubes entirely:
+  // R_RING - TUBE_R is 0.068 m of radius, so a diameter past about 0.11 leaves
+  // the clapper permanently in contact and it buzzes instead of ringing.
+  clapperWidth: [0.030, 0.100],
+  clapperMass: [0.008, 0.090],
+  // Down to where the disk sits level with the shortest tube's bottom, up to
+  // where it barely clears the top plate.
+  clapperDrop: [0.250, 0.620],
+  sailMass: [0.008, 0.090],
+  sailHeight: [0.070, 0.300],
+};
+
+/**
+ * Apply a partial set of part values and recompute everything derived from
+ * them. Values are clamped to PART_LIMITS, so a caller cannot put the rig into
+ * a state it cannot integrate. The rig must be rebuilt afterwards: masses, cord
+ * rest lengths and the collision radius all move.
+ *
+ * Returns the values actually in force, so a UI can reflect the clamping.
+ */
+export function setParts(next) {
+  const p = next || {};
+  const take = (key, fallback) => {
+    const v = Number(p[key]);
+    if (!Number.isFinite(v)) return fallback;
+    const [lo, hi] = PART_LIMITS[key];
+    return v < lo ? lo : (v > hi ? hi : v);
+  };
+
+  const width = take('clapperWidth', CLAPPER_R * 2);
+  CLAPPER_R = width * 0.5;
+  CLAPPER_HIT_R = CLAPPER_R;
+  // Edge-on frontal area of the disk. Its thickness is not exposed, so it stays
+  // at the 14 mm the geometry in scene.js draws.
+  CLAPPER_AREA = width * 0.014;
+  GAP = R_RING - TUBE_R - CLAPPER_R;
+
+  CLAPPER_MASS = take('clapperMass', CLAPPER_MASS);
+  CLAPPER_CORD = take('clapperDrop', CLAPPER_CORD);
+
+  SAIL_MASS = take('sailMass', SAIL_MASS);
+  SAIL_H = take('sailHeight', SAIL_H);
+  SAIL_AREA = SAIL_W * SAIL_H;
+  // Both of these are quoted about the sail's spine, which runs vertically, so
+  // they scale with the WIDTH and the area -- not with the height directly.
+  SAIL_I = SAIL_MASS * SAIL_W * SAIL_W / 12;
+  SAIL_YAW_K = 0.5 * RHO * SAIL_AREA * SAIL_W * 0.06;
+
+  return {
+    clapperWidth: width,
+    clapperMass: CLAPPER_MASS,
+    clapperDrop: CLAPPER_CORD,
+    sailMass: SAIL_MASS,
+    sailHeight: SAIL_H,
+  };
+}
+
+let CLAPPER_R = PART_DEFAULTS.clapperWidth * 0.5;
+let CLAPPER_MASS = PART_DEFAULTS.clapperMass;
+let CLAPPER_CORD = PART_DEFAULTS.clapperDrop;
+let CLAPPER_AREA = PART_DEFAULTS.clapperWidth * 0.014;
 const CD_CLAPPER = 1.1;
 
-// Clapper-to-tube gap = R_RING - TUBE_R - CLAPPER_R = 0.034 m. Widened from
-// 0.025 during design review: at 0.025 a hard gust pins the clapper against a
-// tube and it buzzes instead of ringing. Do not narrow it, and do not weaken
-// the sail to compensate for ring behaviour - the sail is the whole machine.
-const GAP = R_RING - TUBE_R - CLAPPER_R;
+// Clapper-to-tube gap = R_RING - TUBE_R - CLAPPER_R, 0.034 m at the default
+// width. Widened from 0.025 during design review: at 0.025 a hard gust pins the
+// clapper against a tube and it buzzes instead of ringing. A wide clapper
+// narrows this on purpose -- that is what the width control is FOR -- but the
+// upper limit stops it closing altogether.
+let GAP = R_RING - TUBE_R - CLAPPER_R;
 
 const SAIL_W = 0.11;
-const SAIL_H = 0.15;               // spine length, and the spacing of its two particles
-const SAIL_AREA = SAIL_W * SAIL_H; // 0.0165 m^2
-const SAIL_MASS = 0.032;
+let SAIL_H = PART_DEFAULTS.sailHeight;   // spine length, and the spacing of its two particles
+let SAIL_AREA = SAIL_W * SAIL_H;
+let SAIL_MASS = PART_DEFAULTS.sailMass;
 const SAIL_CORD = 0.550;           // hangs from the CLAPPER, not the plate
 const CD_SAIL_N = 1.28;            // flat plate normal to the flow
 const CD_SAIL_T = 0.02;            // skin friction along the plate
-const SAIL_I = SAIL_MASS * SAIL_W * SAIL_W / 12;   // 3.227e-5 kg.m^2 about the spine
-const SAIL_YAW_K = 0.5 * RHO * SAIL_AREA * SAIL_W * 0.06;  // dished-sail weathervane
+let SAIL_I = SAIL_MASS * SAIL_W * SAIL_W / 12;   // 3.227e-5 kg.m^2 about the spine
+let SAIL_YAW_K = 0.5 * RHO * SAIL_AREA * SAIL_W * 0.06;  // dished-sail weathervane
 const SAIL_YAW_DAMP = 3.0e-4;
 const SAIL_YAW_NOISE_SIGMA = 1.5e-4;
 const SAIL_YAW_NOISE_TAU = 1.2;
@@ -214,7 +294,7 @@ const SAIL_YAW_NOISE_U2 = 5.36 * 5.36;
 // scene.js. Keep them in step by hand: physics.js deliberately knows nothing
 // about the scene graph.
 const PLATE_HIT_R = 0.070;         // the rendered disk radius
-const CLAPPER_HIT_R = CLAPPER_R;
+let CLAPPER_HIT_R = CLAPPER_R;
 const SAIL_HIT_R = 0.060;
 const TUBE_HIT_R = TUBE_R;
 

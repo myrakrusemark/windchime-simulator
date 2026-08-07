@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 
 import { createWind } from './wind.js';
-import { createRig, freqsFor, SCALES } from './physics.js';
+import { createRig, freqsFor, SCALES, setParts, PART_DEFAULTS, PART_LIMITS } from './physics.js';
 import { createStage } from './scene.js';
 import { createWindViz } from './windviz.js';
 import { createAudio } from './audio.js';
@@ -37,6 +37,10 @@ const DEFAULTS = {
 	loudness: 0.5,
 	sunElevDeg: null,     // null means "whatever the active style calls default"
 	style: 'storybook',   // 'storybook' (flat, orthographic) or 'golden' (lit, perspective)
+	// The adjustable parts. physics.js owns the ranges and the clamping; these
+	// are only the starting values, spread in so a later default change there
+	// arrives here without editing this list.
+	...PART_DEFAULTS,
 	quality: 'auto',
 	paused: false
 };
@@ -224,6 +228,16 @@ const dom = {
 	loudnessSlider: $( 'loudnessSlider' ),
 	loudnessValue: $( 'loudnessValue' ),
 	sunSlider: $( 'sunSlider' ),
+	clapperWidthSlider: $( 'clapperWidthSlider' ),
+	clapperWidthValue: $( 'clapperWidthValue' ),
+	clapperMassSlider: $( 'clapperMassSlider' ),
+	clapperMassValue: $( 'clapperMassValue' ),
+	clapperDropSlider: $( 'clapperDropSlider' ),
+	clapperDropValue: $( 'clapperDropValue' ),
+	sailMassSlider: $( 'sailMassSlider' ),
+	sailMassValue: $( 'sailMassValue' ),
+	sailHeightSlider: $( 'sailHeightSlider' ),
+	sailHeightValue: $( 'sailHeightValue' ),
 	sunValue: $( 'sunValue' ),
 	qualitySelect: $( 'qualitySelect' ),
 	styleSelect: $( 'styleSelect' ),
@@ -239,6 +253,11 @@ const dom = {
 // ---------------------------------------------------------------------------
 
 const wind = createWind( params );
+// Push the part values into physics BEFORE the first build, so the rig is
+// assembled from them rather than from the module defaults and the two can
+// never disagree.
+Object.assign( params, setParts( params ) );
+
 const rig = createRig( freqsFor( params.scaleName, params.noteCount ) );
 
 // The one wind sampling contract, handed to physics as a stable reference so
@@ -430,6 +449,7 @@ function syncControlValues() {
 	setText( dom.sunValue, Math.round( params.sunElevDeg ) + ' deg' );
 	if ( dom.qualitySelect ) dom.qualitySelect.value = params.quality;
 	if ( dom.styleSelect ) dom.styleSelect.value = params.style;
+	syncPartControls();
 
 }
 
@@ -511,6 +531,86 @@ function applyTier( next ) {
 // ---------------------------------------------------------------------------
 // Control bindings
 // ---------------------------------------------------------------------------
+
+// The five adjustable parts. Every one of them moves a particle mass, a cord
+// rest length or the collision radius, so a change means rebuilding the rig --
+// which is why they are coalesced rather than applied on every input event of a
+// drag. 80 ms is under a tenth of a second, so it still feels live.
+const PART_UNITS = {
+	clapperWidth: { scale: 1000, unit: 'mm', dp: 0 },
+	clapperMass: { scale: 1000, unit: 'g', dp: 0 },
+	clapperDrop: { scale: 100, unit: 'cm', dp: 0 },
+	sailMass: { scale: 1000, unit: 'g', dp: 0 },
+	sailHeight: { scale: 1000, unit: 'mm', dp: 0 },
+};
+
+function partLabel( key ) {
+
+	const u = PART_UNITS[ key ];
+	return ( params[ key ] * u.scale ).toFixed( u.dp ) + ' ' + u.unit;
+
+}
+
+function syncPartControls() {
+
+	for ( const key of Object.keys( PART_UNITS ) ) {
+
+		const slider = dom[ key + 'Slider' ];
+		if ( slider ) slider.value = String( params[ key ] );
+		setText( dom[ key + 'Value' ], partLabel( key ) );
+
+	}
+
+}
+
+let partsTimer = 0;
+
+function applyParts() {
+
+	clearTimeout( partsTimer );
+	partsTimer = setTimeout( () => {
+
+		try {
+
+			// physics.js clamps, and hands back what is actually in force, so a
+			// value the rig refused never lingers in the UI.
+			Object.assign( params, setParts( params ) );
+			rebuildChime();
+			syncPartControls();
+
+		} catch ( err ) {
+
+			noteError( 'parts-apply-failed', err );
+
+		}
+
+	}, 80 );
+
+}
+
+function bindPart( key ) {
+
+	const slider = dom[ key + 'Slider' ];
+	if ( ! slider ) return;
+	const [ lo, hi ] = PART_LIMITS[ key ];
+	slider.min = String( lo );
+	slider.max = String( hi );
+	slider.value = String( params[ key ] );
+	setText( dom[ key + 'Value' ], partLabel( key ) );
+	slider.addEventListener( 'input', () => {
+
+		const v = parseFloat( slider.value );
+		if ( ! Number.isFinite( v ) ) return;
+		params[ key ] = clamp( v, lo, hi );
+		// The readout follows the pointer even though the rebuild is coalesced.
+		setText( dom[ key + 'Value' ], partLabel( key ) );
+		applyParts();
+
+	} );
+
+}
+
+for ( const key of Object.keys( PART_UNITS ) ) bindPart( key );
 
 function bindRange( el, apply ) {
 

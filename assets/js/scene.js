@@ -1084,7 +1084,11 @@ export function createStage(opts) {
     ringAmp = new Float32Array(n);
 
     // Clapper: a paler cedar disk.
-    const clapGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.014, 24);
+    // The clapper's diameter and the sail's height are user-adjustable, so the
+    // meshes read them from params. The physics owns the authoritative clamped
+    // values; these fall back to the same defaults if params is bare.
+    const clapD = Number.isFinite(params.clapperWidth) ? params.clapperWidth : 0.068;
+    const clapGeo = new THREE.CylinderGeometry(clapD * 0.5, clapD * 0.5, 0.014, 24);
     const clapMat = new THREE.MeshStandardMaterial({
       color: S.clapper, roughness: 0.8, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
@@ -1096,7 +1100,8 @@ export function createStage(opts) {
     chimeMats.push(clapMat);
 
     // Wind sail: the only part the wind meaningfully pushes.
-    const sailGeo = new THREE.BoxGeometry(0.11, 0.15, 0.004);
+    const sailH = Number.isFinite(params.sailHeight) ? params.sailHeight : 0.15;
+    const sailGeo = new THREE.BoxGeometry(0.11, sailH, 0.004);
     const sailMat = new THREE.MeshStandardMaterial({
       color: S.sail, roughness: 0.7, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
