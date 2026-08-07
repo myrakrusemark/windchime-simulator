@@ -159,6 +159,24 @@ export function createWindViz(opts) {
 	const TRAIL_SUBSTEP_CAP = 44;
 	// Mean seconds between loop attempts, per streamer. Lower it for more loops.
 	const LOOP_MEAN_S = 6;
+	// How hard a LOOPING streamer is still pulled toward the air. Low on purpose:
+	// at the ordinary coupling the wind straightens the circle before it closes.
+	const LOOP_WIND_K = 0.45;
+	// Radius of the drawn loop, m. Sized against the frame -- 2.6 m tall in the
+	// storybook style -- and against the 2.9 m of trail, which has to hold the
+	// whole circumference plus a lead-in.
+	const LOOP_RADIUS_MIN = 0.40;
+	const LOOP_RADIUS_VAR = 0.22;
+	const LOOP_MIN_SPEED = 1.4;
+	// While looping, nodes are laid further apart so the TRAIL covers more
+	// ground. It has to: a 0.5 m loop is 3.1 m round, and the trail only holds
+	// 44 nodes at the ordinary 0.065 m spacing, which is 2.9 m. The head of the
+	// loop was being shifted out of the buffer before the tail of it arrived, so
+	// the circle could never appear closed however well it was flying.
+	const LOOP_SEG_STRETCH = 1.9;
+	// Cap the turn per substep independently of node spacing, so stretching the
+	// spacing cannot also make the circle a coarse polygon.
+	const LOOP_MAX_STEP_RAD = 0.16;
 
 	let streakGeo = null;
 	let streakMat = null;
@@ -168,7 +186,7 @@ export function createWindViz(opts) {
 	let tPhase = null, tOmega = null, tAmp = null, tAge = null, tLife = null;
 	// Loop state, separate from the snake above: radians of the current
 	// revolution still to turn, and the amplitude and rate to turn them at.
-	let tLoopLeft = null, tLoopAmp = null, tLoopOmega = null;
+	let tLoopLeft = null, tLoopOmega = null;
 	let tPosAttr = null, tColAttr = null;
 
 	const trailRnd = mulberry32(0x1357);
@@ -274,7 +292,6 @@ export function createWindViz(opts) {
 		tAge = new Float32Array(n);
 		tLife = new Float32Array(n);
 		tLoopLeft = new Float32Array(n);
-		tLoopAmp = new Float32Array(n);
 		tLoopOmega = new Float32Array(n);
 
 		const dirRad = wind.state.dirDeg * Math.PI / 180;
@@ -339,27 +356,24 @@ export function createWindViz(opts) {
 			// hands the streamer back to its gentle snake. LOOP_MEAN_S is the
 			// mean time between attempts per streamer; with the pool cycling,
 			// one shows up in frame every few seconds.
-			if (tLoopLeft[i] <= 0 && mean > 1.2 &&
+			// Needs to be actually moving: a nearly stationary head turns a loop
+			// too small to see and takes an age about it.
+			const sp = Math.hypot(tVel[i3], tVel[i3 + 1], tVel[i3 + 2]);
+			if (tLoopLeft[i] <= 0 && mean > 1.2 && sp > LOOP_MIN_SPEED &&
 				trailRnd() < 1 - Math.exp(-dt / LOOP_MEAN_S)) {
 				tLoopLeft[i] = TAU;
-				// How OPEN the loop is comes from the ratio of transverse speed
-				// to drift. Over 1.0 the path closes at all; at 1.25 it closes by
-				// a quarter and draws a tight cusp you have to look for. These
-				// put the transverse path at rather more than twice the drift, so
-				// the loop is a round one you can see. Omega then sets its size:
-				// radius is amp * meanSpeed / omega, and it has to stay under the
-				// drawn trail length or the loop never appears whole.
-				tLoopAmp[i] = 2.2 + trailRnd() * 0.9;
-				// Omega sets the SIZE: smaller turns a wider loop. At 41 it stood
-				// 0.59 m tall, correct but easy to miss; this puts it near 0.8,
-				// about a third of the frame height, while still leaving lead-in
-				// and lead-out inside the 2.9 m of drawn trail.
-				tLoopOmega[i] = 28 + trailRnd() * 8;
-				// Enter at phase zero, where the swirl points straight downwind:
-				// the streamer accelerates along its existing course, then rises
-				// into the loop. Entering at an arbitrary phase puts a kink at the
-				// mouth of it.
-				tPhase[i] = 0;
+				// Turning the velocity makes the radius speed/omega, so a FIXED
+				// omega gives a loop whose size depends on how fast that streamer
+				// happened to be going -- and they vary a lot, because the log wind
+				// profile is slower near the ground and the low spawn bias puts
+				// plenty of them there. Measured, that drew circles anywhere from
+				// 0.32 to 1.57 m, and the small ones were too tight to close.
+				//
+				// Deriving omega from the head's own speed fixes the RADIUS
+				// instead, which is the thing that has to read on screen. A slower
+				// streamer then takes longer over the same size of loop, which is
+				// what it should do.
+				tLoopOmega[i] = sp / (LOOP_RADIUS_MIN + trailRnd() * LOOP_RADIUS_VAR);
 			}
 
 			// -- advance the head, laying nodes at a fixed distance -----------
@@ -367,57 +381,83 @@ export function createWindViz(opts) {
 			let guard = 0;
 			while (left > 1e-6 && guard < TRAIL_SUBSTEP_CAP) {
 				guard++;
+				const loopNow = tLoopLeft[i] > 0;
+				const segI = loopNow ? seg * LOOP_SEG_STRETCH : seg;
 				const sp = Math.max(0.05, Math.hypot(tVel[i3], tVel[i3 + 1], tVel[i3 + 2]));
-				const h = Math.min(left, seg / sp);
+				let h = Math.min(left, segI / sp);
+				if (loopNow) h = Math.min(h, LOOP_MAX_STEP_RAD / Math.max(tLoopOmega[i], 1e-3));
 				left -= h;
 
 				let x = tPos[i3], y = tPos[i3 + 1], z = tPos[i3 + 2];
 				wind.sample(_w, x, y, z);
 
-				// The transverse rotation. The phase MUST advance per substep, not
-				// per frame: a loop runs near 28 rad/s, which is 2.8 radians of
-				// jump per frame at 10 fps, and it aliased into a sawtooth.
 				const looping = tLoopLeft[i] > 0;
-				const om = looping ? tLoopOmega[i] : tOmega[i];
-				const dPhase = om * h;
-				tPhase[i] += dPhase;
-				if (tPhase[i] > TAU) tPhase[i] -= TAU;
-				// The phase VALUE stays continuous across the switch, only its
-				// rate changes, so the swirl direction never jumps and the
-				// streamer enters and leaves its loop without a kink.
-				if (looping) tLoopLeft[i] -= dPhase;
-				const a = (looping ? tLoopAmp[i] : tAmp[i]) * mean;
-				const ph = tPhase[i];
-				const bx = looping ? fx : snakeX;
-				const bz = looping ? fz : snakeZ;
-				const swx = a * Math.cos(ph) * bx;
-				const swy = a * Math.sin(ph);
-				const swz = a * Math.cos(ph) * bz;
 
-				// Relax toward the air plus the swirl, exponentially, so the step is
-				// stable at any frame time.
-				//
-				// A streamer in a loop couples to the air FAR harder. This is not
-				// a fudge: the relaxation is a first-order low-pass on the swirl,
-				// and a loop turns at about 41 rad/s while the ordinary rate of 12
-				// passes only 12/sqrt(12^2 + 41^2), about 28 percent of it. That
-				// left the transverse speed below the drift, so the path bent but
-				// never reversed -- the loop could not close no matter how large
-				// the amplitude was set. Integrated over one revolution the
-				// along-flow velocity bottomed out at +1.3 m/s at 12, and at -5.4
-				// at 55, which is the streamer genuinely travelling backwards.
-				// Physically it stands up too: a tight eddy carries a steep
-				// pressure gradient, and the lighter the mote the closer it tracks.
-				const f = 1 - Math.exp(-(looping ? 55.0 : 12.0) * h);
-				tVel[i3] += (_w.x + swx - tVel[i3]) * f;
-				tVel[i3 + 1] += (_w.y + swy - tVel[i3 + 1]) * f;
-				tVel[i3 + 2] += (_w.z + swz - tVel[i3 + 2]) * f;
+				if (looping) {
+					// A loop TURNS the velocity the streamer already has. It does
+					// not chase a bigger one.
+					//
+					// The first version added the loop to the velocity TARGET, so
+					// the head spent the whole revolution sprinting after something
+					// two and a half times the wind -- a peak of 14.4 m/s against a
+					// 5.4 m/s breeze, the whole loop over in a fifth of a second.
+					// That is why it looked fired from something. A streamer has a
+					// velocity, not a target to keep; it is allowed to fall behind
+					// the air.
+					//
+					// Rotating the vector leaves its LENGTH alone, so the head keeps
+					// travelling at wind speed and traces a circle of radius
+					// speed/omega. Same loop, none of the sprint: peak speed stays
+					// 5.4 and a revolution takes 0.7 s.
+					//
+					// The turn is about the horizontal axis ACROSS the flow, which
+					// stands the circle in the vertical plane ALONG it -- over the
+					// top and back on itself, the part that makes it a loop rather
+					// than a roll. Rodrigues, with the axis already unit length
+					// because (fx, fz) is.
+					const ang = tLoopOmega[i] * h;
+					tLoopLeft[i] -= ang;
+					const ax = -fz, az = fx;
+					const c = Math.cos(ang), sn = Math.sin(ang);
+					const vx = tVel[i3], vy = tVel[i3 + 1], vz = tVel[i3 + 2];
+					const dot = ax * vx + az * vz;
+					tVel[i3] = vx * c + (-az * vy) * sn + ax * dot * (1 - c);
+					tVel[i3 + 1] = vy * c + (az * vx - ax * vz) * sn;
+					tVel[i3 + 2] = vz * c + (ax * vy) * sn + az * dot * (1 - c);
+
+					// Barely coupled to the air while it turns: at the ordinary rate
+					// the wind straightens the circle out before it can close. What
+					// is left still lets the loop drift downwind as it is drawn,
+					// which is what stops it looking stamped on.
+					const f = 1 - Math.exp(-LOOP_WIND_K * h);
+					tVel[i3] += (_w.x - tVel[i3]) * f;
+					tVel[i3 + 1] += (_w.y - tVel[i3 + 1]) * f;
+					tVel[i3 + 2] += (_w.z - tVel[i3 + 2]) * f;
+				} else {
+					// Snaking is still a target, because it is meant to be a
+					// perturbation OF the wind rather than a departure from it: a
+					// gentle rotation across the flow, small enough that the drift
+					// always wins and the path only ever draws a long S. The phase
+					// advances per substep, not per frame -- a growing clock times a
+					// changing rate jumps.
+					tPhase[i] += tOmega[i] * h;
+					if (tPhase[i] > TAU) tPhase[i] -= TAU;
+					const a = tAmp[i] * mean;
+					const ph = tPhase[i];
+					const swx = a * Math.cos(ph) * snakeX;
+					const swy = a * Math.sin(ph);
+					const swz = a * Math.cos(ph) * snakeZ;
+					const f = 1 - Math.exp(-12.0 * h);
+					tVel[i3] += (_w.x + swx - tVel[i3]) * f;
+					tVel[i3 + 1] += (_w.y + swy - tVel[i3 + 1]) * f;
+					tVel[i3 + 2] += (_w.z + swz - tVel[i3 + 2]) * f;
+				}
 
 				x += tVel[i3] * h; y += tVel[i3 + 1] * h; z += tVel[i3 + 2] * h;
 				tPos[i3] = x; tPos[i3 + 1] = y; tPos[i3 + 2] = z;
 
 				const dx = x - tNodes[base], dy = y - tNodes[base + 1], dz = z - tNodes[base + 2];
-				if (dx * dx + dy * dy + dz * dz >= seg * seg) {
+				if (dx * dx + dy * dy + dz * dz >= segI * segI) {
 					// Shift the history back one and put the head at the front.
 					tNodes.copyWithin(base + 3, base, base + (TRAIL_NODES - 1) * 3);
 					tNodes[base] = x; tNodes[base + 1] = y; tNodes[base + 2] = z;
