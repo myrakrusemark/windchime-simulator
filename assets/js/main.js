@@ -1319,27 +1319,105 @@ if ( dom.container && typeof ResizeObserver !== 'undefined' ) {
 // still-scheduled rAF still costs a wake-up per frame.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Hidden tabs.
+//
+// The chime is meant to be left running in a tab you are not looking at, so a
+// hidden page keeps making sound. It cannot keep ANIMATING: requestAnimationFrame
+// stops when the page is hidden and there is no way around that, nor any point
+// -- nobody is watching. But Web Audio runs on its own thread and does not stop,
+// and Chrome exempts an audible page from the intensive throttling that would
+// otherwise cut its timers to one a minute.
+//
+// So the physics moves onto a timer, and the drawing simply stops.
+//
+// The catch is that a background timer is clamped to about a second, and a
+// second of strikes dispatched at once is a burst, not a chime. The fix is to
+// simulate AHEAD of the audio clock and schedule each strike at its true offset:
+// Web Audio plays them at the right moments whether or not the main thread is
+// awake in between. That is the same look-ahead a step sequencer uses.
+//
+// LEAD is how far ahead of real time the simulation is kept. It has to comfortably
+// exceed the timer's period, or the audio runs dry between wake-ups.
+// ---------------------------------------------------------------------------
+
+const BG_TICK_MS = 250;
+const BG_LEAD_SEC = 1.6;
+// A tab that was hidden for an hour must not try to catch up on an hour. The
+// chime simply missed that time, which is what a real one does.
+const BG_MAX_CATCHUP_SEC = 3.0;
+
+let bgTimer = 0;
+let bgLead = 0;        // seconds of simulation produced beyond the audio clock
+let bgLastMs = 0;
+
+function backgroundTick() {
+
+	const now = performance.now();
+	const real = clamp( ( now - bgLastMs ) / 1000, 0, BG_MAX_CATCHUP_SEC );
+	bgLastMs = now;
+
+	// Real time has passed, so the cushion built last wake-up has been consumed.
+	bgLead = Math.max( 0, bgLead - real );
+
+	let todo = Math.min( BG_LEAD_SEC - bgLead, BG_MAX_CATCHUP_SEC );
+
+	while ( todo > 1e-3 ) {
+
+		// One frame's worth at a time, so the solver sees the same step sizes it
+		// sees in the foreground and the rig behaves identically.
+		const chunk = Math.min( todo, SUBSTEP_MAX * SUBSTEP_CAP );
+		stepSimulation( chunk, bgLead );
+		bgLead += chunk;
+		todo -= chunk;
+
+	}
+
+	try {
+
+		rig.syncState();
+		if ( audio ) audio.setContactMask( rig.contactMask );
+
+	} catch ( err ) {
+
+		noteError( 'bg-sync-failed', err );
+
+	}
+
+}
+
+function startBackground() {
+
+	if ( bgTimer ) return;
+	bgLastMs = performance.now();
+	bgLead = 0;
+	bgTimer = setInterval( backgroundTick, BG_TICK_MS );
+
+}
+
+function stopBackground() {
+
+	if ( ! bgTimer ) return;
+	clearInterval( bgTimer );
+	bgTimer = 0;
+	bgLead = 0;
+
+}
+
 document.addEventListener( 'visibilitychange', () => {
 
 	if ( document.hidden ) {
 
 		stopLoop();
-		if ( audio ) {
-
-			try {
-
-				audio.suspend();
-
-			} catch ( err ) {
-
-				noteError( 'audio-suspend-failed', err );
-
-			}
-
-		}
+		// Audio is deliberately NOT suspended. Suspending it is what silenced a
+		// backgrounded tab, and it also forfeits the throttling exemption an
+		// audible page gets -- so suspending would have made the timers below
+		// useless as well as pointless.
+		startBackground();
 
 	} else {
 
+		stopBackground();
 		lastMs = performance.now();   // do not hand the solver a ten-minute dt
 		if ( audio ) {
 
@@ -1424,27 +1502,17 @@ function updateHud() {
 }
 
 // ---------------------------------------------------------------------------
-// The tick.
+// The simulation, with no drawing in it.
+//
+// Split out of the frame because the tab can be hidden, where there are no
+// animation frames but there is still an audio thread. leadSec is how far ahead
+// of the audio clock this chunk is being computed: zero in the foreground,
+// where the chunk IS now, and up to the look-ahead in the background.
 // ---------------------------------------------------------------------------
 
-function frame( nowMs ) {
+function stepSimulation( dt, leadSec ) {
 
-	rafId = requestAnimationFrame( frame );
-	const tFrameStart = performance.now();
-	frames ++;
-
-	let dt = clamp( ( nowMs - lastMs ) / 1000, 0, DT_CAP );
-	lastMs = nowMs;
-	if ( params.paused ) dt = 0;
-
-	if ( dt > 0 ) {
-
-		dtRing[ dtRingIndex ] = dt;
-		dtRingIndex = ( dtRingIndex + 1 ) % dtRing.length;
-
-	}
-
-	// 3. Wind first: everything downstream samples the field this call leaves.
+	// Wind first: everything downstream samples the field this call leaves.
 	try {
 
 		wind.update( dt );
@@ -1455,7 +1523,7 @@ function frame( nowMs ) {
 
 	}
 
-	// 4. Substeps. Fixed maximum step size, variable count, no leftover
+	// Substeps. Fixed maximum step size, variable count, no leftover
 	// accumulator: the solver sees at most 1/240 s no matter the frame rate.
 	let h = 0;
 	let n = 0;
@@ -1482,15 +1550,17 @@ function frame( nowMs ) {
 
 	lastSubsteps = n;
 
-	// 5. Strikes. Each event carries the substep it happened in, so audio can
-	// place it inside the frame instead of quantising every hit to the frame
-	// boundary and comb-filtering a gust into a metallic flam.
+	// Strikes. Each event carries the substep it happened in, so audio can place
+	// it inside the chunk instead of quantising every hit to the chunk boundary
+	// and comb-filtering a gust into a metallic flam. leadSec shifts the whole
+	// chunk into the future, which is what makes background audio come out
+	// evenly spaced rather than in one burst per wake-up.
 	try {
 
 		const events = rig.drainStrikes();
 		for ( let i = 0; i < events.length; i ++ ) {
 
-			dispatchStrike( events[ i ], h );
+			dispatchStrike( events[ i ], h, leadSec );
 
 		}
 
@@ -1499,6 +1569,31 @@ function frame( nowMs ) {
 		noteError( 'strike-dispatch-failed', err );
 
 	}
+
+}
+
+// ---------------------------------------------------------------------------
+// The tick.
+// ---------------------------------------------------------------------------
+
+function frame( nowMs ) {
+
+	rafId = requestAnimationFrame( frame );
+	const tFrameStart = performance.now();
+	frames ++;
+
+	let dt = clamp( ( nowMs - lastMs ) / 1000, 0, DT_CAP );
+	lastMs = nowMs;
+	if ( params.paused ) dt = 0;
+
+	if ( dt > 0 ) {
+
+		dtRing[ dtRingIndex ] = dt;
+		dtRingIndex = ( dtRingIndex + 1 ) % dtRing.length;
+
+	}
+
+	stepSimulation( dt, 0 );
 
 	// 6. One state sync per frame, after all the substeps.
 	try {
@@ -1734,7 +1829,7 @@ function meanOf( ring ) {
 
 }
 
-function dispatchStrike( ev, h ) {
+function dispatchStrike( ev, h, leadSec ) {
 
 	strikes ++;
 
@@ -1742,7 +1837,7 @@ function dispatchStrike( ev, h ) {
 
 		try {
 
-			audio.strike( ev, ( ev.substep || 0 ) * h );
+			audio.strike( ev, ( ev.substep || 0 ) * h + ( leadSec || 0 ) );
 
 		} catch ( err ) {
 
@@ -1950,7 +2045,7 @@ window.__wcs = {
 		};
 
 		// Same path a real contact takes, so this tests audio and flash at once.
-		dispatchStrike( ev, 0 );
+		dispatchStrike( ev, 0, 0 );
 		return ev;
 
 	},
