@@ -1,82 +1,115 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Wind Chime Simulator</title>
-    <meta name="description" content="Experience the soothing sounds of wind chimes with an interactive Wind Chime Simulator. Customize the chimes and wind settings to create your perfect ambient soundscape.">
-    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <meta charset="utf-8">
+    <title>Wind Chime Simulator - a 3D wind chime in real weather</title>
+    <meta name="description" content="A real-time 3D wind chime simulation. Tuned aluminium tubes, a wind sail on a cord, and a turbulent wind field driven by your local weather. Watch the wind blow and hear the chimes ring.">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2b2118">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="assets/styles.css">
+
+    <!--
+      three.js r185 is vendored in this repo. The import map lets the ES modules
+      under assets/js/ use bare specifiers with no build step and no CDN.
+      It must appear before any module script.
+    -->
+    <script type="importmap">
+    {"imports":{
+      "three":"./assets/vendor/three.module.min.js",
+      "three/addons/":"./assets/vendor/addons/"
+    }}
+    </script>
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-DJHXYEGQDS"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-DJHXYEGQDS');
+    </script>
 </head>
 
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-DJHXYEGQDS"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-DJHXYEGQDS');
-</script>
-
 <body>
-    <div class="background"></div>
-    <div id="mainContent">
-        <div id="header">
-            <button onclick="toggleMenu()" aria-label="Settings">
-                <img src="assets/hamburger.svg" class="svg" alt="Settings Menu">
+
+    <!-- The picture. Fixed, full viewport, sized entirely by stage.resize(). -->
+    <div id="canvasContainer">
+        <canvas id="glCanvas"></canvas>
+        <div id="fallbackNotice" class="hidden">
+            <p>This browser could not start 3D graphics, so the picture is not showing. The chime is still swinging and the wind is still blowing underneath.</p>
+        </div>
+    </div>
+
+    <!-- Overlay chrome. pointer-events are off except on the actual controls,
+         so an orbit drag that starts on a glass card still reaches the canvas. -->
+    <div id="hudOverlay">
+        <div class="hud-top">
+            <div class="hud-title">
+                <h1>Wind Chime Simulator</h1>
+                <p>A hanging chime with a wind sail on a cord, in weather that is really blowing.</p>
+            </div>
+            <button id="menuToggle" type="button" aria-label="Settings" aria-controls="sliderMenu" aria-expanded="false">
+                <img src="assets/hamburger.svg" class="svg" alt="">
             </button>
         </div>
-        <div id="content">
-            <div class="title">
-                <h1>Wind Chime Simulator</h1>
-                <p>Experience the soothing sounds of wind chimes with an interactive Wind Chime Simulator.<br />
-                    Customize the chimes and wind settings to create your perfect ambient soundscape.</p>
-            </div>
-            <label for="locationInput">Enter a location below or leave it blank to use your current location.</label>
-            <div class="input-container">
-                <input type="text" id="locationInput" placeholder="City/State/Country">
-                <button id="startButton">Start Wind Chimes</button>
-            </div>
-            <div id="statusContainer">
-                <div id="windSpeed" class="hidden">Error</div>                
-            </div>
 
-            
+        <div class="hud-mid">
+            <div class="start-pill">
+                <input type="text" id="locationInput" placeholder="City, State or Country" aria-label="Location" autocomplete="off" spellcheck="false">
+                <button id="startButton" type="button">Start Wind Chimes</button>
+            </div>
+            <p class="start-sub">Turns the sound on and uses your local weather. The chime is already moving.</p>
+            <p id="statusLine" role="status" aria-live="polite"></p>
         </div>
 
+        <div class="hud-bottom">
+            <div id="windCard">
+                <svg class="compass" viewBox="0 0 60 60" aria-hidden="true" focusable="false">
+                    <circle cx="30" cy="30" r="25" class="compass-ring"></circle>
+                    <line x1="30" y1="5" x2="30" y2="10" class="compass-tick"></line>
+                    <line x1="55" y1="30" x2="50" y2="30" class="compass-tick"></line>
+                    <line x1="30" y1="55" x2="30" y2="50" class="compass-tick"></line>
+                    <line x1="5" y1="30" x2="10" y2="30" class="compass-tick"></line>
+                    <text x="30" y="17" class="compass-label" text-anchor="middle">N</text>
+                    <!-- Drawn pointing up from the centre. main.js rotates it by
+                         dirDeg + 180 so it points the way the air is going. The
+                         initial 90 degrees matches the 12 mph westerly default. -->
+                    <path id="windCompassNeedle" d="M30 20 L35 40 L30 35.5 L25 40 Z" transform="rotate(90 30 30)"></path>
+                </svg>
+                <div class="wind-readout">
+                    <span id="windSpeedText">W - 12 mph</span>
+                    <svg class="spark" viewBox="0 0 120 28" aria-hidden="true" focusable="false">
+                        <polyline id="gustSpark" fill="none"></polyline>
+                    </svg>
+                </div>
+            </div>
+            <a class="read-on" href="#learn">
+                <span>How it works</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 9 L12 16 L19 9" fill="none"></path></svg>
+            </a>
+        </div>
     </div>
-    <div id = "canvasContainer">
-        <canvas id="canvas" width="600" height="600"></canvas>
-    </div>
-    <div id="footer">
 
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073"
-        crossorigin="anonymous"></script>
-        <!-- windchime -->
-        <ins class="adsbygoogle"
-                style="display:block"
-                data-ad-client="ca-pub-6788527921390073"
-                data-ad-slot="2774506336"
-                data-full-width-responsive="true"></ins>
-        <script>
-                (adsbygoogle = window.adsbygoogle || []).push({});
-        </script>
-    </div>
-
+    <!-- Settings drawer. Starts below the toggle so the toggle is never covered. -->
     <div id="sliderMenu">
         <div id="sliderContainer">
             <section>
-                <h2 onclick="toggleMenu()">Wind <img src="assets/right.svg" class="svg" style="position: relative; top: 3px;" alt="Settings Menu"></h2>
+                <h2>Wind</h2>
                 <p>
-                    <label for="maxWindSpeedSlider">Max wind speed</label>
-                    <input type="range" id="maxWindSpeedSlider" min="0" max="100" step="1" value="60"><br>
-                    <span id="maxWindSpeedValue">60 mph</span> 
+                    <label for="windSpeedSlider">Wind speed</label>
+                    <input type="range" id="windSpeedSlider" min="0" max="60" step="1" value="12"><br>
+                    <span id="windSpeedValue">12 mph</span>
                 </p>
                 <p>
-                    <label for="windChangeRangeSlider">Turbulence </label>
-                    <input type="range" id="windChangeRangeSlider" min="0.1" max="1" step="0.01" value="0.3">
+                    <label for="turbulenceSlider">Turbulence</label>
+                    <input type="range" id="turbulenceSlider" min="0.05" max="1" step="0.01" value="0.30"><br>
+                    <span id="turbulenceValue">0.30</span>
                 </p>
             </section>
             <section>
@@ -95,113 +128,174 @@
                     </select>
                 </p>
                 <p>
-                    <label for="noOfNotesSlider">Number of notes in the scale</label>
-                    <input type="range" id="noOfNotesSlider" min="0" max="8" step="1" value="5"><br>
-                    <span id="noOfNotesValue">5 notes</span> 
+                    <label for="noteCountSlider">Number of tubes</label>
+                    <input type="range" id="noteCountSlider" min="3" max="8" step="1" value="6"><br>
+                    <span id="noteCountValue">6 tubes</span>
                 </p>
                 <p>
-                    <label for="chimeAttackSlider">Attack</label>
-                    <input type="range" id="chimeAttackSlider" min="0" max="0.1" step="0.001" value="0.001"><br>
-                    <span id="chimeAttackValue">0.001 seconds</span> 
+                    <label for="attackSlider">Attack</label>
+                    <input type="range" id="attackSlider" min="0.0005" max="0.05" step="0.0005" value="0.002"><br>
+                    <span id="attackValue">0.002 s</span>
                 </p>
                 <p>
-                    <label for="chimeDecaySlider">Decay</label>
-                    <input type="range" id="chimeDecaySlider" min="0" max="10" step="0.1" value="2.0"><br>
-                    <span id="chimeDecayValue">2.0 seconds</span> 
+                    <label for="decaySlider">Ring time</label>
+                    <input type="range" id="decaySlider" min="0.5" max="16" step="0.5" value="8"><br>
+                    <span id="decayValue">8 s ring</span>
                 </p>
-
+                <p>
+                    <label for="loudnessSlider">Loudness</label>
+                    <input type="range" id="loudnessSlider" min="0" max="1" step="0.01" value="0.5"><br>
+                    <span id="loudnessValue">0.50</span>
+                </p>
+            </section>
+            <section>
+                <h2>Chime parts</h2>
+                <!-- min/max/step are set from PART_LIMITS in main.js at boot, so
+                     the physics stays the single source of truth for the ranges.
+                     The values here are only what shows before that runs. -->
+                <p>
+                    <label for="clapperWidthSlider">Hammer width</label>
+                    <input type="range" id="clapperWidthSlider" min="0.03" max="0.1" step="0.001" value="0.068"><br>
+                    <span id="clapperWidthValue">68 mm</span>
+                </p>
+                <p>
+                    <label for="clapperMassSlider">Hammer weight</label>
+                    <input type="range" id="clapperMassSlider" min="0.008" max="0.09" step="0.001" value="0.035"><br>
+                    <span id="clapperMassValue">35 g</span>
+                </p>
+                <p>
+                    <label for="clapperDropSlider">Hammer height</label>
+                    <input type="range" id="clapperDropSlider" min="0.25" max="0.62" step="0.005" value="0.4"><br>
+                    <span id="clapperDropValue">40 cm</span>
+                </p>
+                <p>
+                    <label for="sailMassSlider">Paddle weight</label>
+                    <input type="range" id="sailMassSlider" min="0.008" max="0.09" step="0.001" value="0.032"><br>
+                    <span id="sailMassValue">32 g</span>
+                </p>
+                <p>
+                    <label for="sailHeightSlider">Paddle height</label>
+                    <input type="range" id="sailHeightSlider" min="0.07" max="0.3" step="0.005" value="0.15"><br>
+                    <span id="sailHeightValue">150 mm</span>
+                </p>
+                <p class="menu-note">Hammer height moves the strike point up and down the tubes, which changes which overtones speak.</p>
+            </section>
+            <section>
+                <h2>View</h2>
+                <p>
+                    <label for="sunSlider">Sun height</label>
+                    <input type="range" id="sunSlider" min="2" max="20" step="1" value="11"><br>
+                    <span id="sunValue">11 deg</span>
+                </p>
+                <p>
+                    <label for="styleSelect">Look</label><br>
+                    <select id="styleSelect">
+                        <option value="storybook">Storybook</option>
+                        <option value="golden">Golden hour</option>
+                    </select>
+                </p>
+                <p>
+                    <label for="qualitySelect">Graphics</label><br>
+                    <select id="qualitySelect">
+                        <option value="auto">Auto</option>
+                        <option value="high">High</option>
+                        <option value="low">Low</option>
+                    </select>
+                </p>
+                <p class="menu-note">Drag the sail or the striker to play the chime by hand. Drag anywhere else to orbit the camera.</p>
             </section>
         </div>
     </div>
 
-    <div id="learn">
-        <h2>The Science Behind the Simulation</h2>
+    <!-- Everything below the picture scrolls over it. -->
+    <article id="article">
+        <div id="learn">
+            <h2>The Science Behind the Simulation</h2>
 
-        <section class="learn-section">
-            <h3>A Brief History of Wind Chimes</h3>
-            <p>Wind chimes have been around for a very long time—about 5,000 years! The earliest ones were found in Southeast Asia around 3000 B.C., made from bones, wood, bamboo, and seashells. People believed they could scare away evil spirits and invite good ones.</p>
-            <p>In China, wind chimes are called <strong>"Feng Ling"</strong> and were hung in temples and homes to bring positive energy. In Japan, they're called <strong>"Fūrin"</strong> and are hung outside during hot summers—the soft tinkling sound is thought to make you feel cooler and calmer. Today, people all over the world use wind chimes for relaxation and meditation.</p>
-        </section>
+            <section class="learn-section">
+                <h3>A Brief History of Wind Chimes</h3>
+                <p>Wind chimes have been around for a very long time, about 5,000 years. The earliest ones were found in Southeast Asia around 3000 B.C., made from bones, wood, bamboo, and seashells. People believed they could scare away evil spirits and invite good ones.</p>
+                <p>In China, wind chimes are called <strong>"Feng Ling"</strong> and were hung in temples and homes to bring positive energy. In Japan, they're called <strong>"Fūrin"</strong> and are hung outside during hot summers, where the soft tinkling sound is thought to make you feel cooler and calmer. Today, people all over the world use wind chimes for relaxation and meditation.</p>
+            </section>
 
-        <section class="learn-section">
-            <h3>Swinging on a String (Pendulum Physics)</h3>
-            <p>The center striker in this simulation hangs from an invisible string (300 pixels long in the code). Gravity constantly pulls it down (<code>gravity = 0.0098</code>), and when the wind pushes it, it swings back and forth. This back-and-forth motion is called a <strong>pendulum</strong>.</p>
-            <p>Here's the cool part: how fast a pendulum swings depends only on the length of the string, NOT on how heavy it is! The famous scientist Galileo figured this out about 400 years ago by watching a chandelier swing in a church.</p>
-            <p><strong>Damping</strong> (<code>centerPieceDamping = 0.995</code>) is why the striker eventually stops swinging. Each swing loses a tiny bit of energy to "air resistance"—just like how a real swing slows down if you stop pumping your legs.</p>
-        </section>
+            <section class="learn-section">
+                <h3>Length Is the Note</h3>
+                <p>The tubes hanging on screen are all cut to different lengths, and the length is what sets the note. For the 28 mm aluminium tube used here, the pitch works out at about <code>169 / L²</code> hertz, where L is the length in metres. Middle C needs a tube 0.80 m long. The C one octave above it needs only 0.57 m.</p>
+                <p>Because the length is squared, a small change in length is a big change in pitch. Open the settings, change the scale or the number of tubes, and watch the tubes get recut to their new lengths right in front of you.</p>
+            </section>
 
-        <section class="learn-section">
-            <h3>Parts of the Wind Chime</h3>
-            <p>The simulation has three main parts:</p>
-            <ul>
-                <li><strong>The Striker</strong> (center piece): The disk in the middle that catches the wind and bumps into things. It's heavier than the chimes.</li>
-                <li><strong>The Chimes</strong>: The smaller circles arranged around the striker—these make sound when hit.</li>
-                <li><strong>The Strings</strong>: Each piece hangs from its own string and swings independently.</li>
-            </ul>
-            <p>All the chimes are arranged in a circle, spaced <code>chimesSpacing = 150</code> pixels apart.</p>
-        </section>
+            <section class="learn-section">
+                <h3>Why the Cord Goes 22 Percent Down</h3>
+                <p>Grab a ringing tube anywhere along its middle and you choke it. But a hanging tube has two quiet spots where the metal barely moves while the rest of it swings, and the upper one sits <strong>22.42 percent</strong> of the way down from the top.</p>
+                <p>Hang the cord there and you're holding the one part that was not going anywhere, so the note rings on instead of dying in your fingers. Real chimes are drilled at that point, and so is every tube here, which is why the cords meet the tubes a little below their tops rather than at the very end.</p>
+            </section>
 
-        <section class="learn-section">
-            <h3>Bump! Collision Detection</h3>
-            <p>How does the computer know when two circles touch? It uses the <strong>Pythagorean theorem</strong> (a² + b² = c²) that you might have learned in math class!</p>
-            <p>The code calculates the distance between the centers of two circles: <code>distance = Math.sqrt(dx * dx + dy * dy)</code>. If that distance is smaller than the two radii added together (<code>strikerRadius + chimeRadius</code>), they're touching!</p>
-            <p>When they collide, <strong>momentum transfer</strong> happens—some energy moves from the striker to the chime. The <code>transferFactor = 0.1</code> means 10% of the energy transfers. The heavier striker (<code>massDifference = 20</code>) pushes the lighter chimes, just like a bowling ball knocking over pins.</p>
-        </section>
+            <section class="learn-section">
+                <h3>Chimes Are Not Harmonics</h3>
+                <p>Pluck a guitar string and its overtones land at 2×, 3× and 4× the main note. Whole numbers, which is a large part of why a string sounds sweet.</p>
+                <p>A metal tube behaves differently. Its overtones sit at ratios of 1 : 2.76 : 5.40 : 8.93 : 13.34, and none of those are whole numbers, so they never settle into a chord with the fundamental. Those clashing overtones are the metallic clang you hear in the first fraction of a second after a strike. They fade quickly and leave the long pure hum underneath. Every note you hear is built from those five ratios as it is played, not from a recording.</p>
+            </section>
 
-        <section class="learn-section">
-            <h3>Making Music (Sound Synthesis)</h3>
-            <p>The sounds you hear aren't recordings—they're created by the computer in real-time! Here's how:</p>
-            <ul>
-                <li><strong>Attack</strong>: How fast a note starts. An instant attack gives you a sharp "ding!" while a slow attack creates a gentle fade-in.</li>
-                <li><strong>Decay</strong>: How long the note rings out before fading to silence. Longer decay = longer, dreamier sounds.</li>
-                <li><strong>Harmonics</strong>: Real chimes don't just play one frequency—they play the main note plus quieter "overtones" at 2x, 3x, and 4x the frequency. This is what makes them sound rich and natural instead of like a plain computer beep.</li>
-            </ul>
-        </section>
+            <section class="learn-section">
+                <h3>Where You Hit It Changes What You Hear</h3>
+                <p>Hit a tube at its middle and you land right on a quiet spot belonging to the second and fourth overtones. They never speak, and the note comes out pure. Hit it well off-centre and they do speak, and it clangs.</p>
+                <p>The wooden striker hangs at the vertical middle of the whole <em>set</em> of tubes, so it catches the short tubes near their own middle and the long tubes well above theirs. The short ones sing and the long ones clang, with no extra code asking for that. The chime also sways, so the striker never quite hits the same height twice and the same tube sounds a little different every time it rings.</p>
+            </section>
 
-        <section class="learn-section">
-            <h3>Why It Sounds Good (Music Theory)</h3>
-            <p>The default scale is <strong>C Major Pentatonic</strong>: C, D, E, G, A. "Penta" means five—so this scale has only 5 notes instead of the usual 7 in a regular scale.</p>
-            <p>Here's the magic: these 5 notes sound good together no matter what order you play them! That's why wind chimes never sound "wrong"—there are no clashing notes in a pentatonic scale. Musicians call this a "foolproof" scale because you really can't hit a bad note.</p>
-            <p>Random timing + pleasant notes = the relaxing ambient sound that makes wind chimes so soothing.</p>
-        </section>
-    </div>
+            <section class="learn-section">
+                <h3>How the Wind Actually Gets In</h3>
+                <p>Wind pushes on everything, but the part it really works on is the sail, the flat paddle hanging on the long cord underneath. The drag on a flat plate is <code>0.5 × air density × drag coefficient × area × speed²</code>. At 12 mph that comes to roughly 0.15 newtons. The striker and the sail together weigh about 0.66 newtons, so that push swings the pair about 12 degrees off vertical. The sail hangs below the striker on a cord of its own and carries only its own weight, so it swings out to roughly twice that angle.</p>
+                <p>Double the wind and the force goes up four times over, because the speed is squared. The pair swings past 25 degrees and the sail past 50. That squared term is why a gust throws the chime instead of nudging it.</p>
+                <p>The striker itself is small and feels only about 5 percent of what the sail feels. It moves because the sail is dragging it sideways on a cord, and when it has been dragged far enough it reaches a tube. The sail always goes first and the striker follows it, which is easy to watch once you know to look for it.</p>
+            </section>
 
-    <div id="footer">
-        <p>Another cool project by <a target="_blank" href="https://myrakrusemark.com">Myra Krusemark</a>! (C)2024<br />
-            <a href="about.html">About Me and Contact</a> |
-            <a href="terms.html">Terms & Conditions</a> |
-            <a href="privacy.html">Privacy Policy</a> |
-            <a target="_blank" href="https://github.com/myrakrusemark">GitHub</a>
-        </p>
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073"
-        crossorigin="anonymous"></script>
-        <!-- windchime -->
-        <ins class="adsbygoogle"
-                style="display:block"
-                data-ad-client="ca-pub-6788527921390073"
-                data-ad-slot="2774506336"
-                data-ad-format="auto"
-                data-full-width-responsive="true"></ins>
-        <script>
-                (adsbygoogle = window.adsbygoogle || []).push({});
-        </script>
-    </div>
- 
-    <script>
-        function toggleMenu() {
-            var menu = document.getElementById('sliderMenu');
-            menu.classList.toggle('visible');
+            <section class="learn-section">
+                <h3>Wind Is Not One Number</h3>
+                <p>A forecast gives you one wind speed, measured 10 metres up. Down where a chime hangs, the ground has been dragging on the air the whole way. At 2 metres you get about 73 percent of the reported speed, and at the height of the grass only about 41 percent. Watch the grass and the chime together during a gust. The grass moves less, and it's supposed to.</p>
+                <p>Real wind also arrives in lulls and surges. Gusts here are a slow random walk around the average, so quiet stretches and busy stretches happen on their own with nothing scheduling them. The turbulence itself is carried along downwind at the speed of the wind, an idea from the 1930s known as Taylor's frozen turbulence. A gust reaches the scene as a front that crosses it. The streaks far upwind stretch and brighten first, then the grass bends, then the ribbon under the plate snaps straight, then the sail swings out and the chime rings.</p>
+                <p>The dust and seeds in the air are not a decorative loop. Each speck is pushed by the same wind the sail feels, with its own weight and its own drag, so heavy ones lag behind a gust and light ones go with it. A streak is drawn exactly as long as the distance the air moved in the last 55 milliseconds, and under a certain speed it is not drawn at all. That's why a lull empties the sky and a gust seems to appear out of nothing.</p>
+            </section>
 
-            var main = document.getElementById('mainContent');
-            if (menu.classList.contains('visible')) {
-                main.style.right = '300px';
-            } else {
-                main.style.right = '0px';
-                setTimeout(function() { 
-                    menu.classList.add('hidden'); // Add 'hidden' after the transition
-                }, 500); // Corresponds to the transition time
-            }
-        }
-    </script>
-    <script src="assets/sim.js"></script>
+            <section class="learn-section">
+                <h3>It Is a Real 3D Rig</h3>
+                <p>Everything on screen is measured in metres, kilograms and newtons. The plate, the tubes, the striker and the sail are masses joined by cords that cannot stretch and are free to go slack, which is why you can catch a cord bellying out and then snapping taut a moment later.</p>
+                <p>The top plate hangs on three short cords rather than one. Hang a disc from a single cord tied at its middle and nothing is holding it level, because the cord pulls through the same point the weight acts through. Real chimes use a three-cord bridle, and so does this one. The whole assembly still swings, and the disc still tilts with the swing, but it never rolls over on its side.</p>
+                <p>The physics runs at up to 240 steps a second whatever your screen is doing, so a slow phone gets the same collisions as a fast desktop, just drawn less often. Drag the sail or the striker with a mouse or a finger to play the chime by hand, or drag anywhere else to orbit the camera.</p>
+            </section>
+
+            <section class="learn-section">
+                <h3>Why It Sounds Good (Music Theory)</h3>
+                <p>The default scale is <strong>C Major Pentatonic</strong>: C, D, E, G, A. "Penta" means five, so this scale has only 5 notes instead of the usual 7 in a regular scale.</p>
+                <p>Here's the magic: these 5 notes sound good together no matter what order you play them! That's why wind chimes never sound "wrong". There are no clashing notes in a pentatonic scale. Musicians call this a "foolproof" scale because you really can't hit a bad note.</p>
+                <p>Random timing + pleasant notes = the relaxing ambient sound that makes wind chimes so soothing.</p>
+            </section>
+        </div>
+
+        <div class="ad-slot">
+            <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6788527921390073"
+            crossorigin="anonymous"></script>
+            <!-- windchime -->
+            <ins class="adsbygoogle"
+                    style="display:block"
+                    data-ad-client="ca-pub-6788527921390073"
+                    data-ad-slot="2774506336"
+                    data-ad-format="auto"
+                    data-full-width-responsive="true"></ins>
+            <script>
+                    (adsbygoogle = window.adsbygoogle || []).push({});
+            </script>
+        </div>
+
+        <div id="footer">
+            <p>Another cool project by <a target="_blank" href="https://myrakrusemark.com">Myra Krusemark</a>! (C)2024<br />
+                <a href="about.html">About Me and Contact</a> |
+                <a href="terms.html">Terms &amp; Conditions</a> |
+                <a href="privacy.html">Privacy Policy</a> |
+                <a target="_blank" href="https://github.com/myrakrusemark">GitHub</a>
+            </p>
+        </div>
+    </article>
+
+    <script type="module" src="assets/js/main.js"></script>
 </body>
+</html>

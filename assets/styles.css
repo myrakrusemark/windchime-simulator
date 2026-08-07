@@ -1,16 +1,81 @@
+/* ---------------------------------------------------------------------------
+   Wind Chime Simulator
+
+   Layering, stated once so it is not guessed at further down:
+     0  #canvasContainer   fixed, full viewport, the 3D picture
+     2  #hudOverlay        fixed hero chrome, pointer-events: none except controls
+     3  #article           scrolls up over the picture and over the hero chrome
+     6  #sliderMenu        settings drawer, above everything
+
+   The article deliberately outranks the overlay. The overlay is fixed at inset 0,
+   so if the article sat underneath it the hero controls would float over the
+   text you were trying to read, and would swallow clicks meant for links.
+   --------------------------------------------------------------------------- */
+
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     font-family: "Roboto Flex", sans-serif;
     color: #ffffff;
-    margin:0;
+    margin: 0;
+    background: #2b2118;
 }
+
+h1, h2, h3 {
+    font-family: "Julius Sans One", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    margin-top: 8px;
+}
+
+h1 {
+    font-size: 1.6rem;
+    letter-spacing: 0.08em;
+    /* Two shadows, not one. The default view now looks toward the sun, so the
+       title can land on a near-white sky glow; a single soft 12px shadow washed
+       out completely against it. The tight dark halo carries the contrast and
+       the wide one keeps it from looking stamped on. */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85), 0 2px 16px rgba(0, 0, 0, 0.7);
+}
+
+p, span, button, input, label, select {
+    font-optical-sizing: auto;
+    font-style: normal;
+}
+
+a {
+    color: #ffffff99;
+}
+
+img.svg {
+    filter: brightness(0) invert(1);
+}
+
+input::-webkit-input-placeholder {
+    color: #ffffff88;
+}
+
+input::placeholder {
+    color: #ffffff88;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Content pages (about.html, terms.html, privacy.html) share this stylesheet
+   and still want the old animated gradient. It is scoped to .contentPage so the
+   simulator page keeps a warm flat backdrop behind the canvas.
+   --------------------------------------------------------------------------- */
 
 body.contentPage {
     padding: 50px;
-    max-width:800px;
+    max-width: 800px;
 }
 
-.background {
-    background: url('transparent_bg.png') left top/50% no-repeat, linear-gradient(-45deg, #8f510e 0%, #53b5a2 100%) center/auto no-repeat;
+.contentPage .background {
+    background: url('transparent_bg.png') left top/50% no-repeat,
+                linear-gradient(-45deg, #8f510e 0%, #53b5a2 100%) center/auto no-repeat;
     position: fixed;
     top: 0;
     left: 0;
@@ -25,24 +90,406 @@ body.contentPage {
     to { filter: hue-rotate(360deg); }
 }
 
-#sliderMenu {
-    background-color: #998c7e;
-    color: white;
+.content {
+    position: relative;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The picture
+   --------------------------------------------------------------------------- */
+
+#canvasContainer {
     position: fixed;
-    width: 300px;
-    right: -300px;
-    box-shadow: inset 50px 0px 40px -60px black;
-    transition: right 0.5s;
-    top: 0;
+    inset: 0;
+    z-index: 0;
+    /* Warm dark, so the frame before first paint is not a white flash. */
+    background: #2b2118;
+    overflow: hidden;
+}
+
+#glCanvas {
+    display: block;
+    width: 100%;
     height: 100%;
+    /* Without this, mobile browsers claim the drag for scrolling and the
+       camera never orbits. */
+    touch-action: none;
+}
+
+/* Vignette. A CSS gradient costs nothing; a post-processing pass would cost a
+   full-screen draw every frame for the same look. */
+#canvasContainer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%,
+                rgba(0, 0, 0, 0) 42%,
+                rgba(0, 0, 0, 0.28) 78%,
+                rgba(0, 0, 0, 0.55) 100%);
+}
+
+#fallbackNotice {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 32px;
+    text-align: center;
+    color: #ffffffcc;
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+#fallbackNotice p {
+    max-width: 30ch;
+    margin: 0;
+}
+
+.hidden {
+    display: none;
+}
+
+/* An id selector outranks a class, so the display: flex above would keep the
+   notice on screen while .hidden was still applied. main.js toggles the class,
+   so the class needs a selector that can win. */
+#fallbackNotice.hidden {
+    display: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Glass. One recipe, used by every floating panel.
+   --------------------------------------------------------------------------- */
+
+#windCard,
+#menuToggle,
+.start-pill,
+.read-on,
+#sliderMenu {
+    background: rgba(24, 20, 16, 0.42);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+}
+
+/* Where the blur is unavailable the panel has to carry its own contrast,
+   because a bright sky behind it would otherwise eat the text. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    #windCard,
+    #menuToggle,
+    .start-pill,
+    .read-on,
+    #sliderMenu {
+        background: rgba(24, 20, 16, 0.72);
+    }
+}
+
+
+/* ---------------------------------------------------------------------------
+   HUD overlay
+   --------------------------------------------------------------------------- */
+
+#hudOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding: 20px;
     box-sizing: border-box;
-    animation: hue-rotation 30s infinite linear;
-    overflow: scroll;
+    height: 100vh;
+    height: 100dvh;
+    height: 100svh;
+    transition: opacity 900ms ease;
+}
+
+/* main.js adds .idle after 8 seconds without pointer movement. */
+#hudOverlay.idle {
+    opacity: 0.25;
+}
+
+#locationInput,
+#startButton,
+#menuToggle,
+#windCard,
+.read-on {
+    pointer-events: auto;
+}
+
+.hud-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.hud-title h1 {
+    margin: 0;
+    /* Same halo the subtitle and status line already carry. The title sits
+       directly over the sun's aureole, which is the brightest part of the sky,
+       and white on that is close to invisible without it. */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 2px 14px rgba(0, 0, 0, 0.7);
+}
+
+.hud-title p {
+    margin: 6px 0 0 0;
+    font-size: 0.9rem;
+    opacity: 0.88;
+    max-width: 34ch;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+/* Tucked under the title in the top-left corner, NOT centred and NOT along the
+   bottom. The chime hangs down the middle of the frame and the wind sail -- the
+   one part the wind actually pushes, and the start of the whole causal chain --
+   hangs lowest of all, at roughly 85 percent of the frame height. A centred pill
+   covers the tubes and a bottom-aligned one covers the sail, which was measured
+   on both. The corner is the only place that leaves the subject alone at every
+   window size. */
+.hud-mid {
+    align-self: start;
+    justify-self: start;
+    margin-top: 18px;
+    width: 100%;
+    max-width: 430px;
+    text-align: left;
+}
+
+.hud-bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+
+/* Start pill ---------------------------------------------------------------- */
+
+.start-pill {
+    display: flex;
+    align-items: stretch;
+    padding: 6px;
+    gap: 6px;
+    border-radius: 26px;
+}
+
+.start-pill #locationInput {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    background: rgba(255, 255, 255, 0.10);
+    border: none;
+    border-radius: 20px;
+    color: #ffffff;
+    font-size: 1rem;
+    padding: 0 16px;
+}
+
+.start-pill #locationInput:focus {
+    outline: 2px solid rgba(217, 144, 60, 0.8);
+    outline-offset: -2px;
+}
+
+#startButton {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 20px;
+    background: #d9903c;
+    color: #241a10;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 300ms ease;
+}
+
+#startButton:hover {
+    background: #eda44e;
+}
+
+.start-sub {
+    margin: 10px 0 0 0;
+    font-size: 0.82rem;
+    /* Was 0.7. Small pale text at 70 percent over the sun's glow in the sky was
+       barely there; the halo below does the rest. */
+    opacity: 0.9;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+#statusLine {
+    margin: 6px 0 0 0;
+    min-height: 1.2em;
+    font-size: 0.82rem;
+    opacity: 0.85;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+
+/* Wind card ---------------------------------------------------------------- */
+
+#windCard {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    min-width: 190px;
+    box-sizing: border-box;
+}
+
+#windCard .compass {
+    width: 60px;
+    height: 60px;
+    flex: 0 0 auto;
+}
+
+.compass-ring {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.22);
+    stroke-width: 1;
+}
+
+.compass-tick {
+    stroke: rgba(255, 255, 255, 0.35);
+    stroke-width: 1;
+}
+
+.compass-label {
+    fill: rgba(255, 255, 255, 0.5);
+    font-family: "Roboto Flex", sans-serif;
+    font-size: 8px;
+    letter-spacing: 0.06em;
+}
+
+#windCompassNeedle {
+    fill: #ffd9a0;
+}
+
+.wind-readout {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+#windSpeedText {
+    font-family: "Julius Sans One", sans-serif;
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.wind-readout .spark {
+    width: 120px;
+    height: 28px;
+    display: block;
+}
+
+#gustSpark {
+    fill: none;
+    stroke: rgba(255, 225, 190, 0.85);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+
+/* Read-on affordance -------------------------------------------------------- */
+
+.read-on {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    color: #ffffffcc;
+    text-decoration: none;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+}
+
+.read-on svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.read-on:hover {
+    color: #ffffff;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Settings drawer
+   --------------------------------------------------------------------------- */
+
+#menuToggle {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+}
+
+#menuToggle img {
+    width: 20px;
+    height: 20px;
+}
+
+#sliderMenu {
+    position: fixed;
+    /* Starts below the toggle so the toggle is never buried by the drawer and
+       can always close it again. */
+    top: 76px;
+    right: 0;
+    width: 300px;
+    height: calc(100% - 76px);
+    z-index: 6;
+    box-sizing: border-box;
+    padding: 24px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 16px 0 0 0;
+    border-right: none;
+    transform: translateX(100%);
+    transition: transform 500ms ease;
+    pointer-events: auto;
+}
+
+#sliderMenu.visible {
+    transform: translateX(0);
 }
 
 #sliderMenu section {
-    margin-bottom: 50px;
+    margin-bottom: 36px;
+}
+
+#sliderMenu h2 {
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    opacity: 0.9;
+    margin-bottom: 12px;
+}
+
+#sliderMenu label {
+    font-size: 0.9rem;
+    opacity: 0.85;
+}
+
+#sliderMenu p > span {
+    opacity: 0.68;
+    font-size: 90%;
 }
 
 #sliderMenu input,
@@ -50,14 +497,21 @@ body.contentPage {
     width: 100%;
 }
 
+#sliderMenu .menu-note {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    line-height: 1.5;
+}
+
 select {
-    background: #fff4;
+    background: #ffffff26;
     border: none;
     border-radius: 15px;
-    padding: 6px;
+    padding: 8px;
     color: white;
     font-weight: 600;
     margin: 8px 0;
+    min-height: 40px;
 }
 
 select option {
@@ -65,174 +519,31 @@ select option {
     font-weight: 400;
 }
 
+/* The filled-track trick from the original: a zero-width thumb dragging a very
+   large box-shadow behind it paints the track fill with no extra elements. */
 input[type="range"] {
-    background-color: #ffffff44;
+    background-color: #ffffff33;
     margin: 8px 0;
     padding: 0;
     height: 2em;
     border-radius: 1rem;
     overflow: hidden;
     -webkit-appearance: none;
+    appearance: none;
 }
 
 input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     width: 0;
+    height: 2em;
     box-shadow: -20rem 0 0 20rem #ffffffdd;
 }
 
 input[type="range"]::-moz-range-thumb {
     border: none;
     width: 0;
+    height: 2em;
     box-shadow: -20rem 0 0 20rem #ffffffdd;
-}
-
-
-#sliderMenu p > span {
-    opacity: 0.68;
-    font-size: 90%;
-}
-
-#sliderMenu.visible {
-    right: 0;
-}
-
-#mainContent {
-    box-sizing: border-box;
-    padding: 32px;
-    position: relative;
-    right: 0;
-    text-align: center;
-    transition: right 0.5s;
-}
-
-#header {
-    text-align: right;
-    margin-bottom:24px
-}
-
-#content {
-    max-width:800px;
-    margin: 0 auto;
-}
-
-#canvasContainer {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height:270px;
-    width:100%;
-    margin:0 auto 120px auto;
-    overflow-x: clip;
-}
-
-#canvas {
-    max-width:550px;
-}
-
-button {
-    color: #63915d;
-    background: #fff8;
-    animation: hue-rotation 30s infinite linear;
-    border: none;
-    font-size: 1em;
-    padding: 10px;
-    border-radius: 12px;
-    transition: background-color 0.3s;
-}
-
-button:hover {
-    background-color: #ffffffaa;
-
-}
-
-#windSpeed {
-    font-family: "Julius Sans One", sans-serif;
-    font-size: 2em;
-    height: 1em;
-    margin-top: 24px;
-    margin-bottom: 5px;
-    overflow: hidden;
-    transition: height 1s;
-    text-align: center;
-}
-
-#windSpeed.hidden {
-    height: 0;
-}
-
-#notEnoughWind {
-    opacity: 1;
-    transition: opacity 1s;
-}
-
-#notEnoughWind.hidden {
-    opacity: 0;
-}
-
-h1, h2, h3 {
-    font-family: "Julius Sans One", sans-serif;
-    font-weight: 400;
-    font-style: normal;
-    margin-top: 8px;
-}
-
-h1 {
-    font-size: 3em;
-}
-
-p, span, button, input, label {
-    font-optical-sizing: auto;
-    font-style: normal;
-    
-}
-
-a {
-    color:#ffffff77;
-}
-
-input::-webkit-input-placeholder{
-    color:#ffffff88;
-}
-
-#content .title {
-    margin-bottom: 24px;
-}
-
-#content .title h1 {
-    margin-bottom: 0;
-}
-
-#content .title p {
-    opacity: 0.6;
-}
-
-#content label {
-    opacity: 0.6;
-    margin-top: 0;
-}
-
-.input-container {
-    display: flex;
-    justify-content: center;
-    align-items: stretch;
-    margin-top:12px;
-    width: 100%;
-    padding: 0 24px;
-    position:relative;
-    box-sizing: border-box;
-    z-index:999;
-}
-
-.input-container input[type="text"] {
-    flex: 1;
-    border-radius: 12px 0 0 12px;
-    margin: 0;
-}
-
-.input-container button {
-    border-radius: 0 12px 12px 0;
-    margin-left: 0;
 }
 
 input[type="text"] {
@@ -241,21 +552,118 @@ input[type="text"] {
     border: none;
     padding: 10px;
     border-radius: 12px;
-    width: 100%;
     box-sizing: border-box;
     font-size: 1em;
-    margin: 8px 0;
-    height: 40px;
 }
 
-#startButton {
-    height: 40px;
+
+/* ---------------------------------------------------------------------------
+   The article, scrolling over the picture
+   --------------------------------------------------------------------------- */
+
+#article {
+    position: relative;
+    z-index: 3;
+    margin-top: 100vh;
+    margin-top: 100dvh;
+    margin-top: 100svh;
+    background: rgba(20, 17, 14, 0.92);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.10);
+    padding-top: 40px;
 }
 
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    #article {
+        background: rgba(20, 17, 14, 0.98);
+    }
+}
+
+#learn {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px 50px 24px;
+}
+
+#learn h2 {
+    text-align: center;
+    margin-bottom: 32px;
+    font-size: 2em;
+}
+
+.learn-section {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 30px 40px;
+    border-radius: 30px;
+    margin-bottom: 24px;
+}
+
+.learn-section h3 {
+    margin-top: 0;
+}
+
+.learn-section p {
+    line-height: 1.65;
+}
+
+.learn-section ul {
+    padding-left: 20px;
+}
+
+.learn-section li {
+    margin-bottom: 8px;
+}
+
+.learn-section code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.ad-slot {
+    max-width: 800px;
+    margin: 0 auto 24px auto;
+    padding: 0 24px;
+}
+
+/* The old rule pinned ads absolutely to the bottom of the page, which with a
+   fixed full-viewport canvas would park them behind the picture: loaded, billed
+   as an impression, never actually seen. They stay in the article flow now. */
 .adsbygoogle {
-    position: absolute;
-    bottom: 0;
+    display: block;
+    position: static;
 }
+
+#footer {
+    text-align: center;
+    color: #ffffff77;
+    min-width: 300px;
+    width: 100%;
+    padding-bottom: 32px;
+    box-sizing: border-box;
+}
+
+
+/* Blog pages that share this stylesheet ------------------------------------- */
+
+.blog .content {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.blog article {
+    margin-bottom: 64px;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 50px;
+    border-radius: 50px;
+}
+
+
+/* Font helpers used elsewhere on the site ----------------------------------- */
 
 .julius-sans-one-regular {
     font-family: "Julius Sans One", sans-serif;
@@ -281,108 +689,105 @@ input[type="text"] {
         "YTUC" 712;
 }
 
-img.svg {
-    filter: brightness(0) invert(1);
-}
 
+/* ---------------------------------------------------------------------------
+   Motion preferences. The simulation itself is the content, so it keeps
+   running; only the interface animation stops.
+   --------------------------------------------------------------------------- */
 
-#footer {
-    text-align: center;
-    color:#ffffff77;
-    min-width:300px;
-    width:100%;
-}
-
-
-.blog .content {
-    max-width: 800px;
-    margin:0 auto;
-}
-
-.blog article {
-    margin-bottom: 64px;
-    background: rgba(255,255,255,0.2);
-    padding: 50px;
-    border-radius: 50px;
-}
-
-/* Educational content section */
-#learn {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 0 24px 50px 24px;
-}
-
-#learn h2 {
-    text-align: center;
-    margin-bottom: 32px;
-    font-size: 2em;
-}
-
-.learn-section {
-    background: rgba(255,255,255,0.2);
-    padding: 30px 40px;
-    border-radius: 30px;
-    margin-bottom: 24px;
-}
-
-.learn-section h3 {
-    margin-top: 0;
-}
-
-.learn-section ul {
-    padding-left: 20px;
-}
-
-.learn-section li {
-    margin-bottom: 8px;
-}
-
-.learn-section code {
-    background: rgba(0,0,0,0.2);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: monospace;
-    font-size: 0.9em;
-}
-
-@media (max-width: 800px) {
-    .background {
-        background-size: 75%, auto;
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
     }
 
-    #mainContent,
+    #hudOverlay,
     #sliderMenu {
-        padding: 24px;
+        transition: none;
     }
 
-    #content .title {
-        margin-bottom: 50px;
-        margin-top: -61px;
-        max-width:650px;
-        padding-right:75px;
-        text-align: left;
+    .contentPage .background {
+        animation: none;
+    }
+}
+
+
+/* ---------------------------------------------------------------------------
+   Phones
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 700px) {
+    #hudOverlay {
+        padding: 14px;
     }
 
     h1 {
-        font-size: 2em;
+        font-size: 1.35rem;
     }
 
-    .input-container {
+    .hud-title p {
+        display: none;
+    }
+
+    .hud-mid {
+        max-width: 100%;
+        margin-top: 12px;
+    }
+
+    .start-pill {
         flex-direction: column;
-        align-items: stretch;
-        padding: 0;
+        border-radius: 20px;
+    }
 
+    /* A stacked pill already eats 110 px of a short screen; the subtext would
+       push the block down onto the top plate. The button says what it does. */
+    .start-sub {
+        display: none;
     }
- 
-    .input-container input[type="text"] {
-        border-radius: 12px 12px 0 0;
+
+    .hud-bottom {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
     }
- 
-    .input-container button {
-        border-radius: 0 0 12px 12px;
-        margin-left: 0;
-        margin-top: 0;
+
+    /* The wind card collapses to a compass and one line of text. */
+    #windCard {
+        min-width: 0;
+        padding: 8px 12px;
+        gap: 8px;
+    }
+
+    #windCard .compass {
+        width: 40px;
+        height: 40px;
+    }
+
+    .wind-readout .spark {
+        display: none;
+    }
+
+    .read-on {
+        align-self: center;
+    }
+
+    /* The drawer becomes a bottom sheet. Sliding up from the thumb beats
+       sliding in from an edge no thumb reaches. */
+    #sliderMenu {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        height: 60vh;
+        height: 60dvh;
+        height: 60svh;
+        border-radius: 16px 16px 0 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        transform: translateY(100%);
+    }
+
+    #sliderMenu.visible {
+        transform: translateY(0);
     }
 
     .learn-section {
@@ -391,5 +796,15 @@ img.svg {
 
     #learn {
         padding: 0 16px 40px 16px;
+    }
+
+    .ad-slot {
+        padding: 0 16px;
+    }
+}
+
+@media (max-width: 800px) {
+    body.contentPage {
+        padding: 24px;
     }
 }
