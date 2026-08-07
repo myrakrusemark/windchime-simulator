@@ -305,9 +305,53 @@ export async function fetchWeather(lat, lon) {
     dirDeg,
     gustMph,
     place,
+    // Sky, day/night and temperature come free with the period that already
+    // supplied the wind, so reading them costs nothing extra.
+    sky: classifySky(now.shortForecast),
+    isDay: now.isDaytime !== false,
+    forecast: typeof now.shortForecast === 'string' ? now.shortForecast : null,
+    tempF: normaliseTempF(now.temperature, now.temperatureUnit),
     source: 'weather.gov',
     at: Date.now()
   };
+}
+
+/**
+ * weather.gov writes its sky as free text -- "Mostly Sunny", "Chance Rain
+ * Showers", "Patchy Fog Then Sunny" -- with no enumerated code anywhere in the
+ * product. Reduce it to the handful of conditions worth drawing.
+ *
+ * Order is the whole logic. The strings are compound, so the FIRST test that
+ * matches has to be the one that matters most: a thunderstorm is worth drawing
+ * over the rain it also mentions, and "Partly Sunny" has to be caught before
+ * the plain sun test claims it.
+ *
+ * @param {string|undefined} text
+ * @returns {'storm'|'snow'|'rain'|'fog'|'cloudy'|'partly'|'clear'}
+ */
+function classifySky(text) {
+  const t = typeof text === 'string' ? text.toLowerCase() : '';
+  if (!t) return 'clear';
+  if (/thunder|tstm|squall/.test(t)) return 'storm';
+  if (/snow|sleet|flurr|ice|wintry|blizzard/.test(t)) return 'snow';
+  if (/rain|shower|drizzle|precip/.test(t)) return 'rain';
+  if (/fog|haze|mist|smoke/.test(t)) return 'fog';
+  if (/partly|mostly sunny|mostly clear|few clouds|scattered clouds/.test(t)) return 'partly';
+  if (/cloud|overcast/.test(t)) return 'cloudy';
+  return 'clear';
+}
+
+/**
+ * Fahrenheit, or null. The product is usually already in F for US offices, but
+ * the unit is declared per period and has been seen as C.
+ * @param {unknown} value
+ * @param {unknown} unit
+ * @returns {number|null}
+ */
+function normaliseTempF(value, unit) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return null;
+  return String(unit).toUpperCase() === 'C' ? Math.round(v * 9 / 5 + 32) : Math.round(v);
 }
 
 /**

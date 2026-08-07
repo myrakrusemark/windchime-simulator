@@ -382,12 +382,38 @@ body.contentPage {
 }
 
 
+/* No min-height any more. It used to reserve a blank line whether or not there
+   was anything to report, which is what left a strip of dead panel under the
+   input. The row it lives in is hidden outright until a reading lands, so the
+   dock is exactly as tall as it has content for. */
 #statusLine {
-    margin: 6px 0 0 0;
-    min-height: 1.2em;
+    margin: 0;
+    /* Empty until a reading arrives, and an empty paragraph with no min-height
+       adds nothing to the panel's height, so no rule is needed to hide it. */
     font-size: 0.82rem;
-    opacity: 0.85;
+    line-height: 1.25;
+    opacity: 0.9;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+/* The sky icon lives in the top row, in the corner the wind readout leaves
+   empty, rather than on a line of its own. currentColor throughout the sheet,
+   so the icon is one colour away from matching the panel's text.
+   `hidden` is display:none, which is what keeps it out of the layout until a
+   reading lands -- visibility would still hold the space. */
+.wx-icon {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-self: center;
+    fill: currentColor;
+    color: rgba(255, 255, 255, 0.9);
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+.wx-icon.hidden {
+    display: none;
 }
 
 
@@ -408,7 +434,7 @@ body.contentPage {
     display: flex;
     flex-direction: column;
     gap: 9px;
-    padding: 12px 14px 13px 14px;
+    padding: 12px 14px 12px 14px;
     border-radius: 20px;
     box-sizing: border-box;
     width: 352px;
