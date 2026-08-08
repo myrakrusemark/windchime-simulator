@@ -13,8 +13,10 @@
  *     then setTargetAtTime(0, t0+attack, T60/6.908), which is
  *     amp * exp(-(t - t0 - attack) / tau) with tau = T60/6.908
  *   - the oscillator stop at modal.js's partialStop(): the earlier of 69 dB
- *     under the partial's own peak and -100 dBFS absolute. It is a real
- *     truncation in the browser, so it is a real one here
+ *     under the partial's own peak and modal.js's VOICE_FLOOR, which is 1e-6 of
+ *     full scale, -120 dBFS. (This line said -100 dBFS until a critic checked
+ *     it; -100 was tried, measured and rejected, and modal.js says why.) It is a
+ *     real truncation in the browser, so it is a real one here
  *   - the voice-level teardown, which the browser hangs on the LAST oscillator
  *     to stop rather than on the fundamental. On a sub-coincidence bass tube
  *     that is not the same oscillator (see the note in audio.js strike), and
@@ -225,12 +227,36 @@ const out = new Float64Array(N);
 const LEAD_I = Math.min(N - 1, Math.max(0, Math.round(LEAD * SR)));
 const { amps, freqs, t60s, attack, nPartials } = voice;
 
-// The voice retires when its LAST oscillator does. audio.js finds that
-// oscillator by comparing stop times rather than assuming the fundamental, and
-// the loop below records the same maximum so the assertion after it can prove
-// the two agree. A mismatch here is the browser bug the harness could not see.
-let voiceUntil = 0;
+// Teardown parity with audio.js, done the way audio.js does it rather than the
+// way this file finds convenient.
+//
+// audio.js (strikeTube) fills a stops[] array, picks lastOsc as the argmax with
+// a STRICT >, hangs releaseVoice on that one oscillator's onended, and lets the
+// others stop whenever they stop. So the question the renderer has to answer is
+// "does the oscillator audio.js chose really outlive every other one", and the
+// only way to answer it is to reproduce audio.js's choice - including its
+// tie-break - and then check it against the others.
+//
+// The previous version of this block could not fail. It compared each partial's
+// stop time against a maximum it had itself just taken over the same set, so
+// `stop > max + 1e-9` was unsatisfiable by construction and the check was
+// decoration. A critic caught it; this is the repair.
+// Every partial, including the silent ones: audio.js builds an oscillator for
+// each of the five and computes stops[n] for each of the five, and a zero-amp
+// partial gets the floor case max(attack + 0.02, 0.05) rather than being
+// skipped. Skipping them here would be a second, smaller parity gap.
+//
+// audio.js uses `base = voice.gain * distGain`; distGain is the listener
+// distance roll-off, which this renderer places at 1 by construction, so
+// voice.gain is the same number.
+const stops = new Array(nPartials);
+for (let n = 0; n < nPartials; n++) {
+  stops[n] = partialStop(t60s[n], attack, voice.gain * amps[n]);
+}
+// audio.js: `if (stops[n] > stops[lastOsc]) lastOsc = n;` starting from 0.
 let voiceLast = 0;
+for (let n = 0; n < nPartials; n++) if (stops[n] > stops[voiceLast]) voiceLast = n;
+const voiceUntil = stops[voiceLast];
 
 for (let n = 0; n < nPartials; n++) {
   const amp = amps[n];
@@ -238,23 +264,20 @@ for (let n = 0; n < nPartials; n++) {
   const tau = decayTau(t60s[n]);
   const w = 2 * Math.PI * freqs[n] / SR;
   // The browser stops this oscillator here; past it the partial is silent.
-  const stopSec = partialStop(t60s[n], attack, voice.gain * amp);
-  if (stopSec > voiceUntil) voiceUntil = stopSec;
-  const stopAt = Math.min(N - LEAD_I, Math.round(stopSec * SR));
-  if (stopSec >= voiceUntil) voiceLast = n;
+  const stopAt = Math.min(N - LEAD_I, Math.round(stops[n] * SR));
   for (let i = 0; i < stopAt; i++) {
     out[LEAD_I + i] += Math.sin(w * i) * partialEnv(i / SR, amp, attack, tau);
   }
 }
 
-// Teardown parity with audio.js: releaseVoice() fires on oscs[voiceLast], and
-// disconnecting there must not cut anything else short.
+// Now the check has something to bite on: any partial that outlives the one
+// audio.js hung the teardown on is a partial the browser would cut short.
 for (let n = 0; n < nPartials; n++) {
-  if (!(amps[n] > 0)) continue;
-  if (partialStop(t60s[n], attack, voice.gain * amps[n]) > voiceUntil + 1e-9) {
+  if (n === voiceLast || !(amps[n] > 0)) continue;
+  if (stops[n] > voiceUntil + 1e-9) {
     console.error(`render-offline: partial ${n + 1} outlives the voice teardown ` +
-                  `(${partialStop(t60s[n], attack, voice.gain * amps[n]).toFixed(3)} s ` +
-                  `vs ${voiceUntil.toFixed(3)} s). audio.js would clip it.`);
+                  `(${stops[n].toFixed(3)} s vs partial ${voiceLast + 1} at ` +
+                  `${voiceUntil.toFixed(3)} s). audio.js would clip it.`);
     process.exit(3);
   }
 }
