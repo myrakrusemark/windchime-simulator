@@ -112,24 +112,44 @@ const GRAV = -9.81;                // m/s^2 on Y
 const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 const HOOK_CORD = 0.550;           // assembly pendulum period 1.49 s: a calm sway
 
-// Circumradius of the 3-particle plate, and the radius of the visible disk. The
-// whole head of the rig scales with R_RING below, which scales with the tube:
-// both of these are 26.5 percent larger than they were for a 28 mm tube, which
-// is exactly how much wider the ring had to get to hang a real 44.45 mm one.
-const PLATE_A = 0.06956;
-// Mirrored in scene.js as R_PLATE, the same way R_TUBE and HOOK_Y are --
-// scene.js does not import from here. It has to exceed R_RING below, which is
-// where the tube cords hang: at 0.070 against a ring of 0.082 the cords left
-// the disk 12 mm short of its own edge and read as tied to thin air. The same
-// 1.195 overhang is kept here.
+// Radius of the visible suspension disk. Mirrored in scene.js as R_PLATE, the
+// same way R_TUBE and HOOK_Y are -- scene.js does not import from here. It has
+// to exceed R_RING below, which is where the tube cords hang: at 0.070 against
+// a ring of 0.082 the cords left the disk 12 mm short of its own edge and read
+// as tied to thin air. The 1.195 overhang on the ring is kept.
 const PLATE_R = 0.12395;
-const PLATE_MASS = 0.150;
+const PLATE_T = 0.012;             // disk thickness, the same 12 mm scene.js draws
+
+// THE DISK IS A DISK, and the two numbers below are what one weighs and how its
+// weight is spread. Both were wrong, and wrong in the same direction, which is
+// what put the rig into the state described under solveConstraints: it could
+// not stand still in dead air.
+//
+// PLATE_A is the circumradius of the three particles that stand in for the
+// disk. Three point masses of M/3 at radius a have polar moment M*a^2; a
+// uniform disk of radius R has M*R^2/2. They agree only at a = R/sqrt(2), which
+// is the disk's own radius of gyration. This file already applies exactly that
+// rule to the tubes -- see T_A and T_B, placed to reproduce a rod's mL^2/12
+// rather than at its ends -- and then broke it for the plate: 0.06956 against a
+// 0.12395 disk is 0.561 R, so the plate was carrying 37 percent less rotational
+// inertia than the object drawn on screen, and the lightest torque spun it.
+const PLATE_A = PLATE_R / Math.SQRT2;      // 0.08765 m
 const PLATE_EDGE = PLATE_A * Math.sqrt(3);
+// PLATE_MASS was 0.150 kg. The disk scene.js draws is 123.95 mm in radius and
+// 12 mm thick: 5.79e-4 cubic metres, so 0.150 kg makes it 259 kg/m^3 -- lighter
+// than balsa, and a third of the lightest wood anyone builds a chime top from.
+// White oak, which is what a garden chime's top actually is, puts it at 0.437
+// kg. That matters beyond pedantry: the plate is the anchor the whole tube set
+// hangs from, and at 0.050 kg per particle against 0.46 kg per tube particle
+// the constraint solver was being asked to hold a 9:1 mass ratio through lever
+// arms greater than one.
+const PLATE_WOOD_RHO = 755;        // white oak, kg/m^3
+const PLATE_MASS = Math.PI * PLATE_R * PLATE_R * PLATE_T * PLATE_WOOD_RHO;
 const PLATE_Y = 2.05;
 const PLATE_THETA = [Math.PI * 0.5, Math.PI * 7 / 6, Math.PI * 11 / 6];
 // Edge-on only; the face is horizontal. Diameter times thickness, so it tracks
 // the rendered disk.
-const PLATE_DRAG_AREA = PLATE_R * 2 * 0.012;
+const PLATE_DRAG_AREA = PLATE_R * 2 * PLATE_T;
 const CD_PLATE = 1.1;
 
 // THE PLATE HANGS ON A THREE-CORD BRIDLE, not on one cord to its middle, and
@@ -149,19 +169,29 @@ const CD_PLATE = 1.1;
 // attitude and the assembly swings as one body, while rotation about the
 // vertical is still free (all three cords keep their length under yaw) so the
 // chime can still turn slowly in the wind.
-const BRIDLE_CORD = Math.sqrt(HOOK_CORD * HOOK_CORD + PLATE_A * PLATE_A);  // 0.55274
+const BRIDLE_CORD = Math.sqrt(HOOK_CORD * HOOK_CORD + PLATE_A * PLATE_A);  // 0.55694
 
 // Radius of the ring the tube cords hang from. Sized off the tube, not typed
 // in: Theta publish a 14 inch top ring on the Supergiant's 3 inch tubes, which
-// is a ring radius of 2.333 diameters, and that ratio is what keeps six to
-// eight tubes clear of one another and of the clapper. It used to be 0.082
-// against a 28 mm tube - 2.93 diameters, looser than a real chime. Leaving it
-// there while the tube grew to its real 44.45 mm cut the gap between
-// neighbours from 36 mm to 20 mm and had the rig clacking tube on tube four
-// times a second in a 12 mph breeze; scaling it restores the 37 mm.
+// is a ring radius of 2.333 diameters. It used to be 0.082 against a 28 mm tube
+// - 2.93 diameters, looser than a real chime.
+//
+// An earlier version of this comment claimed the ring was what stopped the rig
+// clacking tube on tube. That was wrong and it is worth recording why, because
+// it is the kind of wrong that survives a plausible-sounding argument. At eight
+// tubes this ring leaves 34.9 mm between neighbours against the old rig's 34.8
+// - the same clearance to a tenth of a millimetre - so it cannot have been the
+// difference, and widening the ring until the clearance matched the six-tube
+// figure changed the contact rate by nothing measurable. What was actually
+// wrong was the plate above and the single constraint sweep below, and the
+// giveaway was that the rig clattered in DEAD AIR, where a spacing argument has
+// nothing to explain. Widening the ring also has a cost that only shows up when
+// you try it: the clapper hangs at the centre, so a wider ring puts the tubes
+// further out of its reach, and at eight tubes it stopped ringing them at all
+// below 12 mph.
 const RING_OVER_OD = 2.3333;
 const R_RING = RING_OVER_OD * TUBE_STOCK.od;   // 0.10372 m
-const R_OVER_A = R_RING / PLATE_A; // 1.4909 - the ring sits OUTSIDE the triangle
+const R_OVER_A = R_RING / PLATE_A; // 1.1833 - the ring sits OUTSIDE the triangle
 
 // Tube particles sit at the radius of gyration, not at the ends. Two point
 // masses at t = 0.2113 and 0.7887 reproduce a uniform rod's I = mL^2/12.
@@ -1398,8 +1428,34 @@ export function createRig(freqs) {
     porchPoint(pos[sb3], pos[sb3 + 1], pos[sb3 + 2], SAIL_HIT_R, SAIL_B, 1, -1, 0);
   }
 
+  // TWO Gauss-Seidel sweeps over the cord network, not one, and this is the
+  // difference between a chime that hangs still and one that never stops
+  // moving. Measured in DEAD AIR at 1/240 s, with no wind function at all: on
+  // one sweep the default six-tube set never reached equilibrium, its tube tips
+  // wandering 20 to 140 mm off plumb for as long as it was left running and
+  // clattering 175 times a minute against neighbours 59 mm away. It settled at
+  // 1/1920 s, which is the signature of a solver that has not converged rather
+  // than of a rig that is genuinely being pushed around.
+  //
+  // The load tripled when the tubes became real chime stock -- 0.92 kg/m
+  // against 0.34 -- and one sweep no longer takes the cord network far enough
+  // toward its solution. The residual is not neutral: fed back through the ring
+  // weights, which extrapolate outside the plate triangle and so have terms
+  // above 1 and below 0, it pumps.
+  //
+  // Two sweeps and the corrected plate above are independent fixes for the same
+  // failure and they are both kept, because either one alone is marginal.
+  // Sweeping the plate's wood density with one sweep, the rig only settles
+  // above about 700 kg/m^3, so the choice of oak would be doing the work; with
+  // two sweeps the boundary drops to about 450 and every wood a chime top is
+  // made of is safely inside it. Cost is one extra pass over N+5 cord links per
+  // substep -- no allocation, no new state.
+  const CORD_SWEEPS = 2;
+
   function solveConstraints(h) {
-    for (let i = 0; i < links.length; i++) solveLink(links[i], h);
+    for (let s = 0; s < CORD_SWEEPS; s++) {
+      for (let i = 0; i < links.length; i++) solveLink(links[i], h);
+    }
     solveTubeSeparation(true);
     solvePorch();
     solveContacts();
