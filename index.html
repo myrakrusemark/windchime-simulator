@@ -232,6 +232,25 @@
                         <option value="cOctaveIntervals">C Octave Intervals</option>
                     </select>
                 </p>
+                <!-- The options are filled in from modal.js's CATALOGUE at boot,
+                     the same way the Chime parts sliders take their ranges from
+                     physics.js, so no diameter is ever typed twice. The single
+                     option below is only what shows before that runs.
+
+                     There is deliberately no wall thickness control here. Every
+                     tube in the catalogue sits near the thin-wall end, where the
+                     radius of gyration is 0.323 to 0.340 of the diameter across a
+                     5:1 range of stock, so the wall barely moves the pitch and a
+                     slider for it would be a placebo. It earns a control once the
+                     shell modes land, since those go as wall over radius squared. -->
+                <p>
+                    <label for="tubeStockSelect">Tube stock</label><br>
+                    <select id="tubeStockSelect">
+                        <option value="Theta Flower of Life">Theta Flower of Life</option>
+                    </select><br>
+                    <span id="tubeStockValue">44.5 mm across, 2.6 mm wall</span>
+                </p>
+                <p class="menu-note">A wider tube pulls its overtones flat and loses them to the air faster, so the same note comes out darker and its tail fades sooner.</p>
                 <p>
                     <label for="noteCountSlider">Number of tubes</label>
                     <input type="range" id="noteCountSlider" min="3" max="8" step="1" value="6"><br>

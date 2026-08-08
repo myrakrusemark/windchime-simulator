@@ -20,18 +20,26 @@ import { createRig, freqsFor, SCALES, setParts, PART_DEFAULTS, PART_LIMITS } fro
 import { createStage } from './scene.js';
 import { createWindViz } from './windviz.js';
 import { createAudio } from './audio.js';
-import { DECAY_NOMINAL } from './modal.js';
+import { CATALOGUE, DECAY_NOMINAL, TUBE_STOCK, stockFor, tubeLengthFor } from './modal.js';
 import * as weather from './weather.js';
 
 // ---------------------------------------------------------------------------
 // Defaults and tier tables
 // ---------------------------------------------------------------------------
 
+// Which catalogue tube physics.js is actually hanging. Found by diameter rather
+// than typed, so the name in the picker cannot drift away from the section the
+// rig is built on: modal.js's TUBE_STOCK is one of these seven rows and every
+// row has a different outside diameter.
+const DEFAULT_STOCK = CATALOGUE.find( ( c ) => c.od === TUBE_STOCK.od );
+const DEFAULT_STOCK_NAME = DEFAULT_STOCK ? DEFAULT_STOCK.name : 'Theta Flower of Life';
+
 const DEFAULTS = {
 	windSpeedMph: 12,      // mean wind at the 10 m reference height
 	dirDeg: 270,           // meteorological FROM-bearing: 270 = from the west, blowing +X
 	turbulence: 0.30,
 	scaleName: 'cMajorPentatonic',
+	stockName: DEFAULT_STOCK_NAME,   // a row of modal.js's CATALOGUE, by name
 	noteCount: 6,
 	attack: 0.002,
 	decay: 8.0,            // ring trim; 8 is the tube as modelled, see modal.js DECAY_NOMINAL
@@ -220,6 +228,8 @@ const dom = {
 	turbulenceSlider: $( 'turbulenceSlider' ),
 	turbulenceValue: $( 'turbulenceValue' ),
 	chimeScaleSelect: $( 'chimeScaleSelect' ),
+	tubeStockSelect: $( 'tubeStockSelect' ),
+	tubeStockValue: $( 'tubeStockValue' ),
 	noteCountSlider: $( 'noteCountSlider' ),
 	noteCountValue: $( 'noteCountValue' ),
 	attackSlider: $( 'attackSlider' ),
@@ -338,6 +348,82 @@ if ( ! stage ) {
 
 }
 
+// ---------------------------------------------------------------------------
+// The tube stock the visitor picked.
+//
+// The section is the load-bearing number in modal.js: it sets the radius of
+// gyration, which is what the Timoshenko correction turns into the mode ratios,
+// and it sets the radiating area, which is what the loss budget turns into the
+// ring times. Two tubes cut to the same note out of different pipe are two
+// different instruments, and until now the page could only ever hang one.
+//
+// The wall is NOT exposed alongside it, on purpose: across the whole catalogue
+// the radius of gyration is 0.323 to 0.340 of the diameter against a 5:1 range
+// of stock, so a wall slider would move nothing anyone could hear. See the note
+// beside the markup.
+//
+// KNOWN LIMIT: this reaches the sound and not the picture. physics.js hangs
+// TUBE_STOCK unconditionally (createRig takes only frequencies), so the drawn
+// tubes keep the default section and the default cut lengths. Give createRig a
+// stock and this becomes rig.stock again, with the re-cut below deleted.
+// ---------------------------------------------------------------------------
+
+// Cached because solving a Wind River wall costs a 200-step bisection and the
+// snapshot asks for the current section every time it is polled. Seven entries
+// at most, so this never needs eviction.
+const stockCache = new Map();
+
+function stockNamed( name ) {
+
+	let s = stockCache.get( name );
+	if ( s !== undefined ) return s;
+
+	try {
+
+		s = stockFor( name );
+
+	} catch ( err ) {
+
+		noteError( 'unknown-tube-stock', err );
+		s = rig.stock;
+
+	}
+
+	stockCache.set( name, s );
+	return s;
+
+}
+
+function currentStock() {
+
+	return params.stockName === DEFAULT_STOCK_NAME ? rig.stock : stockNamed( params.stockName );
+
+}
+
+// The tube list audio.js gets, re-cut for the chosen section.
+//
+// A tube's length is not free once its note and its stock are fixed, so voicing
+// a 76 mm section on a length cut for a 44 mm one would describe a tube that
+// rings at 490 Hz while claiming middle C. audio.js reads only `f1` and `L`, so
+// the honest thing to hand it is the length THIS stock has to be cut to for
+// that note, which is exactly what modal.js derives internally when no length
+// is given. On the default stock this is the rig's own array, untouched, so
+// nothing about the shipped chime changes by a single bit.
+function audioTubes( stock ) {
+
+	if ( stock === rig.stock ) return rig.tubes;
+	return rig.tubes.map( ( t ) => ( { f1: t.f1, L: tubeLengthFor( t.f1, stock ) } ) );
+
+}
+
+function pushTubesToAudio() {
+
+	if ( ! audio ) return;
+	const stock = currentStock();
+	audio.setTubes( audioTubes( stock ), stock );
+
+}
+
 try {
 
 	audio = createAudio( params );
@@ -346,7 +432,7 @@ try {
 	audio.setTier( tier );
 	// The section travels with the tubes. audio.js voices the mode ratios of
 	// the tube the rig is actually hanging rather than a constant of its own.
-	audio.setTubes( rig.tubes, rig.stock );
+	pushTubesToAudio();
 
 } catch ( err ) {
 
@@ -444,6 +530,8 @@ function syncControlValues() {
 	if ( dom.turbulenceSlider ) dom.turbulenceSlider.value = String( params.turbulence );
 	setText( dom.turbulenceValue, params.turbulence.toFixed( 2 ) );
 	if ( dom.chimeScaleSelect ) dom.chimeScaleSelect.value = params.scaleName;
+	if ( dom.tubeStockSelect ) dom.tubeStockSelect.value = params.stockName;
+	setStockLabel();
 	if ( dom.noteCountSlider ) dom.noteCountSlider.value = String( params.noteCount );
 	setNoteCountLabel();
 	if ( dom.attackSlider ) dom.attackSlider.value = String( params.attack );
@@ -470,6 +558,18 @@ function ringTrimText() {
 
 	const x = params.decay / DECAY_NOMINAL;
 	return x.toFixed( 2 ) + '×' + ( Math.abs( x - 1 ) < 5e-3 ? ' (as built)' : '' );
+
+}
+
+// The picker names an instrument; the readout gives the two numbers that name
+// actually stands for, in the units a hardware shop sells pipe in. The wall is
+// shown because Wind River do not publish theirs and modal.js solves it from
+// their own length and key, which is worth being able to see.
+function setStockLabel() {
+
+	const s = currentStock();
+	const mm = ( m ) => ( Math.round( m * 10000 ) / 10 ).toFixed( 1 );
+	setText( dom.tubeStockValue, mm( s.od ) + ' mm across, ' + mm( 0.5 * ( s.od - s.id ) ) + ' mm wall' );
 
 }
 
@@ -502,7 +602,7 @@ function rebuildChime() {
 		const f = freqsFor( params.scaleName, params.noteCount );
 		rig.rebuild( f );
 		if ( stage ) stage.buildChime( rig.tubes );
-		if ( audio ) audio.setTubes( rig.tubes, rig.stock );
+		pushTubesToAudio();
 		setNoteCountLabel();
 
 	} catch ( err ) {
@@ -666,6 +766,39 @@ if ( dom.chimeScaleSelect ) {
 		const name = dom.chimeScaleSelect.value;
 		params.scaleName = Object.prototype.hasOwnProperty.call( SCALES, name ) ? name : 'cMajorPentatonic';
 		rebuildChime();
+
+	} );
+
+}
+
+if ( dom.tubeStockSelect ) {
+
+	// Built from the catalogue rather than written into the markup, for the same
+	// reason the Chime parts sliders take their limits from physics.js: adding a
+	// published tube to modal.js should put it in this menu and nowhere else.
+	dom.tubeStockSelect.textContent = '';
+	for ( const entry of CATALOGUE ) {
+
+		const opt = document.createElement( 'option' );
+		opt.value = entry.name;
+		opt.textContent = entry.name;
+		dom.tubeStockSelect.appendChild( opt );
+
+	}
+
+	dom.tubeStockSelect.value = params.stockName;
+
+	dom.tubeStockSelect.addEventListener( 'change', () => {
+
+		const name = dom.tubeStockSelect.value;
+		if ( ! CATALOGUE.some( ( c ) => c.name === name ) ) return;
+		if ( name === params.stockName ) return;
+		params.stockName = name;
+		setStockLabel();
+		// No rebuild: the notes and the tube count are unchanged, and the rig is
+		// still hanging the section physics.js was built on. Only what audio.js
+		// voices moves. See the KNOWN LIMIT note above pushTubesToAudio.
+		pushTubesToAudio();
 
 	} );
 
@@ -1996,6 +2129,21 @@ function snapshot() {
 		clapper: { pos: clapperPos },
 		tubeLengths: lengths,
 		tubeFreqs: freqs,
+		// The section audio.js is voicing, and the length the longest tube would
+		// be cut to out of it. Without these a regression run can see that the
+		// stock picker moved, but not that anything downstream heard it. In
+		// millimetres, because round3 on metres would round a 2.6 mm wall to 3.
+		stock: ( () => {
+
+			const s = currentStock();
+			return {
+				name: params.stockName,
+				odMm: round3( s.od * 1000 ),
+				wallMm: round3( 0.5 * ( s.od - s.id ) * 1000 ),
+				cutLongest: round3( rig.tubes.reduce( ( m, t ) => Math.max( m, tubeLengthFor( t.f1, s ) ), 0 ) )
+			};
+
+		} )(),
 		substeps: lastSubsteps,
 		simTime: round3( rig.simTime ),
 		weather: {
