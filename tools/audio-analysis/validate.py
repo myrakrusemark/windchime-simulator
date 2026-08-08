@@ -21,14 +21,18 @@ import argparse
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 
+import numpy as np
+from scipy.io import wavfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import analyze  # noqa: E402
 from analyze import (ATTACK_PEAK_WINDOW_S, ENERGY_MARKS_S, SKIRT_DROP_DB,  # noqa: E402
                      analyze_wav, cents, _chain_runs, _jsonable, _split_run)
 import make_test_signal as mts  # noqa: E402
@@ -84,6 +88,29 @@ class Checker:
         self.rows.append({"group": group, "name": name, "true": t, "measured": m,
                           "error": err, "mode": mode, "tol": tol,
                           "unit": unit or tunit, "pass": bool(ok), "kind": kind})
+        return ok
+
+    def explicit(self, group, name, true, meas, tol, unit="", mode="abs"):
+        """A check whose tolerance belongs to it alone.
+
+        TOLERANCES above is the shared vocabulary for properties many checks
+        measure; a one-off - "this estimator must not jump by more than three
+        percent" - has no business adding an entry there that nothing else
+        reads. The tolerance still prints in the report, which is the part that
+        matters.
+        """
+        t, m = _num(true), _num(meas)
+        if t is None or m is None:
+            ok, err = (t is None and m is None), None
+        elif mode == "rel":
+            err = (m - t) / abs(t) if t != 0 else float("inf")
+            ok = abs(err) <= tol
+        else:
+            err = m - t
+            ok = abs(err) <= tol
+        self.rows.append({"group": group, "name": name, "true": t, "measured": m,
+                          "error": err, "mode": mode, "tol": tol, "unit": unit,
+                          "pass": bool(ok), "kind": "explicit"})
         return ok
 
     def boolean(self, group, name, true, meas):
@@ -402,6 +429,47 @@ def validate_model(ck):
     return rep
 
 
+def validate_bessel(ck):
+    """modal.js's Bessel polynomials, against scipy, over the range it evaluates.
+
+    dipoleEfficiency() is the whole of this round's physics change and it is four
+    Abramowitz and Stegun approximations in a trench coat. If one coefficient is
+    mistyped the radiation term is quietly wrong and every T60 above ka ~ 0.6
+    moves. scipy has the real functions, so use them.
+    """
+    group = "exact cylinder radiation  (modal.js dipoleEfficiency vs scipy)"
+    try:
+        from scipy.special import jv, yv
+    except ImportError:
+        return
+    node = shutil.which("node")
+    modal = os.path.normpath(os.path.join(HERE, "..", "..", "assets", "js", "modal.js"))
+    if not node or not os.path.exists(modal):
+        return
+    xs = [0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0,
+          1.4, 2.0, 2.6, 3.0, 3.7, 4.5, 6.0]
+    src = ("import {dipoleEfficiency} from %r;"
+           "console.log(%s.map(dipoleEfficiency).join(','));"
+           % (modal, json.dumps(xs)))
+    p = subprocess.run([node, "--input-type=module", "-e", src],
+                       capture_output=True, text=True, timeout=60)
+    if p.returncode != 0 or not p.stdout.strip():
+        ck.boolean(group, "modal.js evaluates dipoleEfficiency", True, False)
+        return
+    got = [float(v) for v in p.stdout.strip().split(",")]
+    worst = 0.0
+    for x, g in zip(xs, got):
+        jp = jv(0, x) - jv(1, x) / x
+        yp = yv(0, x) - yv(1, x) / x
+        want = 4.0 / (math.pi ** 2 * x ** 4 * (jp * jp + yp * yp))
+        worst = max(worst, abs(g - want) / want)
+    ck.explicit(group, "worst relative error over x = 0.001 to 6", 0.0, worst, 1e-5)
+    # and the two properties the physics rests on
+    ck.boolean(group, "C -> 1 in the compact limit", True, abs(got[0] - 1.0) < 1e-5)
+    ck.boolean(group, "C falls once the section is not compact", True,
+               got[10] < 0.6 and got[12] < got[10] and got[-1] < got[12])
+
+
 def format_report(ck):
     L = []
     W = 92
@@ -479,6 +547,8 @@ def main(argv=None):
     validate_one("known_nobeat.wav (negative control: no beat, no click, -96 dBFS noise)",
                  gen["known_nobeat"]["path"], gen["known_nobeat"]["truth"], ck,
                  expect_beats=False, expect_click=False)
+
+    validate_bessel(ck)
 
     model = validate_model(ck)
 

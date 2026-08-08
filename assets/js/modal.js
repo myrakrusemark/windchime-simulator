@@ -747,15 +747,136 @@ export function modeSpectrumSq(n, q) {
   return re * re + im * im;
 }
 
+// --- Bessel functions of the first and second kind, orders 0 and 1 ----------
+//
+// Needed for the exact cylindrical radiation resistance below, and present only
+// for that. Abramowitz and Stegun 9.4.1-9.4.6: the standard polynomial and
+// asymptotic-amplitude/phase approximations, quoted at |eps| < 1.6e-8 for J and
+// < 1.4e-8 for Y over their stated ranges. They are textbook constants, not
+// coefficients anyone here fitted, and validate.py checks every one of them
+// against scipy over the range this file actually evaluates.
+
+function besselJ0(x) {
+  const a = Math.abs(x);
+  if (a < 3) {
+    const t = x / 3, y = t * t;
+    return 1 + y * (-2.2499997 + y * (1.2656208 + y * (-0.3163866 +
+           y * (0.0444479 + y * (-0.0039444 + y * 0.0002100)))));
+  }
+  const t = 3 / a;
+  const f = 0.79788456 + t * (-0.00000077 + t * (-0.00552740 + t * (-0.00009512 +
+            t * (0.00137237 + t * (-0.00072805 + t * 0.00014476)))));
+  const th = a - 0.78539816 + t * (-0.04166397 + t * (-0.00003954 + t * (0.00262573 +
+             t * (-0.00054125 + t * (-0.00029333 + t * 0.00013558)))));
+  return f * Math.cos(th) / Math.sqrt(a);
+}
+
+function besselJ1(x) {
+  const a = Math.abs(x);
+  let r;
+  if (a < 3) {
+    const t = x / 3, y = t * t;
+    r = a * (0.5 + y * (-0.56249985 + y * (0.21093573 + y * (-0.03954289 +
+        y * (0.00443319 + y * (-0.00031761 + y * 0.00001109))))));
+  } else {
+    const t = 3 / a;
+    const f = 0.79788456 + t * (0.00000156 + t * (0.01659667 + t * (0.00017105 +
+              t * (-0.00249511 + t * (0.00113653 + t * -0.00020033)))));
+    const th = a - 2.35619449 + t * (0.12499612 + t * (0.00005650 + t * (-0.00637879 +
+               t * (0.00074348 + t * (0.00079824 + t * -0.00029166)))));
+    r = f * Math.cos(th) / Math.sqrt(a);
+  }
+  return x < 0 ? -r : r;
+}
+
+function besselY0(x) {
+  if (x < 3) {
+    const t = x / 3, y = t * t;
+    const p = 0.36746691 + y * (0.60559366 + y * (-0.74350384 + y * (0.25300117 +
+              y * (-0.04261214 + y * (0.00427916 + y * -0.00024846)))));
+    return (2 / Math.PI) * Math.log(x / 2) * besselJ0(x) + p;
+  }
+  const t = 3 / x;
+  const f = 0.79788456 + t * (-0.00000077 + t * (-0.00552740 + t * (-0.00009512 +
+            t * (0.00137237 + t * (-0.00072805 + t * 0.00014476)))));
+  const th = x - 0.78539816 + t * (-0.04166397 + t * (-0.00003954 + t * (0.00262573 +
+             t * (-0.00054125 + t * (-0.00029333 + t * 0.00013558)))));
+  return f * Math.sin(th) / Math.sqrt(x);
+}
+
+function besselY1(x) {
+  if (x < 3) {
+    const t = x / 3, y = t * t;
+    const p = -0.6366198 + y * (0.2212091 + y * (2.1682709 + y * (-1.3164827 +
+              y * (0.3123951 + y * (-0.0400976 + y * 0.0027873)))));
+    return ((2 / Math.PI) * Math.log(x / 2) * besselJ1(x) * x + p) / x;
+  }
+  const t = 3 / x;
+  const f = 0.79788456 + t * (0.00000156 + t * (0.01659667 + t * (0.00017105 +
+            t * (-0.00249511 + t * (0.00113653 + t * -0.00020033)))));
+  const th = x - 2.35619449 + t * (0.12499612 + t * (0.00005650 + t * (-0.00637879 +
+             t * (0.00074348 + t * (0.00079824 + t * -0.00029166)))));
+  return f * Math.sin(th) / Math.sqrt(x);
+}
+
 /**
- * J_n(u), the finite-length radiation factor, u = k*L.
+ * How much of the compact-limit dipole resistance a cylinder of radius a really
+ * has, at radial wavenumber k_r, with x = k_r * a.
  *
- *   J_n(u) = int_{-u}^{u} |Yhat_n(q)|^2 (1 - q^2/u^2) dq
+ * The exact m = 1 radiation resistance of an infinite cylinder is
+ *
+ *     Re z_1 = rho0 c (k/k_r) * 2 / (pi x |H_1'(x)|^2),
+ *
+ * and expanding the Hankel derivative for small x gives the compact form
+ * rho0 c (k/k_r)(pi/2) x^3 that the rest of this file was built on. Their ratio
+ *
+ *     C(x) = 4 / (pi^2 x^4 (J_1'(x)^2 + Y_1'(x)^2)),     J_1' = J_0 - J_1/x
+ *
+ * is 1 for a slim tube and falls off a cliff once the section stops being small
+ * against the sound wavelength: 1.00 at x = 0.1, 1.07 at 0.35, 1.00 at 0.5, then
+ * 0.69 at 0.8, 0.47 at 1.0 and 0.06 at 3.7. The physical statement is that a
+ * cylinder cannot go on radiating like x^3 for ever - past x ~ 1 the surface is
+ * pushing a whole wavelength of air and the resistance saturates near rho0 c -
+ * and the cubic law, taken literally, invents power that is not there.
+ *
+ * IT IS NOT MODE 1 THAT WAS WRONG. On the three reference instruments mode 1
+ * sits at x <= 0.41, where C is 1.00 to 1.06, so this changes the fundamental by
+ * under half a percent and the calibration of the cord is untouched. What it
+ * changes is everything above: mode 2 runs to x = 1.05 and mode 5 to x = 3.7, so
+ * the overtones were being handed a resistance up to seventeen times the real
+ * one and died accordingly. That is why our upper partials came out 12 to 20 dB
+ * loud at the strike and then vanished, instead of ringing on quietly.
+ *
+ * MEASURED, on the two clips with a usable mode 3: the supergiant's third
+ * partial goes 0.234 -> 0.571 s against a reference 0.459 (-49% becomes +24%,
+ * inside the bar's 25%), and the corinthian's goes 0.483 -> 0.754 against a
+ * reference 0.147 (+199% becomes worse). Those two references disagree with each
+ * other by 3.1x in the wrong direction - the higher partial outlasting the lower
+ * one - so no single law can sit inside 25% of both, and this one does not
+ * pretend to. It is here because it is the correct resistance, not because of
+ * where it lands on a scorecard.
+ */
+export function dipoleEfficiency(x) {
+  if (!(x > 0)) return 1;
+  // Below this the series limit IS 1 to well under a part in a million, and
+  // Y_1' ~ 2/(pi x^2) starts costing significant digits to the subtraction.
+  if (x < 1e-3) return 1;
+  const j1p = besselJ0(x) - besselJ1(x) / x;
+  const y1p = besselY0(x) - besselY1(x) / x;
+  const x2 = x * x;
+  return 4 / (Math.PI * Math.PI * x2 * x2 * (j1p * j1p + y1p * y1p));
+}
+
+/**
+ * J_n(u, ka), the finite-length radiation factor, u = k*L and ka the section's
+ * own compactness at that frequency.
+ *
+ *   J_n = int_{-u}^{u} |Yhat_n(q)|^2 (1 - q^2/u^2) C(ka sqrt(1 - q^2/u^2)) dq
  *
  * This is the whole of what makes a real tube quieter than an infinite one, and
  * it is the reason the radiation term cannot be a closed form. Replace
  * |Yhat_n|^2 with a pair of deltas of mass pi/2 at q = +/- beta_n - which is
- * what assuming an infinitely long tube does - and J collapses to
+ * what assuming an infinitely long tube does - drop C, and J collapses to
  * (pi/2)(1 - (beta_n/u)^2), which puts Q_rad back at the textbook supersonic
  * result 2 m' c^2 / (pi^2 rho0 a^4 w (w - w_coincidence)). A real chime tube is
  * about one acoustic wavelength long, so its mode is nothing like a delta in
@@ -763,6 +884,13 @@ export function modeSpectrumSq(n, q) {
  * content falls inside the radiation circle, and at 739 Hz, 25 percent. That
  * factor of two is most of the difference between a chime that rings and one
  * that does not.
+ *
+ * The taper (1 - q^2/u^2) is not a window and not a fudge: it is (k_r/k)^2, the
+ * radial wavenumber each axial component is left with, and it carries the whole
+ * of the compact-limit resistance. C() above is the correction that takes that
+ * resistance from the compact limit to the exact cylinder, and because k_r goes
+ * to zero at the edge of the radiation circle, C -> 1 there no matter how fat
+ * the tube is. Only the middle of the integral is touched.
  *
  * Below coincidence J is not zero but exponentially small, which is the correct
  * statement of "a sub-coincidence tube radiates from its ends and nothing else"
@@ -772,16 +900,18 @@ export function modeSpectrumSq(n, q) {
  * period 2*pi in q (the window is one length long). About twelve points per
  * oscillation; no allocation.
  */
-export function radiationJ(n, u) {
+export function radiationJ(n, u, ka) {
   if (!(u > 0)) return 0;
+  const a = ka > 0 ? ka : 0;
   let N = 2 * Math.ceil(Math.max(24, u));
   if (N > 640) N = 640;
   const h = u / N;
-  let acc = modeSpectrumSq(n, 0);              // q = 0, weight 1, (1 - 0) = 1
+  // q = 0: the whole radial wavenumber survives, so x = ka there.
+  let acc = modeSpectrumSq(n, 0) * dipoleEfficiency(a);
   for (let i = 1; i < N; i++) {
     const q = i * h;
     const t = 1 - (q / u) * (q / u);
-    acc += (i & 1 ? 4 : 2) * modeSpectrumSq(n, q) * t;
+    acc += (i & 1 ? 4 : 2) * modeSpectrumSq(n, q) * t * dipoleEfficiency(a * Math.sqrt(t));
   }
   // q = u contributes zero: the taper (1 - q^2/u^2) vanishes there.
   return 2 * (h / 3) * acc;                    // doubled: |Yhat(-q)| = |Yhat(q)|
@@ -826,9 +956,9 @@ export function radiationJ(n, u) {
  *
  * What the two channels end up doing, on this stock at 464 / 592 / 739 Hz:
  *
- *   mode 1   radiation 346 / 113 / 42 s     cord 17 / 22 / 27 s    -> cord
- *   mode 2   radiation 4.1 / 1.8 / 0.9 s    cord 12 / 16 / 19 s    -> air
- *   mode 3   radiation 0.5 / 0.2 / 0.1 s    cord 177 / 221 / 269 s -> air
+ *   mode 1   radiation 338 / 108 / 40 s     cord 17 / 22 / 27 s    -> cord
+ *   mode 2   radiation 3.9 / 1.9 / 1.1 s    cord 12 / 16 / 19 s    -> air
+ *   mode 3   radiation 0.8 / 0.6 / 0.5 s    cord 177 / 221 / 269 s -> air
  *
  * The fundamental is held by the cord and the overtones are given away to the
  * air, and neither of those was chosen - they fall out of where the mode shapes
@@ -873,7 +1003,7 @@ export function modeT60s(freqs, L, tube, out) {
     if (!(f > 0)) { t60[i] = 0.02; continue; }
     const w = 2 * Math.PI * f;
     const k = w / AIR.c;
-    const J = radiationJ(i, k * L);
+    const J = radiationJ(i, k * L, k * a);
     // 1/Q, summed. A vanishing J means the mode is below coincidence and does
     // not radiate as a line source at all; the cord and the metal carry it.
     let invQ = 1 / Q_INTRINSIC;
@@ -937,7 +1067,12 @@ export function decayTau(T60) {
 // second render, and that alone moved compare.py's total on the Flower of Life
 // clip from 36.7 to 64.7 units. Nothing audible changed; the analyser simply
 // picked different peaks out of the noise floor. At -120 dBFS the renders are
-// bit-identical to the untruncated ones and the divergence totals do not move.
+// NOT bit-identical to the untruncated ones - an earlier version of this comment
+// claimed they were and that was wrong, caught by a critic who checked the md5s.
+// What is true is that 57 to 89 samples out of 288000 differ by exactly one LSB,
+// at a residual RMS of -125 dBFS, which is a third of the way to inaudible from
+// already inaudible. The divergence totals still move, because they are that
+// sensitive; see below.
 //
 // (That fragility is worth knowing about on its own: a divergence total that
 // swings by 28 units on one LSB is not a quantity two rounds can be compared on

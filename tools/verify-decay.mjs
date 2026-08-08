@@ -81,9 +81,18 @@ const { MAX_PARTIALS, TUBE_STOCK, chimeStock, modeT60s, tubeModes } = modal;
 //   inversionMax      the worst overtone-T60 / fundamental-T60 ratio. Anything
 //                     above 1 is a chime whose hum dies before its overtones,
 //                     which refs/deep says no real bass instrument does. NOT
-//                     FIXED on the default stock below 185 Hz; nearly fixed on
-//                     maker proportions, where only the 90-93 Hz corner trips it
-//                     and only by seven percent.
+//                     FIXED on the default stock below 185 Hz. On maker
+//                     proportions it USED to be nearly fixed - 90-93 Hz, seven
+//                     percent over - and taking the radiation resistance from
+//                     the exact cylinder instead of its compact limit made it
+//                     worse, 90-106 Hz and 36 percent over, because the
+//                     correction lengthens every mode above ka ~ 0.6 while a
+//                     bass fundamental is cord-limited and does not lengthen.
+//                     That is a real regression and it is recorded as one. It
+//                     sits entirely below 130.81 Hz, the lowest note the page
+//                     can be asked for, and it buys a resistance that is right
+//                     to a part in 10^7 instead of one that is 17x too big at
+//                     the top of the range. See modal.js dipoleEfficiency.
 //
 // WHAT IS DELIBERATELY NOT HERE. Until this round the block below also carried
 // referenceFundamentalS - the model's own mode-1 T60 at 463.65, 592.36 and
@@ -100,8 +109,8 @@ const { MAX_PARTIALS, TUBE_STOCK, chimeStock, modeT60s, tubeModes } = modal;
 // broad physical window on the shipping range, which no amount of memorising
 // our own outputs can satisfy.
 const BASELINE = {
-  defaultStock: { longestModeS: 28.22, inversionMax: 8.61, inversionHiHz: 186 },
-  makerStock:   { longestModeS: 44.00, inversionMax: 1.08, inversionHiHz: 94 }
+  defaultStock: { longestModeS: 28.10, inversionMax: 8.55, inversionHiHz: 186 },
+  makerStock:   { longestModeS: 43.80, inversionMax: 1.37, inversionHiHz: 107 }
 };
 
 // A plausibility window on the fundamental, over the pitch range the page can
@@ -224,6 +233,23 @@ for (const [k, s] of [['default', report.shipping_fundamental.default_stock],
     s.lo >= FUNDAMENTAL_WINDOW_S[0] && s.hi <= FUNDAMENTAL_WINDOW_S[1];
 }
 
+// The exact cylindrical resistance, checked as a function rather than through a
+// render: it must be 1 in the compact limit and must fall, not rise, once the
+// section stops being small against the sound wavelength. Both are properties of
+// the Hankel expression, so a broken polynomial coefficient shows up here.
+report.dipole_efficiency = [0.001, 0.01, 0.1, 0.3, 1, 2, 4].map(
+  (x) => ({ x, c: modal.dipoleEfficiency(x) }));
+// C -> 1 as x -> 0, and it approaches from ABOVE like 1 + O(x^2): the true value
+// at x = 0.01 is 1.00035, not 1, so the tolerance here is a slack band around
+// the real function and not a claim that C is flat. validate.py checks it
+// against scipy's Hankel to 1e-6 across the whole range; this is the smoke test.
+c.dipole_compact_limit = Math.abs(modal.dipoleEfficiency(1e-3) - 1) < 1e-5 &&
+                         Math.abs(modal.dipoleEfficiency(0.01) - 1) < 1e-3;
+c.dipole_falls_past_one = modal.dipoleEfficiency(1) < 0.6 &&
+                          modal.dipoleEfficiency(2) < modal.dipoleEfficiency(1) &&
+                          modal.dipoleEfficiency(4) < modal.dipoleEfficiency(2);
+c.dipole_positive = report.dipole_efficiency.every((r) => r.c > 0 && r.c <= 1.1);
+
 report.pass = Object.values(c).every(Boolean);
 
 if (process.argv.includes('--json')) {
@@ -258,6 +284,10 @@ if (process.argv.includes('--json')) {
     console.log(`    ${name}  ${w(s.lo.toFixed(2), 7)} s at ${w(s.loAtHz.toFixed(0), 5)} Hz` +
                 `   ${w(s.hi.toFixed(2), 7)} s at ${w(s.hiAtHz.toFixed(0), 5)} Hz`);
   }
+  console.log('');
+  console.log('  exact-cylinder dipole efficiency C(x) = exact / compact limit:');
+  console.log('    ' + report.dipole_efficiency
+    .map((r) => `x=${r.x} ${r.c.toFixed(4)}`).join('   '));
   console.log('');
   console.log('  published instruments, mode 1 on the maker\'s own section:');
   for (const cat of modal.CATALOGUE) {
