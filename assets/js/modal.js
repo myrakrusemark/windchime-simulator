@@ -21,9 +21,10 @@
 // rotary inertia are not corrections but first-order terms. Ignoring them puts
 // mode 3 of a real recorded chime 175 to 244 cents sharp. See modeSlowing.
 //
-// The correction turns on the tube's DIAMETER as much as on its length, so what
-// diameter the simulator believes it is hanging decides the answer. See
-// TUBE_STOCK: it is chime stock now, taken from what chime makers publish.
+// The correction turns on the tube's DIAMETER as much as on its length, so the
+// diameter is not a constant hiding in this file: it is part of the tube spec,
+// it comes from a manufacturer's published stock size, and CATALOGUE below is
+// the published data every derived number here is computed from.
 
 // --- Free-free bar modal data ---------------------------------------------
 //
@@ -52,77 +53,15 @@ export const MAX_PARTIALS = BETA_L.length;
 // by two decades a mode and the result becomes noise. DO NOT add partials to the
 // tables above without reformulating Y_n in terms of exponentials.
 
-// --- The tube itself: geometry and material --------------------------------
-//
-// The stock a chime is actually built from, which is NOT the 28 mm curtain rod
-// this file used to assume. The correction below turns on the tube's diameter,
-// so the diameter is the single most load-bearing number here, and it is taken
-// from what chime makers publish rather than from anything in a recording.
-//
-// Wind River publish, for each Corinthian Bells model, the overall height, the
-// length of the longest tube, the tube diameter and the key:
-//
-//     model    longest tube   diameter   key    L/D
-//     50 in      27.75 in      1.50 in    A     18.5
-//     65 in      40.25 in      2.25 in    Eb    17.9
-//     78 in      47.75 in      2.50 in    B     19.1
-//
-// and Theta Chimes publish, for the 93-inch Supergiant, 3 in tubes with a 3 mm
-// wall cut to 49 / 44.75 / 42.75 / 39 / 36.5 / 34.5 in for D4 E4 G4 A4 C#5 D5
-// (L/D 16.3 on the longest). So a chime tube is 16 to 19 diameters long, across
-// four instruments from two makers spanning a 4:1 range of size - not 29, which
-// is what 28 mm stock at middle C works out at.
-//
-// The wall follows from the same tables without any new assumption: length,
-// diameter and pitch are all published, and the beam law has exactly one
-// unknown left. Solving it gives 3.21 mm on the 50-inch, 5.23 on the 65-inch
-// and 5.63 on the 78-inch - 8.4 to 9.2 percent of the diameter, which is the
-// "thick-walled tubes" the catalogue advertises, and which puts 2.36 kg in the
-// 65-inch model's longest tube against a published shipping weight of 30 lb for
-// the whole chime. Theta's stated 3 mm on a 3 in tube is thinner in proportion.
-//
-// This simulator hangs a mid-size garden chime: physics.js cuts 0.80 m for the
-// lowest note of the default scale, which is a 50-to-65-inch instrument, and
-// the published ladder there runs 1.5 to 2.25 in. 1.75 in OD with a 3 mm wall
-// is the standard extrusion in that range and it is what is used here. Both
-// numbers are round because both are real stock sizes; neither was tuned.
-//
-// How much does the choice matter? A lot, and this is the honest weak point of
-// the whole correction. Everything below depends on the diameter only through
-// the radius of gyration r, so there is exactly ONE geometric number in play.
-// Against the three reference recordings, every mode lands inside the 30-cent
-// bar for r between about 14.4 and 15.0 mm - 43.9 to 45.1 mm of outside
-// diameter at a 3 mm wall, or 42.3 to 43.6 at 1.6 mm. That is a +/- 2 percent
-// window, and the published catalogue only brackets a chime of this size at
-// 1.5 to 2.25 in, which is r from 12.4 to 18.5 - +/- 20 percent. So the
-// catalogue says which neighbourhood and the recordings say which house.
-//
-// What stops that from being a curve fit is that the one number has to satisfy
-// seven measurements at once: modes 2 and 3 at 592 Hz, modes 2, 3 and 4 at 464,
-// modes 2 and 3 at 739, spanning ratios from 2.6 to 7.5. A one-parameter family
-// with the wrong shape cannot do that - holding the tube's SLENDERNESS fixed
-// instead of its diameter is also a one-parameter family, and its best fit
-// still misses by 46 cents. The 28 mm stock this file used to assume misses by
-// 111. The dispersion relation is what makes one number enough.
-//
-// 6061-T6 aluminium. E and rho set the wave speed sqrt(E/rho) = 5055 m/s, which
-// is what makes a tube of a given length ring at the pitch it does; nu sets the
-// shear correction below.
-export const TUBE_STOCK = Object.freeze({
-  od: 0.04445,     // outer diameter, m (1.75 in)
-  id: 0.03845,     // inner diameter, m (3.0 mm wall)
-  E: 6.9e10,       // Young's modulus, Pa
-  rho: 2700,       // density, kg/m^3
-  nu: 0.33         // Poisson's ratio
-});
+// --- Section properties ----------------------------------------------------
 
 /**
  * Radius of gyration of a tube's cross-section, sqrt(I/A) = sqrt(Do^2+Di^2)/4.
  *
  * This is the number the whole correction below turns on, and a TUBE is the
- * worst case for it: all the metal sits far from the axis, so the 44.45/38.45
- * mm stock has r = 14.69 mm against 11.11 mm for a solid rod of the same
- * outside diameter. A tube is 32 percent stubbier than it looks.
+ * worst case for it: all the metal sits far from the axis, so the 44.45/39.25
+ * mm stock has r = 14.83 mm against 11.11 mm for a solid rod of the same
+ * outside diameter. A tube is a third stubbier than it looks.
  */
 export function gyrationRadius(od, id) {
   return Math.sqrt(od * od + id * id) / 4;
@@ -134,7 +73,7 @@ export function gyrationRadius(od, id) {
  * Timoshenko theory replaces the true parabolic-ish shear stress over the
  * section with a uniform one, and kappa is the fiddle factor that makes the two
  * store the same energy. It is NOT a free parameter: it falls out of the
- * elasticity solution for the section shape. 0.53753 for this stock at
+ * elasticity solution for the section shape. 0.5364 for this stock at
  * nu = 0.33, and it barely moves with the wall - a thin-walled tube tends to
  * 0.53307 and a solid rod to 0.88864, so every chime tube is near 0.535.
  */
@@ -147,11 +86,192 @@ export function shearCoefficient(od, id, nu) {
 /**
  * k = E / (kappa * G), the ratio of bending stiffness to shear stiffness.
  * G = E / (2(1+nu)) is isotropic, so E cancels and only nu and the section
- * shape survive. 4.9486 for this stock: shear is FIVE TIMES softer than
+ * shape survive. 4.958 for this stock: shear is FIVE TIMES softer than
  * bending, which is why ignoring it is not a rounding error.
  */
 export function shearToBendingRatio(od, id, nu) {
   return 2 * (1 + nu) / shearCoefficient(od, id, nu);
+}
+
+// --- What a chime tube is actually made of ---------------------------------
+//
+// 6061-T6 aluminium. E and rho set the wave speed sqrt(E/rho) = 5055 m/s, which
+// is what makes a tube of a given length ring at the pitch it does; nu sets the
+// shear correction above.
+export const ALUMINIUM = Object.freeze({ E: 6.9e10, rho: 2700, nu: 0.33 });
+
+// Every wind-chime tube either maker publishes hard numbers for. Nothing in
+// this table came from a recording, a sweep or a fit: `od` and `wall` are stock
+// sizes off a spec sheet, `longest` and `lowest` are the published length and
+// key of the instrument's longest tube. Walls left null are not published and
+// are SOLVED below from the maker's own length/diameter/key, which leaves the
+// beam law exactly one unknown.
+//
+//   Theta Chimes, per model page (thetachimes.com, via Sunreed/Soundtopia):
+//     Twin Flame small   0.625 in, "approximately 1.3 mm thick"
+//     Twin Flame large   1.25 in,  "approximately 2 mm thick"
+//     Flower of Life     1.75 in,  "average tube thickness 2.6 mm with the
+//                                  powder coated layer", 64 in hanging height,
+//                                  six tubes, major scale
+//     Supergiant         3 in,     "average tube thickness 3 mm", 93 in hanging
+//                                  height, tubes 49/44.75/42.75/39/36.5/34.5 in
+//                                  for D4 E4 G4 A4 C#5 D5, 14 in top ring
+//   Wind River Chimes, per Corinthian Bells model page (windriverchimes.com):
+//     50 in   longest tube 27.75 in, 1.50 in tubes, key of A
+//     65 in   longest tube 40.25 in, 2.25 in tubes, pentatonic scale of Eb
+//     78 in   longest tube 47.75 in, 2.50 in tubes, key of B
+export const CATALOGUE = Object.freeze([
+  { name: 'Theta Twin Flame small', od: 0.015875, wall: 0.0013, longest: null, lowest: null },
+  { name: 'Theta Twin Flame large', od: 0.031750, wall: 0.0020, longest: null, lowest: null },
+  { name: 'Theta Flower of Life', od: 0.044450, wall: 0.0026, longest: null, lowest: null },
+  { name: 'Theta Supergiant', od: 0.076200, wall: 0.0030, longest: 1.24460, lowest: 293.66 },
+  { name: 'Corinthian Bells 50', od: 0.038100, wall: null, longest: 0.704850, lowest: 440.00 },
+  { name: 'Corinthian Bells 65', od: 0.057150, wall: null, longest: 1.022350, lowest: 311.13 },
+  { name: 'Corinthian Bells 78', od: 0.063500, wall: null, longest: 1.212850, lowest: 246.94 }
+].map(Object.freeze));
+
+/**
+ * The wall a tube must have to ring at f1 when cut to L of the given outside
+ * diameter. Bisection on a monotonic function - a thicker wall moves metal
+ * toward the axis, shrinks the radius of gyration and drops the pitch - between
+ * a foil tube and a solid rod. Used only to fill in the walls Wind River do not
+ * publish; nothing downstream calls it at runtime.
+ */
+export function wallForPitch(od, L, f1, material) {
+  const m = material || ALUMINIUM;
+  let lo = 1e-5, hi = od / 2 - 1e-6;
+  for (let i = 0; i < 200; i++) {
+    const w = 0.5 * (lo + hi);
+    if (pitchOfCut(od, od - 2 * w, L, m) > f1) lo = w; else hi = w;
+  }
+  return 0.5 * (lo + hi);
+}
+
+/** The fundamental of a tube of this exact section cut to exactly L metres. */
+function pitchOfCut(od, id, L, m) {
+  const r = gyrationRadius(od, id);
+  const b1 = BETA_L[0];
+  const eps1 = (r * b1 / L) * (r * b1 / L);
+  const k = shearToBendingRatio(od, id, m.nu);
+  return (b1 * b1 / (2 * Math.PI * L * L)) * r * Math.sqrt(m.E / m.rho) * modeSlowing(eps1, k);
+}
+
+// Two invariants, both MEASURED off the table above rather than typed in, so
+// that changing the table changes them and a reader can check the arithmetic.
+//
+// R_OVER_OD, the radius of gyration as a fraction of the outside diameter, is
+// what the mode ratios actually care about, and across all seven tubes it is
+// 0.3228 to 0.3399 - a spread of +/- 2.6 percent against a 5:1 range of
+// diameter and a wall that runs from 3.9 to 9.2 percent of the diameter. A
+// solid rod would be 0.25 and a foil tube 0.3536, so every real chime tube sits
+// near the thin-wall end and the wall is very nearly irrelevant. This is why
+// the DIAMETER is the load-bearing number and the wall is not.
+//
+// CHIME_LD, the longest tube's length over its diameter, is 16.3 to 19.1 across
+// the four instruments that publish both - two makers, a 1.8:1 range of size.
+// A maker picks the stock to suit the chime's lowest note; chimeStock() below
+// is that rule, and it is what sizes an instrument nobody has recorded.
+export const R_OVER_OD = CATALOGUE.reduce((s, c) => {
+  const w = c.wall !== null ? c.wall : wallForPitch(c.od, c.longest, c.lowest);
+  return s + gyrationRadius(c.od, c.od - 2 * w) / c.od;
+}, 0) / CATALOGUE.length;
+
+export const CHIME_LD = (() => {
+  const withL = CATALOGUE.filter(c => c.longest !== null);
+  return withL.reduce((s, c) => s + c.longest / c.od, 0) / withL.length;
+})();
+
+// id/od that reproduces R_OVER_OD exactly: r/od = sqrt(1 + (id/od)^2)/4.
+const ID_OVER_OD = Math.sqrt(Math.max(0, 16 * R_OVER_OD * R_OVER_OD - 1));
+
+/**
+ * The stock a maker would buy for a chime whose lowest note is f1: pick the
+ * diameter so the longest tube comes out CHIME_LD diameters long, then the wall
+ * so the section matches R_OVER_OD. A fixed point, because the tube's length
+ * depends on the stock and the stock depends on the length; the map contracts
+ * hard (each pass moves the diameter by less than a percent) and settles in
+ * about eight.
+ *
+ * This is the function that sizes a chime nobody has recorded, and it is the
+ * only place the catalogue ladder is used. It is deliberately NOT what sizes
+ * the simulator's own tubes - see TUBE_STOCK.
+ */
+export function chimeStock(lowestHz, material) {
+  const m = material || ALUMINIUM;
+  const f = Math.max(1e-6, num(lowestHz, 261.63));
+  let od = 0.045;
+  for (let i = 0; i < 24; i++) {
+    const id = od * ID_OVER_OD;
+    const L = tubeModes({ f1: f, tube: { od, id, E: m.E, rho: m.rho, nu: m.nu } }).L;
+    const next = L / CHIME_LD;
+    if (Math.abs(next - od) <= 1e-15 * next) { od = next; break; }
+    od = next;
+  }
+  return Object.freeze({ od, id: od * ID_OVER_OD, E: m.E, rho: m.rho, nu: m.nu });
+}
+
+// The stock THIS simulator hangs, and the one number in this file that a reader
+// should interrogate hardest, because everything below depends on the diameter.
+//
+// It is the published stock of the Theta Chimes Flower of Life: 1 3/4 inch
+// powder-coated aluminium, 2.6 mm average wall. Both numbers are off the maker's
+// own spec sheet. Neither is a stock size chosen for being round, neither was
+// swept, and neither came from a recording - which matters, because one of the
+// three reference recordings this simulator is measured against IS a Flower of
+// Life, so on that clip the model is being run on the real geometry of the
+// instrument that made it. It lands mode 2 within 1.3 cents and mode 3 within
+// 0.3 cents of that recording. The same test on the Corinthian Bells 65-inch,
+// fed ITS published 2.25 in and the wall wallForPitch() solves from Wind River's
+// own length and key, lands within 7, 10 and 25 cents on modes 2, 3 and 4.
+//
+// Why a Flower of Life and not one of the others: it is the only one of the
+// three recorded instruments that is the same KIND of object this simulator
+// draws - a six-tube major-scale garden chime with a 64 inch hanging height.
+// The Supergiant is 93 inches and 35 lb and wants nine feet of clearance; the
+// Corinthian 65 is a 30 lb instrument on a much fatter extrusion.
+//
+// The honest cost of hanging one stock instead of sizing it per chime: at the
+// default scale's lowest note this file cuts a 1.00 m tube of 44.45 mm stock,
+// which is 22.6 diameters - more slender than the 16 to 19 a maker would build,
+// so the simulator's bottom notes come out slightly MORE inharmonic than a
+// commercial chime of that pitch would be. That is what happens when you cut a
+// whole scale from one length of tube, which is exactly what a person building
+// a chime in a shed does. chimeStock() above is the other way round, and a
+// caller who wants maker-proportioned tubes can pass its result as `tube`.
+export const TUBE_STOCK = Object.freeze({
+  od: 0.04445,          // outer diameter, m (1.75 in, published)
+  id: 0.04445 - 2 * 0.0026,  // 2.6 mm wall, published
+  E: ALUMINIUM.E,
+  rho: ALUMINIUM.rho,
+  nu: ALUMINIUM.nu
+});
+
+/**
+ * The n = 2 ovalling frequency of the tube wall, in Hz - where the section
+ * stops holding its shape and NO beam theory of any order applies, because the
+ * cross-section is now deforming instead of translating and rotating.
+ *
+ * This is the thin-ring result f_n = (n(n^2-1)/sqrt(n^2+1)) * (h/a^2) *
+ * sqrt(E/(12 rho (1-nu^2))) / 2pi, with a the mean radius and h the wall. It is
+ * a FLOOR, not the exact shell mode: a finite tube's shell modes carry axial
+ * dependence too and sit above it.
+ *
+ * It matters because it is not always comfortably out of the way. On the
+ * Flower of Life stock it is 3.9 kHz, above every partial this file voices at
+ * chime pitches; on Myra's chime stock it is 13 kHz; on the Corinthian Bells
+ * 65-inch it is 5.1 kHz. But on the Theta Supergiant - 3 in diameter with a
+ * 3 mm wall, the thinnest-walled tube in the catalogue in proportion - it is
+ * 1479 Hz, which is BELOW that instrument's own second bending mode. That is
+ * the one reference recording this model does not reproduce, and this number is
+ * why: past here the tube is a shell, not a beam.
+ */
+export function ovallingHz(tube) {
+  const s = stockOf(tube);
+  const wall = 0.5 * (s.od - s.id);
+  const a = 0.5 * (s.od - wall);
+  const n = 2;
+  const c = Math.sqrt(s.E / (12 * s.rho * (1 - s.nu * s.nu)));
+  return (n * (n * n - 1) / Math.sqrt(n * n + 1)) * (wall / (a * a)) * c / (2 * Math.PI);
 }
 
 /**
@@ -210,8 +330,8 @@ function stockOf(tube) {
  * and Node agree bit for bit.
  *
  * WHY RATIOS CANNOT BE A CONSTANT: eps_n = (r*beta_n/L)^2 carries the tube's own
- * length and its own wall. On this stock a 1.42 m bass tube at C3 comes out 21
- * cents flat of ideal on mode 2 and a 0.49 m treble tube at C6 comes out 143
+ * length and its own section. On this stock a 1.42 m bass tube at C3 comes out
+ * 21 cents flat of ideal on mode 2 and a 0.50 m treble tube at C6 comes out 144
  * flat - the same beam theory, a sevenfold difference in the answer. A fixed
  * table of ratios is a table that is wrong for every tube but one.
  */
@@ -246,10 +366,17 @@ export function tubeModes(opts) {
   for (let n = 0; n < MAX_PARTIALS; n++) {
     ratios[n] = IDEAL_RATIOS[n] * modeSlowing(eps1 * IDEAL_RATIOS[n], k) / s1;
   }
+  const f1 = (b1 * b1 / (2 * Math.PI * L * L)) * r * cL * s1;
+  const shellHz = ovallingHz(stock);
+  // How many of the five partials this tube can honestly claim: a mode above
+  // the section's ovalling floor is not a beam mode at all. Reported rather
+  // than enforced, because clamping a partial away would be a bigger lie than
+  // voicing it slightly wrong - but a caller that wants to know, can ask.
+  let beamModes = 0;
+  while (beamModes < MAX_PARTIALS && f1 * ratios[beamModes] < shellHz) beamModes++;
   return {
-    L, r, k, eps1, ratios,
+    L, r, k, eps1, ratios, f1, shellHz, beamModes,
     kappa: shearCoefficient(stock.od, stock.id, stock.nu),
-    f1: (b1 * b1 / (2 * Math.PI * L * L)) * r * cL * s1,
     slenderness: L / r
   };
 }
@@ -269,41 +396,46 @@ export function f1ForLength(L, tube) {
   return tubeModes({ L, tube }).f1;
 }
 
-// A note on the two length laws, and why audio.js no longer passes one.
+// There is now ONE length law and ONE tube. physics.js used to carry its own -
+// f = 168.92 / L^2, the Euler-Bernoulli relation for 28 mm curtain rod, which
+// cut 0.80 m at middle C - so the tube on screen and the tube you could hear
+// were different objects and the mode ratios belonged to neither. It imports
+// tubeLengthFor() and TUBE_STOCK from here instead. The rig's tubes are now
+// 1.00 m at middle C, 44.45 mm across and 0.92 kg per metre, and those are the
+// same numbers this file voices, so the chime on screen IS the chime you hear.
 //
-// physics.js cuts its tubes with lengthForFreq(), f = 168.92 / L^2, which is
-// the Euler-Bernoulli law for 28 mm stock: 0.80 m at middle C. That constant is
-// wired into the rig - TUBE_R is the collision radius, TUBE_LINDENS is the mass
-// per metre, and both are sized to a tube that fits between the cords on a ring
-// of radius 82 mm. It describes the object on screen.
-//
-// This file now describes a real chime tube, which at middle C is 1.00 m long
-// and 44 mm across. The two disagree by 25 percent in length, and that is a
-// genuine defect: the drawn tube is too thin for its pitch. But feeding the
-// drawn length into the correction is worse than not feeding it, because
-// eps = (r*beta_1/L)^2 would then combine this file's radius of gyration with
-// physics.js's length and describe a tube that exists nowhere - 1.5 times the
-// slenderness parameter the pitch implies, which is 40 cents on mode 2.
-//
-// So strikeVoice is given the pitch and works out the length itself, which is
-// self-consistent by construction and, incidentally, is what the offline
-// renderer was already doing. Before this change the browser and the renderer
-// disagreed by up to 12 cents on mode 5 for exactly this reason, so the harness
-// was not measuring quite what the page played. Now they are the same numbers.
-//
-// Collapsing physics.js onto this stock is the right end state and it is worth
-// doing, but it lengthens every tube by a quarter, quadruples its mass and
-// widens the collision radius by 59 percent. That is a mechanics change, not an
-// audio one, and it belongs in its own piece of work.
+// It is worth being clear about what that cost. Every tube got a quarter longer
+// and 2.7 times heavier per metre, which is a real mechanics change: a tube's
+// wind deflection goes as drag over weight, so the same 12 mph breeze now leans
+// the set 2.7 degrees instead of 4.6. A heavier chime IS harder for the wind to
+// move, and that is the point, but it means this piece moved the rig as well as
+// the sound, and any strike-rate comparison across it is not like for like.
 
-// Where this stops being true. Timoshenko theory is a one-dimensional model
-// and it holds while the tube is still recognisably a beam; past roughly
-// L/r = 10 the section is deforming and no beam theory of any order applies.
-// On this stock the simulator's own range is L/r 33 (a 0.49 m tube at C6) to
-// 96 (a 1.42 m tube at C3), comfortably inside, and the three reference chimes
-// sit at 40 to 51. The formula stays finite and monotonic well past that, so
-// nothing explodes if a caller asks for something silly, but the answer stops
-// meaning anything.
+// Where this stops being true, in two ways.
+//
+// FIRST, slenderness. Timoshenko theory is one-dimensional and it holds while
+// the tube is still recognisably a beam; past roughly L/r = 10 the section is
+// deforming and no beam theory of any order applies. On this stock the
+// simulator's range is L/r 31 (a 0.46 m tube at the 1200 Hz cap) to 96 (a
+// 1.42 m tube at C3), comfortably inside, and the reference chimes sit at 33 to
+// 56. The formula stays finite and monotonic well past that, so nothing
+// explodes if a caller asks for something silly, but the answer stops meaning
+// anything.
+//
+// SECOND, and this is the one that actually bites: ovallingHz(). A mode above
+// the section's n = 2 ovalling floor is a shell mode, not a bending mode, and
+// the beam is the wrong model for it however slender it is. This is not
+// hypothetical. Of the four instruments this simulator has been measured
+// against, three have every measured partial below their own floor and the
+// model predicts them from their published geometry alone. The fourth is the
+// Theta Supergiant, whose 3 in tube with a 3 mm wall puts its floor at 1479 Hz,
+// under its own second bending mode - and it is the one instrument whose
+// spectrum this model cannot reproduce from its published tube. Fed Theta's own
+// 3 in / 3 mm, the model puts bending mode 2 at 1503.4 Hz and there is a
+// measured partial in that recording at 1502.93 Hz, 0.6 cents away; the line
+// the analysis calls mode 2 is 1571 Hz, 12 dB louder, and above the floor.
+// Nothing here is tuned to close that gap, because the gap is not in the beam
+// theory.
 
 // --- Excitation constants --------------------------------------------------
 
