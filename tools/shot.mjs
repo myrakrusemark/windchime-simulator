@@ -44,6 +44,7 @@ function parseArgs( argv ) {
 	for ( let i = 2; i < argv.length; i ++ ) {
 		const a = argv[ i ];
 		if ( a === '--mobile' ) out.mobile = true;
+		else if ( a === '--gpu' ) out.gpu = true;
 		else if ( a === '--full' ) out.full = true;
 		else if ( a === '--log' ) out.log = true;
 		else if ( a === '--click' ) out.clicks.push( argv[ ++ i ] );
@@ -164,8 +165,13 @@ async function main() {
 		'--disable-background-timer-throttling',
 		'--disable-renderer-backgrounding',
 		'--autoplay-policy=no-user-gesture-required',
-		'--use-angle=swiftshader',
-		'--enable-unsafe-swiftshader',
+		// Software GL by default so any number of these can run at once on a laptop.
+		// --gpu swaps in the real device, which is the only way to draw a million
+		// gaussians; it is for offline asset work, one at a time.
+		...( args.gpu
+			? [ '--use-angle=gl-egl', '--use-gl=angle', '--enable-gpu', '--ignore-gpu-blocklist',
+				'--enable-features=VaapiVideoDecoder,UseOzonePlatform', '--ozone-platform=headless' ]
+			: [ '--use-angle=swiftshader', '--enable-unsafe-swiftshader' ] ),
 		'--hide-scrollbars',
 		'--force-device-scale-factor=' + dpr,
 		`--window-size=${w},${h}`,
@@ -235,10 +241,12 @@ async function main() {
 
 		if ( args.js ) {
 
-			await S( 'Runtime.evaluate', {
+			const r = await S( 'Runtime.evaluate', {
 				expression: `(async () => { ${args.js} })()`,
 				awaitPromise: true, returnByValue: true,
 			} );
+			if ( r.exceptionDetails ) console.error( 'js threw:', r.exceptionDetails.text );
+			else if ( r.result && r.result.value !== undefined ) console.error( 'js:', JSON.stringify( r.result.value ) );
 			await sleep( 600 );
 
 		}
