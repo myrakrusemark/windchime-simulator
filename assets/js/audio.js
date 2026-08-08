@@ -575,6 +575,10 @@ export function createAudio(params) {
       // audible tick, and a note chopped in half. render-offline.mjs cannot see
       // that, because it has no voice-level teardown at all, so the harness this
       // whole gauntlet is scored on could not have caught it.
+      //
+      // stops[] and lastOsc are filled in above rather than here, because each
+      // partial's beat curve has to be told in advance how long its oscillator
+      // will live.
       oscs[lastOsc].onended = () => releaseVoice(v);
       for (let n = oscs.length - 1; n >= 0; n--) {
         try { oscs[n].stop(t0 + stops[n]); } catch (e) { if (n === lastOsc) releaseVoice(v); }
