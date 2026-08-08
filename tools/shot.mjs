@@ -165,6 +165,12 @@ async function main() {
 		'--disable-background-timer-throttling',
 		'--disable-renderer-backgrounding',
 		'--autoplay-policy=no-user-gesture-required',
+		// Let the audio graph run so the picture matches a page that is really
+		// sounding, but keep it off the speakers. Without this a headless shot of
+		// this particular page plays a wind chime into the room out of a window
+		// nobody can see. count-clicks.mjs measures level at the analyser, not at
+		// the output device, so muting costs no measurement.
+		'--mute-audio',
 		// Software GL by default so any number of these can run at once on a laptop.
 		// --gpu swaps in the real device, which is the only way to draw a million
 		// gaussians; it is for offline asset work, one at a time.
