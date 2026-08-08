@@ -1,0 +1,127 @@
+/* ---------------------------------------------------------------------------
+   share.css - the one button in the top right.
+
+   The bar keeps Save there in both its frames, desktop and phone, and it is the
+   thing that makes the count finite: without it a stranger can build a chime and
+   has no way to leave holding it. Ours was empty in both frames.
+
+   Three rules it has to obey, all of them learned from the shipped stylesheet:
+
+     - It is NOT in any .idle selector. assets/styles.css fades the subtitle, the
+       dock and the toast 8 seconds after the pointer stops; a share affordance
+       that disappears while you are looking at the thing you want to share is
+       worse than not having one (CONTRACTS P6: "never hidden by the idle fade").
+
+     - It turns pointer-events back on for itself only. #hudOverlay is
+       pointer-events:none so an orbit drag that starts on the chrome still
+       reaches the canvas, and the old wind dock broke that by claiming its whole
+       352x142 rect (CONTRACTS H29).
+
+     - Every value is a token. No hex literals here.
+   --------------------------------------------------------------------------- */
+
+.wcs-share {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: var(--wcs-s2);
+	flex: 0 0 auto;
+	pointer-events: none;
+}
+
+.wcs-share-button {
+	pointer-events: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	min-height: var(--wcs-tap);
+	padding: 0 20px;
+	margin: 0;
+	border: none;
+	border-radius: var(--wcs-r-pill);
+	background: var(--wcs-accent);
+	color: var(--wcs-ink-on-accent);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-pill);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+.wcs-share-button:hover {
+	background: var(--wcs-accent-hi);
+}
+
+.wcs-share-glyph {
+	width: 15px;
+	height: 15px;
+	flex: 0 0 auto;
+	fill: currentColor;
+}
+
+/* The confirmation. It is a live region, so it exists in the accessibility tree
+   from the first frame and is empty rather than absent - a region added to the
+   page at the moment it has something to say is not reliably announced.
+   :empty therefore hides it without taking it out of the tree. */
+.wcs-share-toast {
+	margin: 0;
+	max-width: 40ch;
+	padding: 7px 13px;
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-md);
+	background: var(--wcs-surface);
+	-webkit-backdrop-filter: var(--wcs-blur);
+	backdrop-filter: var(--wcs-blur);
+	color: var(--wcs-ink);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	line-height: 1.35;
+	text-align: right;
+	text-shadow: var(--wcs-halo);
+	pointer-events: none;
+	opacity: 1;
+	transition: opacity var(--wcs-t-slow) var(--wcs-ease);
+}
+
+.wcs-share-toast:empty {
+	display: none;
+}
+
+.wcs-share-toast.is-going {
+	opacity: 0;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+
+	.wcs-share-toast {
+		background: var(--wcs-surface-opaque);
+	}
+
+}
+
+/* Phones. The bar keeps Save at full size on its 390 frame and so do we - this
+   is the one button on the page that has to be pressable without aiming. */
+@media (max-width: 430px) {
+
+	.wcs-share-button {
+		padding: 0 16px;
+		font-size: var(--wcs-fs-label);
+	}
+
+	.wcs-share-toast {
+		font-size: var(--wcs-fs-note);
+		max-width: 26ch;
+	}
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.wcs-share-button,
+	.wcs-share-toast {
+		transition: none;
+	}
+
+}

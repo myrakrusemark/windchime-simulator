@@ -32,6 +32,7 @@
     -->
     <link rel="stylesheet" type="text/css" href="assets/css/tokens.css">
     <link rel="stylesheet" type="text/css" href="assets/css/slots.css">
+    <link rel="stylesheet" type="text/css" href="assets/css/share.css">
 
     <!--
       three.js r185 is vendored in this repo. The import map lets the ES modules
@@ -166,9 +167,29 @@
                 <p>A hanging chime with a wind sail on a cord, in weather that is really blowing.</p>
             </div>
 
-            <!-- Top right, always visible from the first frame. P6 puts the
-                 Share button and its copied-toast here and nowhere else. -->
+            <!-- Top right, always visible from the first frame, and outside
+                 every .idle selector so it cannot fade away under a visitor who
+                 has stopped moving the mouse. This is where the bar keeps Save.
+
+                 The button is deliberately the only other thing in the top bar:
+                 one wordmark, one primary button, and the pill row at the
+                 bottom. There is no drawer, no hamburger and no settings icon.
+
+                 The click also unlocks audio for free - main.js's capture-phase
+                 pointerdown listener takes any gesture anywhere - so pressing
+                 Share on a cold page both starts the sound and copies the link.
+                 That is the whole count: one click. -->
             <!-- === WCS:SHARE === -->
+            <div id="wcsShare" class="wcs-share">
+                <button type="button" id="wcsShareButton" class="wcs-share-button">
+                    <svg class="wcs-share-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M14.2 6.6a2.4 2.4 0 1 0-2.3-3l-4.2 2.2a2.4 2.4 0 1 0 0 4.4l4.2 2.2a2.4 2.4 0 1 0 .7-1.4L8.4 8.8a2.4 2.4 0 0 0 0-1.6l4.2-2.2c.4.4 1 .6 1.6.6z"/></svg>
+                    <span>Share</span>
+                </button>
+                <!-- The one thing a share button has to say out loud. role=status
+                     rather than role=alert: it is a confirmation, not a warning,
+                     and it must not interrupt whatever is being read. -->
+                <p id="wcsShareToast" class="wcs-share-toast" role="status" aria-live="polite"></p>
+            </div>
             <!-- === /WCS:SHARE === -->
         </div>
 

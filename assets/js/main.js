@@ -28,6 +28,7 @@ import * as weather from './weather.js';
 // module path so two pieces adding a line never collide on the same diff hunk.
 import { applyDesign, currentDesign, emitFrame, foldIntoParams, onDesign, onFrame, setBaseDesign } from './apply.js';
 import { RANGES, designFromLocation } from './design.js';
+import { mountShare } from './ui/share.js';
 import { mountSlots } from './ui/slots.js';
 // === /WCS:DESIGN-IMPORTS ===
 
@@ -1004,6 +1005,7 @@ Object.defineProperty( window.__wcs, 'stage', { get: () => stage, configurable: 
 // UI pieces mount here, after the stage exists and after syncControlValues().
 // One line per piece, alphabetical by function name. A mount must not throw and
 // must not await; wrap your own body in try/catch and call noteError on failure.
+mountShare( window.__wcs, noteError );
 mountSlots( window.__wcs, noteError );
 // === /WCS:UI-MOUNT ===
 
