@@ -48,7 +48,6 @@ export function createAudio(params) {
 
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
-  let tubeL = [];
 
   // Live voices, and the newest voice per tube so contact muting has something
   // to grab. A clapper resting against a tube genuinely damps it.
@@ -221,10 +220,8 @@ export function createAudio(params) {
     setTubes(tubes) {
       const n = tubes ? tubes.length : 0;
       tubeF1 = new Array(n);
-      tubeL = new Array(n);
       for (let i = 0; i < n; i++) {
         tubeF1[i] = num(tubes[i] && tubes[i].f1, 261.63);
-        tubeL[i] = num(tubes[i] && tubes[i].L, 0.8);
       }
       // The tube set changed under us; any voice still ringing belongs to a tube
       // that no longer exists at that length. Let them decay, but stop tracking
@@ -296,13 +293,15 @@ export function createAudio(params) {
       // in modal.js, the offline renderer cannot reproduce it, and a voice the
       // offline renderer cannot reproduce is a voice nobody can measure.
       const voice = strikeVoice({
+        // The pitch, and nothing else about the tube. Mode ratios turn on how
+        // slender the tube is, so every tube in the chime still gets its own
+        // overtone spectrum - a C3 tube's mode 2 lands 21 cents flat of the
+        // ideal ratio and a C6 tube's 143 flat - but the slenderness is
+        // worked out from the pitch and the stock, not read off the rig. See
+        // the note on the two length laws in modal.js: physics.js sizes the
+        // tube on screen from 28 mm stock and mixing the two descriptions
+        // describes a tube that does not exist.
         f1: freq,
-        // The cut length of THIS tube, straight off the rig. Mode ratios turn on
-        // it: a long bass tube's mode 2 lands 14 cents flat of the ideal ratio
-        // and a short treble tube's lands 110 flat, so a chime built from one
-        // stock still has a different overtone spectrum on every tube. Falls
-        // back to the length f1 implies when the tube list has not arrived yet.
-        L: tubeL[idx] > 0 ? tubeL[idx] : undefined,
         s: ev.s,
         vn: ev.vn,
         mu: ev.mu,

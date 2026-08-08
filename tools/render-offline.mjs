@@ -29,8 +29,8 @@
  *
  * Options:
  *   --f1 <hz>        tube fundamental                          (261.63)
- *   --od <mm>        tube outside diameter                     (28)
- *   --wall <mm>      tube wall thickness                       (1.5)
+ *   --od <mm>        tube outside diameter                     (44.45)
+ *   --wall <mm>      tube wall thickness                       (3.0)
  *   --length <m>     cut length, if you know it; otherwise implied by --f1
  *   --E <GPa>        Young's modulus                           (69, aluminium)
  *   --rho <kg/m3>    density                                   (2700)

@@ -16,10 +16,14 @@
 //
 // The partials are Timoshenko's, not Euler-Bernoulli's, and that is a per-tube
 // computation rather than a table. Euler-Bernoulli assumes the bending
-// wavelength is long against the cross-section; by mode 5 on a half-metre tube
-// it is about 21 radii of gyration, at which point shear deformation and rotary
-// inertia are not corrections but first-order terms. Ignoring them puts mode 3
-// of a real recorded chime 175 to 244 cents sharp. See modeSlowing.
+// wavelength is long against the cross-section; by mode 5 on a 0.66 m chime
+// tube it is about 16 radii of gyration, at which point shear deformation and
+// rotary inertia are not corrections but first-order terms. Ignoring them puts
+// mode 3 of a real recorded chime 175 to 244 cents sharp. See modeSlowing.
+//
+// The correction turns on the tube's DIAMETER as much as on its length, so what
+// diameter the simulator believes it is hanging decides the answer. See
+// TUBE_STOCK: it is chime stock now, taken from what chime makers publish.
 
 // --- Free-free bar modal data ---------------------------------------------
 //
@@ -50,18 +54,63 @@ export const MAX_PARTIALS = BETA_L.length;
 
 // --- The tube itself: geometry and material --------------------------------
 //
-// The stock the simulator hangs. Mirrors TUBE_OD and TUBE_LINDENS in physics.js
-// (0.3372 kg/m is exactly pi/4 * (28^2 - 25^2) mm^2 * 2700 kg/m^3), which is the
-// same tube seen from the mechanics side. If one of the two ever changes, both
-// have to: physics.js decides what the tube weighs and how it swings, this
-// decides what it sounds like, and they are one object.
+// The stock a chime is actually built from, which is NOT the 28 mm curtain rod
+// this file used to assume. The correction below turns on the tube's diameter,
+// so the diameter is the single most load-bearing number here, and it is taken
+// from what chime makers publish rather than from anything in a recording.
 //
-// 6061-T6 aluminium. E and rho set the wave speed sqrt(E/rho) = 5054 m/s, which
+// Wind River publish, for each Corinthian Bells model, the overall height, the
+// length of the longest tube, the tube diameter and the key:
+//
+//     model    longest tube   diameter   key    L/D
+//     50 in      27.75 in      1.50 in    A     18.5
+//     65 in      40.25 in      2.25 in    Eb    17.9
+//     78 in      47.75 in      2.50 in    B     19.1
+//
+// and Theta Chimes publish, for the 93-inch Supergiant, 3 in tubes with a 3 mm
+// wall cut to 49 / 44.75 / 42.75 / 39 / 36.5 / 34.5 in for D4 E4 G4 A4 C#5 D5
+// (L/D 16.3 on the longest). So a chime tube is 16 to 19 diameters long, across
+// four instruments from two makers spanning a 4:1 range of size - not 29, which
+// is what 28 mm stock at middle C works out at.
+//
+// The wall follows from the same tables without any new assumption: length,
+// diameter and pitch are all published, and the beam law has exactly one
+// unknown left. Solving it gives 3.21 mm on the 50-inch, 5.23 on the 65-inch
+// and 5.63 on the 78-inch - 8.4 to 9.2 percent of the diameter, which is the
+// "thick-walled tubes" the catalogue advertises, and which puts 2.36 kg in the
+// 65-inch model's longest tube against a published shipping weight of 30 lb for
+// the whole chime. Theta's stated 3 mm on a 3 in tube is thinner in proportion.
+//
+// This simulator hangs a mid-size garden chime: physics.js cuts 0.80 m for the
+// lowest note of the default scale, which is a 50-to-65-inch instrument, and
+// the published ladder there runs 1.5 to 2.25 in. 1.75 in OD with a 3 mm wall
+// is the standard extrusion in that range and it is what is used here. Both
+// numbers are round because both are real stock sizes; neither was tuned.
+//
+// How much does the choice matter? A lot, and this is the honest weak point of
+// the whole correction. Everything below depends on the diameter only through
+// the radius of gyration r, so there is exactly ONE geometric number in play.
+// Against the three reference recordings, every mode lands inside the 30-cent
+// bar for r between about 14.4 and 15.0 mm - 43.9 to 45.1 mm of outside
+// diameter at a 3 mm wall, or 42.3 to 43.6 at 1.6 mm. That is a +/- 2 percent
+// window, and the published catalogue only brackets a chime of this size at
+// 1.5 to 2.25 in, which is r from 12.4 to 18.5 - +/- 20 percent. So the
+// catalogue says which neighbourhood and the recordings say which house.
+//
+// What stops that from being a curve fit is that the one number has to satisfy
+// seven measurements at once: modes 2 and 3 at 592 Hz, modes 2, 3 and 4 at 464,
+// modes 2 and 3 at 739, spanning ratios from 2.6 to 7.5. A one-parameter family
+// with the wrong shape cannot do that - holding the tube's SLENDERNESS fixed
+// instead of its diameter is also a one-parameter family, and its best fit
+// still misses by 46 cents. The 28 mm stock this file used to assume misses by
+// 111. The dispersion relation is what makes one number enough.
+//
+// 6061-T6 aluminium. E and rho set the wave speed sqrt(E/rho) = 5055 m/s, which
 // is what makes a tube of a given length ring at the pitch it does; nu sets the
 // shear correction below.
 export const TUBE_STOCK = Object.freeze({
-  od: 0.028,       // outer diameter, m
-  id: 0.025,       // inner diameter, m
+  od: 0.04445,     // outer diameter, m (1.75 in)
+  id: 0.03845,     // inner diameter, m (3.0 mm wall)
   E: 6.9e10,       // Young's modulus, Pa
   rho: 2700,       // density, kg/m^3
   nu: 0.33         // Poisson's ratio
@@ -71,9 +120,9 @@ export const TUBE_STOCK = Object.freeze({
  * Radius of gyration of a tube's cross-section, sqrt(I/A) = sqrt(Do^2+Di^2)/4.
  *
  * This is the number the whole correction below turns on, and a TUBE is the
- * worst case for it: all the metal sits far from the axis, so a 28/25 mm tube
- * has r = 9.38 mm against 7.00 mm for a solid rod of the same outside diameter.
- * A tube is 34 percent stubbier than it looks.
+ * worst case for it: all the metal sits far from the axis, so the 44.45/38.45
+ * mm stock has r = 14.69 mm against 11.11 mm for a solid rod of the same
+ * outside diameter. A tube is 32 percent stubbier than it looks.
  */
 export function gyrationRadius(od, id) {
   return Math.sqrt(od * od + id * id) / 4;
@@ -85,7 +134,9 @@ export function gyrationRadius(od, id) {
  * Timoshenko theory replaces the true parabolic-ish shear stress over the
  * section with a uniform one, and kappa is the fiddle factor that makes the two
  * store the same energy. It is NOT a free parameter: it falls out of the
- * elasticity solution for the section shape. 0.5369 for 28/25 mm at nu = 0.33.
+ * elasticity solution for the section shape. 0.53753 for this stock at
+ * nu = 0.33, and it barely moves with the wall - a thin-walled tube tends to
+ * 0.53307 and a solid rod to 0.88864, so every chime tube is near 0.535.
  */
 export function shearCoefficient(od, id, nu) {
   const m2 = (id / od) * (id / od);
@@ -96,8 +147,8 @@ export function shearCoefficient(od, id, nu) {
 /**
  * k = E / (kappa * G), the ratio of bending stiffness to shear stiffness.
  * G = E / (2(1+nu)) is isotropic, so E cancels and only nu and the section
- * shape survive. 4.954 for this stock: shear is FIVE TIMES softer than bending,
- * which is why ignoring it is not a rounding error.
+ * shape survive. 4.9486 for this stock: shear is FIVE TIMES softer than
+ * bending, which is why ignoring it is not a rounding error.
  */
 export function shearToBendingRatio(od, id, nu) {
   return 2 * (1 + nu) / shearCoefficient(od, id, nu);
@@ -159,10 +210,10 @@ function stockOf(tube) {
  * and Node agree bit for bit.
  *
  * WHY RATIOS CANNOT BE A CONSTANT: eps_n = (r*beta_n/L)^2 carries the tube's own
- * length and its own wall. For this stock a 1.13 m bass tube comes out 14 cents
- * flat of ideal on mode 2 and a 0.37 m treble tube 110 cents flat - the same
- * beam theory, an eightfold difference in the answer. A fixed table of ratios is
- * a table that is wrong for every tube but one.
+ * length and its own wall. On this stock a 1.42 m bass tube at C3 comes out 21
+ * cents flat of ideal on mode 2 and a 0.49 m treble tube at C6 comes out 143
+ * flat - the same beam theory, a sevenfold difference in the answer. A fixed
+ * table of ratios is a table that is wrong for every tube but one.
  */
 export function tubeModes(opts) {
   const o = opts || {};
@@ -218,23 +269,41 @@ export function f1ForLength(L, tube) {
   return tubeModes({ L, tube }).f1;
 }
 
-// A note on the two length laws. physics.js cuts its tubes with
-// lengthForFreq(), which is the Euler-Bernoulli f = 168.92 / L^2 for this same
-// stock; tubeLengthFor() above is the same relation with the shear correction
-// in it, so for a given note it asks for a tube 0.1 to 1.0 percent shorter.
-// audio.js hands strikeVoice the length physics.js actually cut, so the
-// overtones follow the tube on screen, and the residual disagreement moves
-// mode 2 by well under a cent and mode 5 by about three. Collapsing the two
-// laws into one is worth doing, but it moves every tube's mass and inertia,
-// which makes it a physics change rather than an audio one.
+// A note on the two length laws, and why audio.js no longer passes one.
+//
+// physics.js cuts its tubes with lengthForFreq(), f = 168.92 / L^2, which is
+// the Euler-Bernoulli law for 28 mm stock: 0.80 m at middle C. That constant is
+// wired into the rig - TUBE_R is the collision radius, TUBE_LINDENS is the mass
+// per metre, and both are sized to a tube that fits between the cords on a ring
+// of radius 82 mm. It describes the object on screen.
+//
+// This file now describes a real chime tube, which at middle C is 1.00 m long
+// and 44 mm across. The two disagree by 25 percent in length, and that is a
+// genuine defect: the drawn tube is too thin for its pitch. But feeding the
+// drawn length into the correction is worse than not feeding it, because
+// eps = (r*beta_1/L)^2 would then combine this file's radius of gyration with
+// physics.js's length and describe a tube that exists nowhere - 1.5 times the
+// slenderness parameter the pitch implies, which is 40 cents on mode 2.
+//
+// So strikeVoice is given the pitch and works out the length itself, which is
+// self-consistent by construction and, incidentally, is what the offline
+// renderer was already doing. Before this change the browser and the renderer
+// disagreed by up to 12 cents on mode 5 for exactly this reason, so the harness
+// was not measuring quite what the page played. Now they are the same numbers.
+//
+// Collapsing physics.js onto this stock is the right end state and it is worth
+// doing, but it lengthens every tube by a quarter, quadruples its mass and
+// widens the collision radius by 59 percent. That is a mechanics change, not an
+// audio one, and it belongs in its own piece of work.
 
 // Where this stops being true. Timoshenko theory is a one-dimensional model
 // and it holds while the tube is still recognisably a beam; past roughly
 // L/r = 10 the section is deforming and no beam theory of any order applies.
-// The simulator's own range is L/r 39 (a 0.37 m treble tube) to 121 (a 1.13 m
-// bass tube), comfortably inside. The formula stays finite and monotonic well
-// past that, so nothing explodes if a caller asks for something silly, but the
-// answer stops meaning anything.
+// On this stock the simulator's own range is L/r 33 (a 0.49 m tube at C6) to
+// 96 (a 1.42 m tube at C3), comfortably inside, and the three reference chimes
+// sit at 40 to 51. The formula stays finite and monotonic well past that, so
+// nothing explodes if a caller asks for something silly, but the answer stops
+// meaning anything.
 
 // --- Excitation constants --------------------------------------------------
 
