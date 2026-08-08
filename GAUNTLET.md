@@ -77,14 +77,24 @@ the live page — roughly a million gaussians, with bounds in `lod-meta.json`. I
 only splat cleared to ship. Three others were evaluated and rejected on licence or size;
 see the session notes.
 
-**The SOG path is no longer unproven; it is measured, and the measurement moved it
-offline.** `@playcanvas/splat-transform` repacks the loose SOGS directory into an 11.4 MB
-`.sog`, and `@sparkjsdev/spark` then draws all 998,709 gaussians — but only on a real GPU.
-Under software GL it does not finish inside three minutes, and software GL is the only way
-a critic can screenshot anything. So a splat renders **offline, into a plate we ship as an
-image**, and never in the visitor's browser. Full recipe and the three traps in
-`.gauntlet-bar/ARBITRATION.md` §3. "Only splats" is about where a place comes from, not
-about what the browser downloads.
+**The SOG path is proven, in a real browser, and it is faster than expected.**
+`@playcanvas/splat-transform` repacks the loose SOGS directory into an 11.4 MB `.sog`, and
+`@sparkjsdev/spark` draws it live. Measured 2026-08-08 in Myra's own Chrome on the laptop's
+integrated Iris Xe: **998,709 gaussians, first frame at 1301 ms, 28–47 fps, orbitable.**
+Not a headless approximation — the real browser, the real GPU, her hands on it.
+
+An earlier reading in this run called runtime splats impossible. That was measured under
+software GL, where a million gaussians does not finish inside three minutes, and the
+conclusion was carried further than the evidence reached. The critic-screenshot objection
+that went with it is also gone: `tools/shot.mjs --gpu` renders the capture fine, so a splat
+place *can* be judged by this loop.
+
+What survives is one honest cost: **11.4 MB before the first gaussian appears.** On
+localhost that is 1.1 s; over a real connection it is tens of seconds, and this page's whole
+promise is that it is already sounding when you arrive. So the shipping shape is **plate
+first, gaussians after** — a ~300 KB still gets the visitor a complete, sounding chime
+immediately, and the live capture swaps in behind it when it lands. Full recipe and the
+three traps that each cost an hour in `.gauntlet-bar/ARBITRATION.md` §3.
 
 **The cloister is retired.** It was modelled geometry, not a capture, and a covered walk is
 a sheltered corridor with no moving air. The branch is gone; its six commits survive as the
