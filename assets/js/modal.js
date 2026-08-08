@@ -39,10 +39,83 @@ export const IDEAL_RATIOS = [1.0, 2.7565, 5.4039, 8.933, 13.3443];
 // It converges to 1 fast; mode 1 is the only one meaningfully off.
 export const SIGMA = [0.9825022, 1.0007773, 0.9999665, 1.0000014, 0.9999999];
 
-// Higher modes radiate into the air more efficiently than the fundamental, but a
-// wooden clapper is a soft exciter and unchecked they are shrill. This taper is
-// the difference between "chime" and "dropped a spanner".
-export const RAD = [1.0, 0.85, 0.7, 0.55, 0.45];
+// --- Upper-mode level -------------------------------------------------------
+//
+// RAD[n] scales mode n's amplitude at the strike. It used to carry the comment
+// "higher modes radiate into the air more efficiently than the fundamental" and
+// then attenuate them - a comment and an array pointing opposite ways. The
+// array's DIRECTION is the one real recordings support. The comment was wrong,
+// and the interesting part is that it was not wrong by a sign: no radiation
+// term of any sign belongs here at all.
+//
+// RADIATION IS A BOOST, NOT A TAPER. Fed each reference instrument's own
+// published tube, the radiation weight that this file's own radiationJ() implies
+// for the pressure a listener hears - A_n goes as (f_n/f_1)^1.5 sqrt(J_n/J_1),
+// from P_rad = w E / Q_rad with Q_rad = m' / (pi rho0 a^4 k^2 J_n) - comes out
+//
+//   Corinthian 65   464 Hz  2.25 in   m2 +17.7  m3 +22.9  m4 +23.8  m5 +24.2 dB
+//   Theta Supergiant 593 Hz    3 in   m2 +12.0  m3 +13.6  m4 +13.8  m5 +14.0
+//   Flower of Life  739 Hz  1.75 in   m2 +15.6  m3 +19.1  m4 +19.6  m5 +19.8
+//
+// Twelve to twenty-four dB the WRONG WAY, saturating from mode 3 up. That is not
+// an artefact of the quadrature: a bending tube's radiation resistance climbs as
+// (k_r a)^3 until the section stops being compact and then flattens, so every
+// channel in the radiation budget makes the overtones louder, never quieter.
+//
+// THE COINCIDENCE FREQUENCY DOES NOT RESCUE IT. f_c = c_air^2 / (2 pi c_L r),
+// with c_L = sqrt(E/rho) and r the radius of gyration, is 201 Hz on the
+// Corinthian 65's stock, 143 Hz on the Supergiant's, 250 Hz on the Flower of
+// Life's and 429 Hz on the 1 in tube, the slimmest stock in CATALOGUE. f_c is
+// the frequency BELOW which a tube's radiation collapses; above it the
+// efficiency saturates towards 1. Every partial of every clean reference sits
+// 2 to 37 times ABOVE its own tube's f_c, all of them on the saturated side, so
+// coincidence separates nothing inside a chime's own mode set. It decides
+// whether a bass fundamental radiates at all - modeT60s leans on it hard, and
+// correctly - and says nothing about mode 1 against mode 3.
+//
+// WHAT THIS TAPER REALLY IS: excitation. The share of the clapper's impulse a
+// mode can take. `bright` in strikeVoice models that as a Lorentzian in
+// f / (1/2 tau_c) whose tail falls 27 dB per decade; the recordings need 60 to
+// 90. RAD carries the difference, and the name is kept only because every tool
+// and test in the tree imports it.
+//
+// THE NUMBERS, and what they are not. Every level below is a partial's peak in a
+// 60 ms window from the onset, relative to mode 1 of the same file, with our
+// render put through the reference's own channel first - the same measurement on
+// both sides. Order is 464 / 592 / 739 Hz throughout.
+//
+//   Modes 1 and 2 are UNTOUCHED. Mode 2 reads -16.0 / -11.5 / -18.3 on the
+//   instruments and -15.3 / -16.5 / -17.6 here, inside 0.7 dB on two of the
+//   three. There was nothing to fix and touching it would have broken it.
+//
+//   Modes 3 to 5 keep their old relative spacing and are scaled by one shared
+//   factor, -18 dB. Mode 3 goes -17.1 / -18.8 / -19.9 to -35.1 / -36.7 / -37.8
+//   against a measured -37.7 / -33.9 / -38.7: an error of +20.6 / +15.1 / +18.8
+//   dB becomes +2.6 / -2.8 / +0.9.
+//
+//   That -18 dB is CALIBRATED, not derived. It is set from the references'
+//   mode-3 levels, which is the quantity this taper exists to reproduce. It is
+//   not fitted to their pitches: nothing here changes with f1, because the
+//   free-free eigenvalue problem fixes f_n/f_1 for every tube, so one per-mode
+//   array is one law at every pitch. A law in frequency was tried first and does
+//   not exist. Mode 2 of the 739 Hz tube (1916 Hz) has to stay where it is while
+//   mode 3 of the 464 Hz tube (2277 Hz) drops 18 dB, 19 percent higher in
+//   frequency; no smooth curve in f does both, and the reason is that a mode's
+//   level tracks its place in the series, not the frequency it happens to land
+//   on.
+//
+//   Modes 4 and 5 are the weakest claim in the file. One reference clip shows a
+//   mode 4 (-37.4 on the Corinthian, where we now give -45.3) and none shows a
+//   mode 5, so their spacing is inherited, not measured. They are set to keep the
+//   rendered rolloff monotone, which is all the evidence supports about them.
+//
+//   NOT EVERY STRUCK TUBE OBEYS THIS. On the tier-1 galvanised-steel pipe chimes,
+//   which the maker struck with a large steel nail, the same 60 ms measurement
+//   puts mode 2 at +22.6 dB and mode 3 at +2.9 dB ABOVE mode 1. A nail is a much
+//   harder exciter than a wooden clapper, and this taper is the clapper's. It
+//   belongs with tau_c in strikeVoice, not here, and a proper contact model would
+//   put it there.
+export const RAD = [1.0, 0.85, 0.0881, 0.0692, 0.0567];
 
 export const MAX_PARTIALS = BETA_L.length;
 
