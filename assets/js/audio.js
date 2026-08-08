@@ -21,6 +21,7 @@
 
 import {
   MAX_PARTIALS,
+  TUBE_STOCK,
   CLICK_ATTACK,
   CLICK_T60,
   CLICK_Q,
@@ -48,6 +49,14 @@ export function createAudio(params) {
 
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
+  let tubeL = [];
+
+  // The stock this chime is cut from. One object, shared with physics.js, which
+  // now cuts its tubes to modal.js's length law on this same section - so the
+  // tube the rig draws and the tube this file voices are the same tube. A
+  // caller can hand setTubes a different stock (chimeStock() in modal.js sizes
+  // one the way a maker would) and the whole chime re-voices.
+  let chimeTube = TUBE_STOCK;
 
   // Live voices, and the newest voice per tube so contact muting has something
   // to grab. A clapper resting against a tube genuinely damps it.
@@ -217,11 +226,14 @@ export function createAudio(params) {
       return !!ctx && ctx.state === 'running';
     },
 
-    setTubes(tubes) {
+    setTubes(tubes, stock) {
       const n = tubes ? tubes.length : 0;
       tubeF1 = new Array(n);
+      tubeL = new Array(n);
+      chimeTube = stock || TUBE_STOCK;
       for (let i = 0; i < n; i++) {
         tubeF1[i] = num(tubes[i] && tubes[i].f1, 261.63);
+        tubeL[i] = num(tubes[i] && tubes[i].L, 0);
       }
       // The tube set changed under us; any voice still ringing belongs to a tube
       // that no longer exists at that length. Let them decay, but stop tracking
@@ -293,15 +305,20 @@ export function createAudio(params) {
       // in modal.js, the offline renderer cannot reproduce it, and a voice the
       // offline renderer cannot reproduce is a voice nobody can measure.
       const voice = strikeVoice({
-        // The pitch, and nothing else about the tube. Mode ratios turn on how
-        // slender the tube is, so every tube in the chime still gets its own
-        // overtone spectrum - a C3 tube's mode 2 lands 21 cents flat of the
-        // ideal ratio and a C6 tube's 143 flat - but the slenderness is
-        // worked out from the pitch and the stock, not read off the rig. See
-        // the note on the two length laws in modal.js: physics.js sizes the
-        // tube on screen from 28 mm stock and mixing the two descriptions
-        // describes a tube that does not exist.
         f1: freq,
+        // The cut length of THIS tube, straight off the rig, and the stock it
+        // was cut from. Mode ratios turn on how slender the tube is, so every
+        // tube in the chime gets its own overtone spectrum: a C3 tube's mode 2
+        // lands 21 cents flat of the ideal ratio and a C6 tube's 144 flat.
+        //
+        // Passing the rig's length used to be a bug, because physics.js cut to
+        // its own Euler-Bernoulli constant and modal.js voiced a different
+        // tube. Both now use tubeLengthFor() on this same stock, so the two
+        // agree to the last bit and this line is a cross-check rather than a
+        // second opinion - drop it and every number here is unchanged. Falls
+        // back to the length f1 implies when the tube list has not arrived yet.
+        L: tubeL[idx] > 0 ? tubeL[idx] : undefined,
+        tube: chimeTube,
         s: ev.s,
         vn: ev.vn,
         mu: ev.mu,
