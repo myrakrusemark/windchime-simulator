@@ -1,0 +1,502 @@
+/* ---------------------------------------------------------------------------
+   slots.css - the builder shell: the caption, the pill row and the panels.
+
+   Loaded only by index.html, and only after tokens.css. Every colour, radius,
+   type size and spacing step here is a token; there is not one hex literal in
+   this file. assets/styles.css is off limits (CONTRACTS H26), so where a shipped
+   rule has to be overridden it is done from here with a selector that outranks
+   it, never by editing that file.
+
+   Two overriding rules that are outranked on purpose, both from styles.css:
+
+     input[type="range"]  is (0,1,1) - an element plus an attribute - so a plain
+                          .wcs-range at (0,1,0) LOSES to it and the shipped
+                          height and margin would win. Every range rule below is
+                          therefore written input[type="range"].wcs-range.
+
+     #hudOverlay.idle …   fades .hud-bottom, which no longer exists. Nothing the
+                          builder shell draws is in any .idle selector, so a
+                          panel cannot dissolve while it is being read
+                          (CONTRACTS H20). slots.js additionally keeps the HUD
+                          awake while a panel is open.
+
+   Pointer events: #hudOverlay is pointer-events:none so an orbit drag that
+   starts on the chrome still reaches the canvas. Only the things you actually
+   press turn it back on - never a whole container, which is what made the old
+   wind dock swallow drags across its entire rect (CONTRACTS H29).
+   --------------------------------------------------------------------------- */
+
+
+/* ---------------------------------------------------------------------------
+   The one focus ring on the page.
+
+   The shipped stylesheet has exactly one focus rule in it, on a text box that
+   no longer exists, so before this every keyboard visitor was navigating blind.
+   :focus-visible rather than :focus, so a pointer press never draws it.
+   --------------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+	outline: 2px solid var(--wcs-focus);
+	outline-offset: 2px;
+	border-radius: var(--wcs-r-sm);
+}
+
+/* The panel itself takes focus when it opens, to announce the dialog. That is a
+   programmatic focus and does not want a ring drawn round the whole surface. */
+.wcs-panel:focus,
+.wcs-panel:focus-visible {
+	outline: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Placement inside #hudOverlay's three-row grid.
+
+   Row 1 is the title, row 2 is the empty band the object hangs in, row 3 is the
+   shell. The object owns the middle and nothing is allowed into it.
+   --------------------------------------------------------------------------- */
+
+.wcs-slots {
+	grid-row: 3;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--wcs-s3);
+	min-width: 0;
+	pointer-events: none;
+}
+
+/* The weather status line used to live inside the wind dock. It sits just above
+   the shell now, and takes no space at all until something writes to it. */
+#statusLine {
+	grid-row: 2;
+	align-self: center;
+	justify-self: center;
+	text-align: center;
+	max-width: 40ch;
+	margin: 0;
+	font-size: var(--wcs-fs-label);
+	line-height: 1.3;
+	color: var(--wcs-ink-dim);
+	text-shadow: var(--wcs-halo);
+	pointer-events: none;
+}
+
+#statusLine:empty {
+	display: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The caption.
+
+   One sentence naming what has been made, straight out of design.js's
+   describe(). It is the single source of truth for this line and for the share
+   text; nobody writes a second one.
+   --------------------------------------------------------------------------- */
+
+.wcs-caption {
+	margin: 0;
+	/* Wide enough that the default sentence lands on one line at 1440, which is
+	   what makes it read as the object's name rather than as a paragraph. */
+	max-width: min(72ch, 100%);
+	text-align: center;
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-caption);
+	font-weight: 500;
+	line-height: 1.35;
+	letter-spacing: 0.005em;
+	color: var(--wcs-ink);
+	text-shadow: var(--wcs-halo-strong);
+	pointer-events: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The pill row.
+
+   Five parts of one object. Never a value and never a unit: a critic reading
+   only this row cannot tell which numbers are currently set.
+   --------------------------------------------------------------------------- */
+
+.wcs-pills {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+	gap: var(--wcs-s2);
+	max-width: 100%;
+	pointer-events: none;
+}
+
+.wcs-pill {
+	pointer-events: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	min-height: var(--wcs-tap);
+	padding: 0 16px;
+	margin: 0;
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-pill);
+	background: var(--wcs-surface);
+	-webkit-backdrop-filter: var(--wcs-blur);
+	backdrop-filter: var(--wcs-blur);
+	color: var(--wcs-ink);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-pill);
+	font-weight: 500;
+	letter-spacing: 0.01em;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease),
+	            border-color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+.wcs-pill:hover {
+	background: var(--wcs-raise);
+	border-color: var(--wcs-hairline-strong);
+}
+
+.wcs-pill[aria-expanded="true"] {
+	background: var(--wcs-raise-hi);
+	border-color: var(--wcs-hairline-strong);
+}
+
+.wcs-pill-glyph {
+	width: 15px;
+	height: 15px;
+	flex: 0 0 auto;
+	fill: currentColor;
+	opacity: 0.82;
+}
+
+/* Where the blur is unavailable the pill has to carry its own contrast: a
+   bright sky behind it would otherwise eat the label. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+
+	.wcs-pill,
+	.wcs-panel {
+		background: var(--wcs-surface-opaque);
+	}
+
+}
+
+
+/* ---------------------------------------------------------------------------
+   The panels.
+
+   One per part, opening over the bottom third with the chime still swinging and
+   sounding behind it. A closed panel is display:none, so not one of its
+   controls is focusable - the drawer this replaces was off-canvas by transform
+   only and kept all sixteen reachable by Tab (CONTRACTS H21).
+   --------------------------------------------------------------------------- */
+
+.wcs-panel-host {
+	width: min(760px, 100%);
+	min-width: 0;
+	pointer-events: none;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+.wcs-panel {
+	pointer-events: auto;
+	position: relative;
+	z-index: var(--wcs-z-panel);
+	box-sizing: border-box;
+	width: 100%;
+	padding: var(--wcs-s3) var(--wcs-s4) var(--wcs-s4);
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-lg);
+	background: var(--wcs-surface);
+	-webkit-backdrop-filter: var(--wcs-blur);
+	backdrop-filter: var(--wcs-blur);
+	color: var(--wcs-ink);
+	font-family: var(--wcs-font-ui);
+	/* The opening state. .is-open is added a frame after the panel is shown, so
+	   the transition has a from-value to run from. */
+	opacity: 0;
+	transform: translateY(14px);
+	transition: opacity var(--wcs-t-slow) var(--wcs-ease),
+	            transform var(--wcs-t-slow) var(--wcs-ease);
+}
+
+.wcs-panel.is-open {
+	opacity: 1;
+	transform: none;
+}
+
+.wcs-panel-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--wcs-s3);
+	padding-bottom: var(--wcs-s2);
+	margin-bottom: var(--wcs-s2);
+	border-bottom: 1px solid var(--wcs-hairline);
+}
+
+/* styles.css gives every h1/h2/h3 the display face and an 8px top margin. */
+.wcs-panel-title {
+	margin: 0;
+	font-family: var(--wcs-font-display);
+	font-size: 1.05rem;
+	font-weight: 400;
+	letter-spacing: 0.08em;
+	color: var(--wcs-ink);
+}
+
+.wcs-close {
+	pointer-events: auto;
+	flex: 0 0 auto;
+	min-height: 34px;
+	padding: 0 16px;
+	border: none;
+	border-radius: var(--wcs-r-pill);
+	background: var(--wcs-accent);
+	color: var(--wcs-ink-on-accent);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+.wcs-close:hover {
+	background: var(--wcs-accent-hi);
+}
+
+/* The scrolling half. Capped so the panel stays a bottom-third door rather than
+   a sheet: with the head and the padding this puts the whole panel at 300px of a
+   900px frame, measured, which is where the chime's sail stops being covered. */
+.wcs-panel-body {
+	max-height: min(26vh, 222px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	/* An orbit drag is a pointer drag; a panel that scrolls has to claim its own
+	   vertical gestures or the two fight on a touch screen. */
+	touch-action: pan-y;
+	padding-right: var(--wcs-s1);
+}
+
+
+/* Groups and fields -------------------------------------------------------- */
+
+.wcs-group {
+	margin: 0 0 var(--wcs-s4) 0;
+}
+
+.wcs-group:last-child {
+	margin-bottom: 0;
+}
+
+.wcs-group-title {
+	margin: 0 0 var(--wcs-s2) 0;
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 600;
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: var(--wcs-ink-faint);
+}
+
+.wcs-field {
+	margin: 0 0 var(--wcs-s3) 0;
+}
+
+.wcs-field:last-child {
+	margin-bottom: 0;
+}
+
+.wcs-field-top {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--wcs-s3);
+	margin-bottom: var(--wcs-s1);
+	cursor: pointer;
+}
+
+.wcs-field-name {
+	font-size: var(--wcs-fs-body);
+	color: var(--wcs-ink-dim);
+}
+
+.wcs-field-value {
+	font-size: var(--wcs-fs-body);
+	font-variant-numeric: tabular-nums;
+	color: var(--wcs-ink);
+	white-space: nowrap;
+}
+
+/* The element-plus-attribute selector in styles.css outranks a bare class, so
+   every one of these carries the same shape. The filled-track thumb trick from
+   that sheet is deliberately inherited rather than rewritten. */
+input[type="range"].wcs-range {
+	display: block;
+	width: 100%;
+	height: 26px;
+	margin: 0;
+	background-color: var(--wcs-raise);
+	border-radius: var(--wcs-r-pill);
+	cursor: pointer;
+}
+
+/* A value the design is still leaving to the place: shown so the slider has
+   somewhere honest to sit, but not yet a choice the visitor has made. */
+.wcs-field-value.is-inherited {
+	color: var(--wcs-ink-faint);
+	font-weight: 400;
+}
+
+.wcs-note {
+	margin: var(--wcs-s2) 0 0 0;
+	font-size: var(--wcs-fs-note);
+	line-height: 1.5;
+	color: var(--wcs-ink-faint);
+}
+
+
+/* Choice groups ------------------------------------------------------------ */
+
+.wcs-choice {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.wcs-choice-option {
+	pointer-events: auto;
+	min-height: 34px;
+	padding: 0 13px;
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-pill);
+	background: var(--wcs-raise);
+	color: var(--wcs-ink-dim);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease),
+	            color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+.wcs-choice-option:hover {
+	background: var(--wcs-raise-hi);
+	color: var(--wcs-ink);
+}
+
+.wcs-choice-option[aria-checked="true"] {
+	background: var(--wcs-accent);
+	border-color: var(--wcs-accent);
+	color: var(--wcs-ink-on-accent);
+	font-weight: 600;
+}
+
+.wcs-choice-option[aria-checked="true"]:hover {
+	background: var(--wcs-accent-hi);
+	border-color: var(--wcs-accent-hi);
+}
+
+.wcs-choice-wide .wcs-choice-option {
+	white-space: normal;
+	text-align: left;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Phones. It stays a pill row - wrapped, not reflowed into a list.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 700px) {
+
+	.wcs-slots {
+		gap: var(--wcs-s2);
+	}
+
+	.wcs-caption {
+		font-size: var(--wcs-fs-body);
+		max-width: 34ch;
+	}
+
+	.wcs-pills {
+		gap: 6px;
+	}
+
+	.wcs-pill {
+		min-height: 40px;
+		padding: 0 12px;
+		font-size: var(--wcs-fs-label);
+		gap: 5px;
+	}
+
+	.wcs-pill-glyph {
+		width: 13px;
+		height: 13px;
+	}
+
+	.wcs-panel {
+		padding: var(--wcs-s3);
+	}
+
+	.wcs-panel-body {
+		max-height: min(32vh, 268px);
+	}
+
+}
+
+
+/* Narrow phones. Measured on a 390 CSS-pixel frame: five pills at the 700px
+   sizes came to 401px against 362px of usable width and broke to two rows with
+   one orphan on the second. The row is the thing that has to survive, so the
+   padding, the glyph and the gap all give ground before it does - it stays a
+   pill row and it stays one row. */
+@media (max-width: 430px) {
+
+	.wcs-pill {
+		padding: 0 9px;
+		gap: 4px;
+		font-size: 0.78rem;
+		letter-spacing: 0;
+	}
+
+	.wcs-pill-glyph {
+		width: 12px;
+		height: 12px;
+	}
+
+	.wcs-pills {
+		gap: 4px;
+	}
+
+}
+
+
+/* ---------------------------------------------------------------------------
+   Motion preferences. The simulation is the content and keeps running; only the
+   interface animation stops.
+   --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+
+	.wcs-panel,
+	.wcs-pill,
+	.wcs-close,
+	.wcs-choice-option {
+		transition: none;
+	}
+
+	.wcs-panel {
+		transform: none;
+	}
+
+}

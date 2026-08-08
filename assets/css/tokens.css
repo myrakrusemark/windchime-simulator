@@ -1,0 +1,128 @@
+/* ---------------------------------------------------------------------------
+   tokens.css - the only place a colour, a radius, a type size, a z-index or a
+   spacing step is authored for this page.
+
+   Why this file exists (CONTRACTS H31): before it, the stylesheet held zero
+   custom properties and every value was a literal, several of which had already
+   drifted apart. The three drifts, found by reading assets/styles.css end to end
+   and reconciled below into one value each:
+
+     amber hover     #eda44e (styles.css:381, the big Start pill)
+                     #e8a352 (styles.css:504, the same pill inside the dock)
+                     -> --wcs-accent-hi: #e8a352, the later and darker of the two.
+                        It holds contrast against white text where the brighter
+                        one was starting to lose it.
+
+     button ink      #241a10 (styles.css:373)
+                     #2a1c0c (styles.css:497)
+                     -> --wcs-ink-on-accent: #241a10. Both are the same colour to
+                        the eye; the first is the one the h1 halo was tuned with.
+
+     text halo       0 1px 2px rgba(0,0,0,.85), 0 2px 16px rgba(0,0,0,.7)  (h1)
+                     0 1px 2px rgba(0,0,0,.8),  0 2px 14px rgba(0,0,0,.7)  (.hud-title h1)
+                     0 1px 2px rgba(0,0,0,.8),  0 1px 10px rgba(0,0,0,.7)  (.hud-title p, #statusLine)
+                     -> two tokens, not three. The first two differ by 0.05 alpha
+                        and 2px of blur, which is not a design decision anybody
+                        made; they collapse into --wcs-halo-strong. The third is a
+                        genuinely lighter halo for smaller type: --wcs-halo.
+
+   assets/styles.css itself still carries those literals. It is shared by
+   about.html, terms.html and privacy.html, and editing it un-styles three pages
+   silently (CONTRACTS H26), so it is off limits to every piece this run. This
+   file is therefore the authoring point for everything NEW: tokens.css and
+   slots.css are loaded only by index.html, and each of the five remaining pieces
+   consumes these variables rather than inventing a hex of its own. If a token is
+   missing, ask P3 for it.
+
+   Everything is prefixed --wcs- so a token can never collide with a variable a
+   third-party embed sets on :root.
+   --------------------------------------------------------------------------- */
+
+:root {
+
+	/* --- Colour ---------------------------------------------------------- */
+
+	/* Ink. The page is white type over a dark 3D picture, so the ladder is
+	   opacity on white rather than five greys. */
+	--wcs-ink: #ffffff;
+	--wcs-ink-dim: rgba(255, 255, 255, 0.78);
+	--wcs-ink-faint: rgba(255, 255, 255, 0.55);
+	--wcs-ink-on-accent: #241a10;
+
+	/* Glass. One recipe, matching the panels already on the page so a new panel
+	   does not read as a different product. */
+	--wcs-surface: rgba(24, 20, 16, 0.42);
+	--wcs-surface-opaque: rgba(24, 20, 16, 0.82);   /* where backdrop-filter is missing */
+	--wcs-raise: rgba(255, 255, 255, 0.10);         /* a control sitting ON the glass */
+	--wcs-raise-hi: rgba(255, 255, 255, 0.18);
+	--wcs-hairline: rgba(255, 255, 255, 0.12);
+	--wcs-hairline-strong: rgba(255, 255, 255, 0.30);
+	--wcs-blur: blur(14px) saturate(1.2);
+
+	/* Accent. One amber, one hover, one ink to put on top of it. */
+	--wcs-accent: #d9903c;
+	--wcs-accent-hi: #e8a352;
+	--wcs-focus: #ffd9a0;   /* the compass needle's colour; the only ring on the page */
+
+	/* --- Type ------------------------------------------------------------ */
+
+	--wcs-font-display: "Julius Sans One", sans-serif;
+	--wcs-font-ui: "Roboto Flex", system-ui, sans-serif;
+
+	--wcs-fs-caption: 1rem;
+	--wcs-fs-body: 0.92rem;
+	--wcs-fs-pill: 0.88rem;
+	--wcs-fs-label: 0.82rem;
+	--wcs-fs-note: 0.78rem;
+
+	/* Two halos, reconciled from the three that had drifted. Big type and small
+	   type, and nothing in between. */
+	--wcs-halo-strong: 0 1px 2px rgba(0, 0, 0, 0.85), 0 2px 16px rgba(0, 0, 0, 0.7);
+	--wcs-halo: 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 10px rgba(0, 0, 0, 0.7);
+
+	/* --- Radius ---------------------------------------------------------- */
+
+	--wcs-r-pill: 999px;
+	--wcs-r-lg: 20px;
+	--wcs-r-md: 16px;
+	--wcs-r-sm: 12px;
+
+	/* --- Spacing --------------------------------------------------------- */
+
+	--wcs-s1: 4px;
+	--wcs-s2: 8px;
+	--wcs-s3: 12px;
+	--wcs-s4: 16px;
+	--wcs-s5: 20px;
+	--wcs-s6: 28px;
+
+	/* Frame padding. Matches styles.css's #hudOverlay padding so a piece that
+	   lays something out against the edge lands on the same gutter. */
+	--wcs-gutter: 20px;
+	--wcs-gutter-phone: 14px;
+
+	/* --- Stacking -------------------------------------------------------- */
+
+	/* The page stack, recorded so nobody has to rediscover it. Do NOT normalise
+	   it: #article deliberately outranks #hudOverlay so the article can scroll
+	   over the fixed hero chrome (CONTRACTS H28). */
+	--wcs-z-canvas: 0;
+	--wcs-z-hud: 2;
+	--wcs-z-article: 3;
+
+	/* Inside #hudOverlay, which is its own stacking context. */
+	--wcs-z-slots: 1;
+	--wcs-z-panel: 2;
+
+	/* --- Motion ---------------------------------------------------------- */
+
+	--wcs-t-fast: 160ms;
+	--wcs-t-slow: 300ms;
+	/* Decelerating, so a panel arrives rather than stopping. */
+	--wcs-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+	/* --- Sizes that more than one piece needs --------------------------- */
+
+	--wcs-tap: 44px;   /* the minimum a thumb can reliably hit */
+
+}
