@@ -1226,9 +1226,13 @@ const HUD_IDLE_MS = 850;
 function goIdle() {
 
 	if ( hudIdle || ! audioUnlocked || ! dom.hudOverlay ) return;
-	// Not while the settings drawer is open: that is a deliberate mode, and
-	// fading the HUD out from under someone reading the sliders is wrong.
-	if ( dom.sliderMenu && dom.sliderMenu.classList.contains( 'visible' ) ) return;
+	// Not while a slot panel is open: that is a deliberate mode, and fading the
+	// HUD out from under someone reading a picker is wrong. This asks the
+	// document what is open rather than naming one element, because the last
+	// element it named -- the settings drawer -- was deleted underneath it, and
+	// the guard went quietly false instead of loudly missing. The symptom was a
+	// swallowed click on the location field 850 ms after the pointer stopped.
+	if ( document.querySelector( '.wcs-panel:not([hidden])' ) ) return;
 	dom.hudOverlay.classList.add( 'idle' );
 	hudIdle = true;
 
