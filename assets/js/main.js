@@ -449,7 +449,7 @@ function syncControlValues() {
 	if ( dom.attackSlider ) dom.attackSlider.value = String( params.attack );
 	setText( dom.attackValue, params.attack.toFixed( 4 ) + ' s' );
 	if ( dom.decaySlider ) dom.decaySlider.value = String( params.decay );
-	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
+	setText( dom.decayValue, ringTrimText() );
 	if ( dom.loudnessSlider ) dom.loudnessSlider.value = String( params.loudness );
 	setText( dom.loudnessValue, Math.round( params.loudness * 100 ) + '%' );
 	if ( dom.sunSlider ) dom.sunSlider.value = String( params.sunElevDeg );
@@ -457,6 +457,19 @@ function syncControlValues() {
 	if ( dom.qualitySelect ) dom.qualitySelect.value = params.quality;
 	if ( dom.styleSelect ) dom.styleSelect.value = params.style;
 	syncPartControls();
+
+}
+
+// `decay` stopped being a T60 in seconds when modal.js started computing the
+// ring time from the tube's own radiation and its cord. It is a multiplier on
+// that result now, so the readout is a ratio against DECAY_NOMINAL rather than
+// a duration, and the neutral position is called out by name: a visitor who has
+// dragged the slider needs to be able to find their way back to the tube the
+// physics actually builds.
+function ringTrimText() {
+
+	const x = params.decay / DECAY_NOMINAL;
+	return x.toFixed( 2 ) + '×' + ( Math.abs( x - 1 ) < 5e-3 ? ' (as built)' : '' );
 
 }
 
@@ -678,7 +691,7 @@ bindRange( dom.attackSlider, ( v ) => {
 bindRange( dom.decaySlider, ( v ) => {
 
 	params.decay = clamp( v, 0.5, 16 );
-	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
+	setText( dom.decayValue, ringTrimText() );
 
 } );
 

@@ -242,11 +242,16 @@
                     <input type="range" id="attackSlider" min="0.0005" max="0.05" step="0.0005" value="0.002"><br>
                     <span id="attackValue">0.002 s</span>
                 </p>
+                <!-- Not a T60 any more. modal.js computes the ring time from the
+                     tube's radiation and its cord, and this multiplies the
+                     result: DECAY_NOMINAL = 8 is where it multiplies by one. -->
                 <p>
-                    <label for="decaySlider">Ring time</label>
-                    <input type="range" id="decaySlider" min="0.5" max="16" step="0.5" value="8"><br>
-                    <span id="decayValue">1.00× ring</span>
+                    <label for="decaySlider">Ring trim</label>
+                    <input type="range" id="decaySlider" min="0.5" max="16" step="0.5" value="8"
+                           title="Stretches or shortens the ring time the tube's own losses give it. 1.00× is the tube as the physics builds it."><br>
+                    <span id="decayValue">1.00× (as built)</span>
                 </p>
+                <p class="menu-note">Ring time comes out of the air the tube pushes and the cord it hangs on. The slider only stretches or shortens it. At 1.00× you hear the tube as the physics builds it.</p>
                 <p>
                     <label for="loudnessSlider">Loudness</label>
                     <input type="range" id="loudnessSlider" min="0" max="1" step="0.01" value="0.5"><br>
