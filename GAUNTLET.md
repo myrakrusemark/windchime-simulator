@@ -53,6 +53,10 @@ arriving and having made something.
   that is a bug to fix, not a piece to grind.
 - A place is a still plate — a gaussian splat that never moves. A frozen sun is correct,
   not a defect, and the background owes nobody physically-derived weather.
+- **Every place comes from a splat capture. No more modelled environments** (decided
+  2026-08-08, on seeing the cloister render). A place is somewhere real that somebody
+  stood and captured, not geometry we built. `porch` — the storybook scene that already
+  ships — stays as what it is; nothing new is modelled after it.
 - Sun, sky, shadow character, camera bounds, proxy hulls and the acoustic profile are
   authored once per place and ship with it. The visitor never sets them.
 - The visitor sets exactly two things about placement: hang point and scale.
@@ -67,10 +71,24 @@ notion of a place, no build flow, no pieces as slots, no hang step, and no route
 `URLSearchParams` is read on load and the hash is cleared, so share-by-URL is at best
 partial. This is new construction, not a refactor.
 
-**Assets on hand.** `~/.cache/windchime-splat/forest-path/` is an 18 MB SOG capture, CC BY
-4.0, roughly a million gaussians, with bounds in `lod-meta.json`. It is the only splat
-cleared to ship. Three others were evaluated and rejected on licence or size; see the
-session notes. The SOG-into-three.js path is **unproven** and is the first real risk.
+**Assets on hand.** `~/.cache/windchime-splat/forest-path/` is an 18 MB SOG capture —
+"Forest path" by **tanha**, `superspl.at/scene/2be1a75a`, **CC BY 4.0**, verified against
+the live page — roughly a million gaussians, with bounds in `lod-meta.json`. It is the
+only splat cleared to ship. Three others were evaluated and rejected on licence or size;
+see the session notes.
+
+**The SOG path is no longer unproven; it is measured, and the measurement moved it
+offline.** `@playcanvas/splat-transform` repacks the loose SOGS directory into an 11.4 MB
+`.sog`, and `@sparkjsdev/spark` then draws all 998,709 gaussians — but only on a real GPU.
+Under software GL it does not finish inside three minutes, and software GL is the only way
+a critic can screenshot anything. So a splat renders **offline, into a plate we ship as an
+image**, and never in the visitor's browser. Full recipe and the three traps in
+`.gauntlet-bar/ARBITRATION.md` §3. "Only splats" is about where a place comes from, not
+about what the browser downloads.
+
+**The cloister is retired.** It was modelled geometry, not a capture, and a covered walk is
+a sheltered corridor with no moving air. The branch is gone; its six commits survive as the
+tag `archive/cloister-2026-08-08` if anything there is ever wanted again.
 
 ---
 
