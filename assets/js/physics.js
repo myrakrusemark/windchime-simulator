@@ -539,6 +539,15 @@ export function createRig(freqs) {
 
   const rig = {
     tubes: [],
+    // The section this rig's tubes are actually cut from, and the ONE place
+    // anything downstream should read it. main.js hands it straight to
+    // audio.setTubes, so the tube that is drawn, the tube that is weighed in
+    // the wind and the tube that is voiced cannot drift apart: a caller that
+    // rebuilds this rig on a different section gets a chime that looks, swings
+    // and sounds like that section, with no second copy of the numbers to keep
+    // in step. Mode ratios depend on it, not only pitch does -- a fat tube and
+    // a thin one cut to the same note have different overtones.
+    stock: TUBE_STOCK,
     state: null,
     contactMask: new Uint8Array(0),
     errors: [],

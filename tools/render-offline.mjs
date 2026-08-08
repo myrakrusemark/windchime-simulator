@@ -29,6 +29,8 @@
  *
  * Options:
  *   --f1 <hz>        tube fundamental                          (261.63)
+ *   --stock <name>   a published tube from modal.js's CATALOGUE, e.g.
+ *                    "Theta Supergiant"; sets od, wall and material at once
  *   --od <mm>        tube outside diameter                     (44.45)
  *   --wall <mm>      tube wall thickness                       (2.6)
  *   --length <m>     cut length, if you know it; otherwise implied by --f1
@@ -102,14 +104,30 @@ const NORM = arg('norm', null) === null ? null : numArg('norm', -3);
 // overtones - so a comparison against a recording of a particular instrument
 // has to be able to say which tube it is asking for, exactly as it already says
 // which note.
-const OD = numArg('od', modal.TUBE_STOCK.od * 1000) / 1000;
-const WALL = numArg('wall', (modal.TUBE_STOCK.od - modal.TUBE_STOCK.id) * 500) / 1000;
+//
+// --stock names a published instrument out of modal.js's CATALOGUE and takes
+// its section straight from the maker's spec sheet, so a test that renders a
+// reference recording on the tube that made it cannot get the numbers wrong by
+// retyping them. --od / --wall still override, for a tube nobody publishes.
+const STOCK_NAME = arg('stock', null);
+let base = modal.TUBE_STOCK;
+if (STOCK_NAME !== null) {
+  try {
+    base = modal.stockFor(STOCK_NAME);
+  } catch (err) {
+    console.error(`${err.message}. Known tubes:`);
+    for (const c of modal.CATALOGUE) console.error(`  ${c.name}`);
+    process.exit(2);
+  }
+}
+const OD = numArg('od', base.od * 1000) / 1000;
+const WALL = numArg('wall', (base.od - base.id) * 500) / 1000;
 const tube = {
   od: OD,
   id: OD - 2 * WALL,
-  E: numArg('E', modal.TUBE_STOCK.E / 1e9) * 1e9,
-  rho: numArg('rho', modal.TUBE_STOCK.rho),
-  nu: numArg('nu', modal.TUBE_STOCK.nu)
+  E: numArg('E', base.E / 1e9) * 1e9,
+  rho: numArg('rho', base.rho),
+  nu: numArg('nu', base.nu)
 };
 if (!(tube.id > 0) || !(tube.id < tube.od)) {
   console.error(`--wall ${WALL * 1000} mm does not fit inside --od ${OD * 1000} mm`);

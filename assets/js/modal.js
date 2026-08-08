@@ -210,19 +210,43 @@ export function chimeStock(lowestHz, material) {
   return Object.freeze({ od, id: od * ID_OVER_OD, E: m.E, rho: m.rho, nu: m.nu });
 }
 
-// The stock THIS simulator hangs, and the one number in this file that a reader
-// should interrogate hardest, because everything below depends on the diameter.
+/**
+ * The section of a named catalogue tube, as a stock object the rest of this
+ * file and its callers can use. Walls the maker does not publish are solved
+ * from that maker's own published length and key.
+ *
+ * This exists so that no diameter is ever typed twice. render-offline.mjs
+ * renders a reference recording on the instrument that made it by NAME, and
+ * gets exactly the numbers CATALOGUE above carries.
+ */
+export function stockFor(name, material) {
+  const m = material || ALUMINIUM;
+  const c = CATALOGUE.find(e => e.name === name);
+  if (!c) throw new Error(`stockFor: no catalogue tube named "${name}"`);
+  const wall = c.wall !== null ? c.wall : wallForPitch(c.od, c.longest, c.lowest, m);
+  return Object.freeze({ od: c.od, id: c.od - 2 * wall, E: m.E, rho: m.rho, nu: m.nu });
+}
+
+// The stock THIS simulator hangs, and the one number in this file a reader
+// should interrogate hardest, because every ratio below depends on the
+// diameter. It is not typed here: it is the Theta Chimes Flower of Life row of
+// CATALOGUE above, 1 3/4 inch powder-coated aluminium with a 2.6 mm average
+// wall, both off the maker's spec sheet. Edit the catalogue and the simulator
+// changes with it; there is no second copy to drift.
 //
-// It is the published stock of the Theta Chimes Flower of Life: 1 3/4 inch
-// powder-coated aluminium, 2.6 mm average wall. Both numbers are off the maker's
-// own spec sheet. Neither is a stock size chosen for being round, neither was
-// swept, and neither came from a recording - which matters, because one of the
-// three reference recordings this simulator is measured against IS a Flower of
-// Life, so on that clip the model is being run on the real geometry of the
-// instrument that made it. It lands mode 2 within 1.3 cents and mode 3 within
-// 0.3 cents of that recording. The same test on the Corinthian Bells 65-inch,
-// fed ITS published 2.25 in and the wall wallForPitch() solves from Wind River's
-// own length and key, lands within 7, 10 and 25 cents on modes 2, 3 and 4.
+// BE CLEAR ABOUT WHAT THIS CHOICE IS AND IS NOT. The mode-ratio LAW below is
+// derived and takes no input from any recording. WHICH published tube the
+// simulator hangs is a choice, and an honest reader should know that a global
+// diameter only reproduces the three reference clips inside a window 2.6
+// percent wide in outside diameter -- 43.52 to 44.66 mm at this wall -- because
+// the three recordings are three different instruments with radii of gyration
+// of 14.8, 18.4 and 25.9 mm and no single tube is all three. The defence is not
+// that the window is comfortable. It is that this stock is a real published
+// section of a real instrument that is in the set, that the model run on each
+// instrument's OWN published section predicts that instrument (see the note on
+// the Supergiant below, and tools/verify-stock.mjs, which runs the test), and
+// that the same law with chimeStock() predicts a fourth chime nobody involved
+// has recorded to within 19 cents. A fitted constant does none of those.
 //
 // Why a Flower of Life and not one of the others: it is the only one of the
 // three recorded instruments that is the same KIND of object this simulator
@@ -237,14 +261,10 @@ export function chimeStock(lowestHz, material) {
 // commercial chime of that pitch would be. That is what happens when you cut a
 // whole scale from one length of tube, which is exactly what a person building
 // a chime in a shed does. chimeStock() above is the other way round, and a
-// caller who wants maker-proportioned tubes can pass its result as `tube`.
-export const TUBE_STOCK = Object.freeze({
-  od: 0.04445,          // outer diameter, m (1.75 in, published)
-  id: 0.04445 - 2 * 0.0026,  // 2.6 mm wall, published
-  E: ALUMINIUM.E,
-  rho: ALUMINIUM.rho,
-  nu: ALUMINIUM.nu
-});
+// caller who wants maker-proportioned tubes can pass its result as `tube` --
+// audio.js and physics.js both take the section as an argument now, so a rig
+// built on a different stock is drawn, weighed and voiced on that stock.
+export const TUBE_STOCK = stockFor('Theta Flower of Life');
 
 /**
  * The n = 2 ovalling frequency of the tube wall, in Hz - where the section
@@ -424,18 +444,39 @@ export function f1ForLength(L, tube) {
 //
 // SECOND, and this is the one that actually bites: ovallingHz(). A mode above
 // the section's n = 2 ovalling floor is a shell mode, not a bending mode, and
-// the beam is the wrong model for it however slender it is. This is not
-// hypothetical. Of the four instruments this simulator has been measured
-// against, three have every measured partial below their own floor and the
-// model predicts them from their published geometry alone. The fourth is the
-// Theta Supergiant, whose 3 in tube with a 3 mm wall puts its floor at 1479 Hz,
-// under its own second bending mode - and it is the one instrument whose
-// spectrum this model cannot reproduce from its published tube. Fed Theta's own
-// 3 in / 3 mm, the model puts bending mode 2 at 1503.4 Hz and there is a
-// measured partial in that recording at 1502.93 Hz, 0.6 cents away; the line
-// the analysis calls mode 2 is 1571 Hz, 12 dB louder, and above the floor.
-// Nothing here is tuned to close that gap, because the gap is not in the beam
-// theory.
+// the beam is the wrong model for it however slender it is.
+//
+// The Theta Supergiant is the instrument where this stops being a footnote, and
+// the argument here was wrong in an earlier version of this file, so it is
+// worth setting out with the numbers a reader can check against
+// refs/clean/thetachimes-supergiant-592hz.wav.
+//
+// Fed Theta's own published 3 in tube with a 3 mm wall, this model cuts 0.863 m
+// for the 592.36 Hz partial - Theta publish 34.5 in, so the length law agrees
+// to 1.6 percent - and then puts bending mode 2 at 1502.9 Hz and mode 3 at
+// 2664.4 Hz. The recording has partials at 1507.01 Hz and 2690.00 Hz: 4.8 and
+// 16.6 cents away, on a tube whose diameter nothing here fitted. That is the
+// model predicting a reference instrument from its spec sheet.
+//
+// What it does NOT do is agree with the mode assignment. analyze.py matches
+// each mode to the partial nearest the IDEAL Euler-Bernoulli ratio, so on this
+// clip it calls 1571.41 Hz mode 2 and 2894.12 Hz mode 3 - the two lines that
+// happen to sit closest to 2.7565 and 5.4039 - and against those the model is
+// 77 and 143 cents flat. The earlier note claimed 1571 Hz was "12 dB louder"
+// than the line the model predicts. It is not: analyze.py puts 1571.41 Hz at
+// -37.83 dB and 1507.01 Hz at -23.46 dB, so the line the matcher picks is
+// 14.4 dB QUIETER, and the weakest of the three in that cluster.
+//
+// The reason there is a cluster at all is the floor. This tube's n = 2 ovalling
+// frequency is 1478.5 Hz, BELOW its own second bending mode, and the recording
+// shows five partials packed between 1507 and 1893 Hz and then nothing until
+// 2310 - the signature of a shell family opening at its cutoff. On the other
+// three instruments the floor is 3.9, 5.1 and 13 kHz, above every partial they
+// show, and the model predicts them from published geometry alone. tubeModes()
+// reports this as `beamModes`, which is 1 for this tube: the model says in
+// advance, from geometry and material only, that it is not entitled to speak
+// about the Supergiant's mode 2. Nothing here is tuned to close that gap,
+// because the gap is not in the beam theory.
 
 // --- Excitation constants --------------------------------------------------
 

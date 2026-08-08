@@ -343,7 +343,9 @@ try {
 	// The tier has to reach audio at boot as well as on a later change, or a
 	// phone runs the desktop's five partials and sixteen voices all session.
 	audio.setTier( tier );
-	audio.setTubes( rig.tubes );
+	// The section travels with the tubes. audio.js voices the mode ratios of
+	// the tube the rig is actually hanging rather than a constant of its own.
+	audio.setTubes( rig.tubes, rig.stock );
 
 } catch ( err ) {
 
@@ -486,7 +488,7 @@ function rebuildChime() {
 		const f = freqsFor( params.scaleName, params.noteCount );
 		rig.rebuild( f );
 		if ( stage ) stage.buildChime( rig.tubes );
-		if ( audio ) audio.setTubes( rig.tubes );
+		if ( audio ) audio.setTubes( rig.tubes, rig.stock );
 		setNoteCountLabel();
 
 	} catch ( err ) {
