@@ -832,6 +832,46 @@ export function modeT60s(freqs, L, tube, out) {
   return t60;
 }
 
+// --- The one expensive thing in this file, memoised --------------------------
+//
+// radiationJ is a Simpson quadrature over up to 640 points of modeSpectrumSq,
+// five times per strike, and it turned strikeVoice from 2 us into 56. Nothing in
+// it depends on how hard or where the tube was hit: the T60s are a function of
+// the section, the cut length and the mode count alone, all of which are fixed
+// for a tube between re-tunes. So compute them once per distinct tube.
+//
+// Bounded on purpose. A rig has a dozen tubes and a session may rebuild it a few
+// times; the cap is what stops an afternoon of scale changes turning this into a
+// leak, and eviction is oldest-first because a rebuilt rig never asks for the old
+// lengths again.
+const T60_CACHE = new Map();
+const T60_CACHE_MAX = 128;
+
+/**
+ * modeT60s with the quadrature memoised per tube.
+ *
+ * The key carries freqs[0] as well as the section and the length, because a
+ * caller may hand in an explicit L that does not match the pitch it asks for -
+ * tubeModes() takes the ratios from L and strikeVoice() multiplies them by the
+ * caller's own f1 - so (section, L) alone does not pin the frequencies down.
+ */
+export function modeT60sCached(freqs, L, tube, out) {
+  const s = stockOf(tube);
+  const n = freqs.length;
+  const key = `${s.od},${s.id},${s.E},${s.rho},${s.nu},${L},${n},${freqs[0]}`;
+  let hit = T60_CACHE.get(key);
+  if (hit === undefined) {
+    hit = modeT60s(freqs, L, tube, new Array(n));
+    if (T60_CACHE.size >= T60_CACHE_MAX) {
+      T60_CACHE.delete(T60_CACHE.keys().next().value);
+    }
+    T60_CACHE.set(key, hit);
+  }
+  const t60 = out || new Array(n);
+  for (let i = 0; i < n; i++) t60[i] = hit[i];
+  return t60;
+}
+
 /** Time constant for a setTargetAtTime decay that is 60 dB down after T60 seconds. */
 export function decayTau(T60) {
   return T60 / TAU_PER_T60;
@@ -904,8 +944,7 @@ export function strikeVoice(opts) {
 
   // f1 is now a physical quantity - it decides how long the tube is, which
   // decides where its overtones land - so it has to be positive. It always was
-  // in practice, but freqScale below is sqrt(440/f1) and a negative f1 turned
-  // every T60 into NaN in silence.
+  // in practice, but a negative f1 used to turn every T60 into NaN in silence.
   const f1 = Math.max(1e-6, num(o.f1, 261.63));
   const s = clamp(num(o.s, 0.45), 0.02, 0.98);
   const vn = Math.max(0.01, Math.abs(num(o.vn, 0.4)));
@@ -997,11 +1036,12 @@ export function strikeVoice(opts) {
   // partial outlives which.
   const decay = clamp(num(o.decay, DECAY_NOMINAL), 0.1, 30);
   const ringTrim = decay / DECAY_NOMINAL;
-  const freqScale = Math.sqrt(440 / f1);
   const attack = Math.max(0.0005, num(o.attack, 0.002));
   const loudness = clamp(num(o.loudness, 0.5), 0, 1);
 
-  const t60s = modeT60s(freqs, modes.L, o.tube, new Array(nPartials));
+  // Memoised: the loss budget depends on the tube, not on the strike, and the
+  // radiation quadrature inside it is the most expensive arithmetic in the file.
+  const t60s = modeT60sCached(freqs, modes.L, o.tube, new Array(nPartials));
   for (let n = 0; n < nPartials; n++) {
     t60s[n] = clamp(t60s[n] * ringTrim, 0.02, 40);
   }
@@ -1018,7 +1058,7 @@ export function strikeVoice(opts) {
     nPartials, freqs, amps, t60s,
     // Envelope and level. gain is the pre-distance voice gain; audio.js scales
     // it by the listener term and an offline dry render uses it as it stands.
-    attack, decay, loudness, freqScale,
+    attack, decay, loudness,
     gain: A0 * loudness * VOICE_TRIM,
     // Contact click. Superlinear on purpose: hard hits tick.
     clickPeak: 0.1 * Math.pow(A0, 1.3),
