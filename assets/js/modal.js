@@ -804,6 +804,96 @@ export function beatFreqOffset(t, r, splitHz) {
   return splitHz * r * (r + c) / d;
 }
 
+// --- Paying for the doublet with no extra oscillators ------------------------
+//
+// THE COST OF THIS PIECE IS CPU, NOT SOUND, and it has to be paid on purpose.
+// audio.js builds one OscillatorNode per entry in voice.freqs and the polyphony
+// cap counts VOICES, not oscillators, so handing it a doubled partial list
+// doubles the node count of every strike and the cap does not notice. A chime is
+// left running for hours; a graph that costs twice as much per gust is not a
+// detail.
+//
+// So the browser does not get a second oscillator. The sum of two decaying sines
+// of nearly equal frequency IS one sine at the stronger one's frequency, carrying
+// the amplitude and phase of 1 + r e^{i w t}. That is not an approximation of the
+// doublet, it is the doublet rewritten, and Web Audio can play it as one
+// oscillator whose gain and frequency each follow a setValueCurveAtTime. The
+// curves are Float32Arrays a few hundred long, built once per strike, and they
+// cost no nodes at all: the same five oscillators as before now carry ten lines.
+//
+// WHAT IS APPROXIMATE is only the sampling. setValueCurveAtTime interpolates
+// linearly between the points it is given, so the beat and the decay are both
+// piecewise linear. The grid is set from whichever of the two is faster - 24
+// points per beat cycle, 8 per decay time constant - which puts the worst-case
+// linear-interpolation error at (2 pi / 24)^2 / 8 of the modulation depth, about
+// 0.35 percent of the partial's amplitude, or -49 dB. tools/verify-beat.mjs
+// measures the real error against the exact two-sine sum rather than trusting
+// that estimate, and validate.py gates it.
+//
+// render-offline.mjs does NOT use these curves. It sums the two sines directly,
+// because offline nothing is paying for oscillators and the exact sum is the
+// thing the curves are trying to be. The gap between them is what verify-beat
+// measures.
+export const BEAT_PTS_PER_CYCLE = 24;
+export const BEAT_PTS_PER_TAU = 8;
+export const BEAT_CURVE_MAX = 2048;
+
+// setValueCurveAtTime throws if any other automation event lands inside the
+// curve's own span, endpoints included, so the curve cannot begin at the instant
+// the attack ramp ends. It begins 0.1 ms later and the param holds its ramp
+// value across the gap. A tenth of a millisecond is a twentieth of the shortest
+// attack and a fourteenth of the shortest decay time constant in the model.
+export const BEAT_CURVE_LEAD = 1e-4;
+
+/**
+ * The gain and frequency curves for one partial of a beating voice, as the
+ * browser's two AudioParams want them. Pure arithmetic, so it can be tested and
+ * measured without an AudioContext.
+ *
+ *   amp      the MODE's total amplitude; the two polarisations divide it as
+ *            cos/sin of the strike azimuth, so their squares sum to amp^2
+ *   r        weak polarisation over strong, 0..1
+ *   splitHz  partner minus strong, signed
+ *   t60      the mode's ring time (both polarisations share it: they are 0.3
+ *            percent apart in frequency, which is nothing to a loss budget)
+ *   attack   the linear ramp already scheduled before this curve
+ *   until    when the oscillator stops, seconds after the voice's t0
+ *   freq     the strong line, Hz
+ */
+export function beatCurves(amp, r, splitHz, t60, attack, until, freq) {
+  const tau = decayTau(t60);
+  const split = Math.abs(splitHz);
+  const start = attack + BEAT_CURVE_LEAD;
+  const span = Math.max(1e-4, until - start);
+  let h = tau / BEAT_PTS_PER_TAU;
+  if (split > 0) h = Math.min(h, 1 / (BEAT_PTS_PER_CYCLE * split));
+  let n = Math.ceil(span / h) + 1;
+  if (n < 2) n = 2;
+  if (n > BEAT_CURVE_MAX) n = BEAT_CURVE_MAX;
+  const step = span / (n - 1);
+  const scale = amp / Math.sqrt(1 + r * r);
+  const gain = new Float32Array(n);
+  const fcurve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = start + i * step;
+    gain[i] = scale * beatMagnitude(t, r, split) * Math.exp(-(t - attack) / tau);
+    fcurve[i] = freq + beatFreqOffset(t, r, splitHz);
+  }
+  // The frequency the oscillator has to run at BEFORE the curve takes over, and
+  // it is not the strong line. An oscillator's phase is the integral of its
+  // frequency, so the attack's two and a bit milliseconds at the wrong frequency
+  // leave a constant phase error for the rest of the note - measured at 0.010
+  // rad, which is a 1 percent amplitude error, -40 dB, and the single largest
+  // term in the residual until it was removed. The doublet's own instantaneous
+  // frequency at t = 0 is split*r/(1+r) above the strong line, so starting there
+  // makes the phase right to O(attack^2). tools/verify-beat.mjs measures what is
+  // left.
+  return {
+    gain, freq: fcurve, freq0: freq + beatFreqOffset(0, r, splitHz),
+    start, span, points: n, step
+  };
+}
+
 // --- Excitation constants --------------------------------------------------
 
 // Strike speed that reaches full amplitude, m/s. Set from a measured

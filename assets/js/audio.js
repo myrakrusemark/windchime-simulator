@@ -30,7 +30,9 @@ import {
   num,
   decayTau,
   partialStop,
-  strikeVoice
+  strikeVoice,
+  beatCurves,
+  tubeImperfection
 } from './modal.js';
 
 // --- Module state ----------------------------------------------------------
@@ -47,10 +49,22 @@ export function createAudio(params) {
   // assume the generous case, since nothing can sound before unlock() anyway.
   let partialCount = MAX_PARTIALS;
   let maxVoices = 16;
+  // Whether tubes beat. On by default on every tier, because the doublet costs
+  // no oscillators and no nodes - only a few hundred floats per strike - so
+  // there is nothing here for a low tier to save. It is a switch so that a
+  // caller can turn it off, not because anything is expected to.
+  let beats = true;
 
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
   let tubeL = [];
+  // Each tube's own section defects and its own clocking on the cord, drawn once
+  // per tube at rig build. This is what stops a chime sounding like one object
+  // transposed six times: every tube beats at its own rate and its own depth, and
+  // two tubes cut to the same note from the same stock are still not the same
+  // object. Drawn here rather than inside strike() because a tube's ovality does
+  // not change between blows.
+  let tubeFlaw = [];
 
   // The stock this chime is cut from. One object, shared with physics.js, which
   // now cuts its tubes to modal.js's length law on this same section - so the
@@ -164,7 +178,11 @@ export function createAudio(params) {
       const a = v.amps[n] * Math.exp(-age / decayTau(v.t60s[n]));
       if (a > peak) peak = a;
     }
-    return peak;
+    // amps[] is the MODE's amplitude and a mode is two lines that start in
+    // phase, so what a listener hears at the top of a beat is beatPeak times
+    // that. Getting this wrong would rank a beating voice as quieter than it is
+    // and steal it first.
+    return peak * v.beatPeak;
   }
 
   function stealQuietest(now) {
@@ -241,10 +259,12 @@ export function createAudio(params) {
       const n = tubes ? tubes.length : 0;
       tubeF1 = new Array(n);
       tubeL = new Array(n);
+      tubeFlaw = new Array(n);
       chimeTube = stock || TUBE_STOCK;
       for (let i = 0; i < n; i++) {
         tubeF1[i] = num(tubes[i] && tubes[i].f1, 261.63);
         tubeL[i] = num(tubes[i] && tubes[i].L, 0);
+        tubeFlaw[i] = tubeImperfection(i);
       }
       // The tube set changed under us; any voice still ringing belongs to a tube
       // that no longer exists at that length. Let them decay, but stop tracking
@@ -334,6 +354,11 @@ export function createAudio(params) {
         vn: ev.vn,
         mu: ev.mu,
         kind: ev.kind,
+        // THIS tube's section defects and clocking, drawn once at rig build.
+        // Without them every tube in the chime would beat at the same fraction
+        // and with the same depth, which is a chime that sounds like one object
+        // played at six pitches.
+        ...(beats ? (tubeFlaw[idx] || tubeImperfection(idx)) : { doublet: false }),
         partials: partialCount,
         decay: params && params.decay,
         attack: params && params.attack,
@@ -401,18 +426,67 @@ export function createAudio(params) {
       const oscs = [];
       const gains = [];
 
+      // Every partial's stop time, computed BEFORE anything is allocated,
+      // because a beat curve has to span its oscillator's whole life and
+      // partialStop is what decides how long that is. The level it asks about is
+      // the peak the MODE reaches, which for a doublet whose two polarisations
+      // start in phase is beatPeak times a single line of the same energy.
+      const stops = new Array(nPart);
+      let lastOsc = 0;
+      for (let n = 0; n < nPart; n++) {
+        stops[n] = partialStop(t60s[n], attack, base * amps[n] * voice.beatPeak);
+        if (stops[n] > stops[lastOsc]) lastOsc = n;
+      }
+
       for (let n = 0; n < nPart; n++) {
         const T60 = t60s[n];
 
         const g = ctx.createGain();
-        g.gain.setValueAtTime(0, t0);
-        g.gain.linearRampToValueAtTime(amps[n], t0 + attack);
-        // setTargetAtTime with tau = T60/6.908 lands exactly 60 dB down at T60.
-        g.gain.setTargetAtTime(0, t0 + attack, decayTau(T60));
-
         const osc = ctx.createOscillator();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(freqs[n], t0);
+        osc.frequency.value = freqs[n];
+
+        // TWO LINES, ONE OSCILLATOR. A bending mode is a doublet - see "The
+        // bending doublet" and "Paying for the doublet with no extra
+        // oscillators" in modal.js - and the sum of its two polarisations is
+        // exactly this one sine carrying their combined amplitude and phase. So
+        // the second line costs a Float32Array rather than an OscillatorNode,
+        // and a gust rings the same five oscillators per voice it always did.
+        // That matters here and not in the offline renderer, because maxVoices
+        // caps voices rather than nodes: doubling the partial list would double
+        // the graph of every strike and the cap would not notice.
+        let beat = null;
+        if (voice.partner > 0 && voice.splitHz[n] !== 0 && amps[n] > 0) {
+          beat = beatCurves(amps[n], voice.partner, voice.splitHz[n],
+                            T60, attack, stops[n], freqs[n]);
+        }
+
+        g.gain.setValueAtTime(0, t0);
+        if (beat) {
+          osc.frequency.value = beat.freq0;
+          g.gain.linearRampToValueAtTime(beat.gain[0], t0 + attack);
+          try {
+            g.gain.setValueCurveAtTime(beat.gain, t0 + beat.start, beat.span);
+            osc.frequency.setValueCurveAtTime(beat.freq, t0 + beat.start, beat.span);
+          } catch (e) {
+            // A curve is refused only if something else is scheduled inside its
+            // span, which the BEAT_CURVE_LEAD gap exists to prevent. If a browser
+            // disagrees anyway, unwind and ring the mode as a single line: a
+            // chime that does not beat is a worse chime, but a chime that throws
+            // on every strike is silence.
+            beat = null;
+            try { g.gain.cancelScheduledValues(t0); } catch (e2) { /* nothing scheduled */ }
+            try { osc.frequency.cancelScheduledValues(t0); } catch (e2) { /* ditto */ }
+            g.gain.setValueAtTime(0, t0);
+            osc.frequency.value = freqs[n];
+          }
+        }
+        if (!beat) {
+          g.gain.linearRampToValueAtTime(amps[n], t0 + attack);
+          // setTargetAtTime with tau = T60/6.908 lands exactly 60 dB down at T60.
+          g.gain.setTargetAtTime(0, t0 + attack, decayTau(T60));
+        }
+
         osc.connect(g);
         g.connect(voiceGain);
         osc.start(t0);
@@ -460,9 +534,11 @@ export function createAudio(params) {
         tube: idx,
         t0,
         A0,
-        // estimateAmplitude() needs every partial, not just the fundamental.
+        // estimateAmplitude() needs every partial, not just the fundamental,
+        // and it needs to know that each of them is a beating pair.
         amps,
         t60s,
+        beatPeak: voice.beatPeak,
         base,
         gain: voiceGain,
         pan: panner,
@@ -499,12 +575,6 @@ export function createAudio(params) {
       // audible tick, and a note chopped in half. render-offline.mjs cannot see
       // that, because it has no voice-level teardown at all, so the harness this
       // whole gauntlet is scored on could not have caught it.
-      const stops = new Array(oscs.length);
-      let lastOsc = 0;
-      for (let n = 0; n < oscs.length; n++) {
-        stops[n] = partialStop(t60s[n], attack, base * amps[n]);
-        if (stops[n] > stops[lastOsc]) lastOsc = n;
-      }
       oscs[lastOsc].onended = () => releaseVoice(v);
       for (let n = oscs.length - 1; n >= 0; n--) {
         try { oscs[n].stop(t0 + stops[n]); } catch (e) { if (n === lastOsc) releaseVoice(v); }
@@ -541,6 +611,7 @@ export function createAudio(params) {
       if (!tier) return;
       partialCount = clamp(num(tier.partials, MAX_PARTIALS) | 0, 1, MAX_PARTIALS);
       maxVoices = Math.max(1, num(tier.maxVoices, 16) | 0);
+      beats = tier.beats !== false;
     },
 
     suspend() {
