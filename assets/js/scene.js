@@ -27,15 +27,15 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // ---------------------------------------------------------------------------
 
 const HOOK_Y = 2.60;          // the porch beam underside; the rig hangs from here
-const R_TUBE = 0.014;         // tube outer radius, m (28 mm OD aluminium)
+const R_TUBE = 0.022225;      // tube outer radius, m (44.45 mm OD chime stock)
 // Radius of the suspension disk. It MUST stay larger than physics.js's R_RING
 // (0.082), which is where the tube cords hang from: at 0.070 against a ring of
 // 0.082 every cord left the disk 12 mm beyond its own edge and read as tied to
 // thin air. A real chime drills its holes inside the rim, so the disk overhangs
 // the tubes. physics.js carries the same number as PLATE_R for its drag area
 // and its porch collision.
-const R_PLATE = 0.098;
-const R_BORE = 0.0125;        // inner bore radius, m (25 mm ID)
+const R_PLATE = 0.12395;
+const R_BORE = 0.019625;      // inner bore radius, m (39.25 mm ID, 2.6 mm wall)
 const CORD_SEGMENTS = 6;      // line segments per cord; enough to read a belly of sag
 // Half-extent of the ground plane, m. It has to outrun the shallowest sight
 // line: an orthographic camera's rays are parallel, so at the lowest tilt and

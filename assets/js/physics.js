@@ -19,6 +19,7 @@
 // at 20 fps as at 144 fps.
 
 import { Vector3, Quaternion, MathUtils } from 'three';
+import { TUBE_STOCK, tubeLengthFor, f1ForLength } from './modal.js';
 
 // ---------------------------------------------------------------------------
 // Musical scales, and the one piece of physics that turns a note into a shape.
@@ -35,15 +36,19 @@ export const SCALES = {
   cOctaveIntervals: [130.81, 261.63, 523.25, 1046.50]
 };
 
-// A free-free aluminium tube's transverse fundamental goes as f = K / L^2.
-// For the 28 mm OD / 25 mm ID tube used here, K works out at 168.92 with L in
-// metres and f in hertz. Length IS the note: this constant is why the tubes
-// visibly change size when you change the scale.
-const TUBE_K = 168.92;
-
-// Above this the 0.30 m floor in lengthForFreq starts clamping, and two notes
-// that both clamp come out as two tubes of identical length and identical pitch.
+// Above this the floor in lengthForFreq starts clamping, and two notes that
+// both clamp come out as two tubes of identical length and identical pitch.
 const MAX_TUBE_HZ = 1200;
+
+// How long a tube this rig will hang. Both ends are guards against an absurd
+// request, not working limits: the whole supported range, 130.81 Hz at the
+// bottom of cOctaveIntervals to the 1200 Hz cap, cuts 1.423 m down to 0.457 m,
+// so neither end binds on any built-in scale. That matters more than it used
+// to. lengthForFreq and modal.js are now the same law, and the moment the
+// clamp bites they stop being - the rig would draw one tube and voice another,
+// which is the exact defect this file's own length constant used to cause.
+const TUBE_L_MIN = 0.30;
+const TUBE_L_MAX = 1.50;
 
 export function freqsFor(scaleName, count) {
   const list = SCALES[scaleName] || SCALES.cMajorPentatonic;
@@ -82,14 +87,19 @@ export function freqsFor(scaleName, count) {
   return out;
 }
 
+// Length IS the note, and the relation between the two is modal.js's: the same
+// Timoshenko law, on the same stock, that decides where the tube's overtones
+// land. This file used to carry its own Euler-Bernoulli constant for 28 mm
+// curtain rod, so the tube it drew and the tube audio.js voiced were different
+// objects. There is one tube now.
 export function lengthForFreq(f1Hz) {
   const f = Number.isFinite(f1Hz) && f1Hz > 0 ? f1Hz : 261.63;
-  return MathUtils.clamp(Math.sqrt(TUBE_K / f), 0.30, 1.25);
+  return MathUtils.clamp(tubeLengthFor(f, TUBE_STOCK), TUBE_L_MIN, TUBE_L_MAX);
 }
 
 export function freqForLength(Lm) {
-  const L = Number.isFinite(Lm) && Lm > 0 ? Lm : 0.8035;
-  return TUBE_K / (L * L);
+  const L = Number.isFinite(Lm) && Lm > 0 ? Lm : 1.0027;
+  return f1ForLength(MathUtils.clamp(L, TUBE_L_MIN, TUBE_L_MAX), TUBE_STOCK);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,20 +112,44 @@ const GRAV = -9.81;                // m/s^2 on Y
 const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 const HOOK_CORD = 0.550;           // assembly pendulum period 1.49 s: a calm sway
 
-const PLATE_A = 0.055;             // circumradius of the 3-particle plate
-// Radius of the VISIBLE suspension disk. Mirrored in scene.js as R_PLATE, the
+// Radius of the visible suspension disk. Mirrored in scene.js as R_PLATE, the
 // same way R_TUBE and HOOK_Y are -- scene.js does not import from here. It has
 // to exceed R_RING below, which is where the tube cords hang: at 0.070 against
 // a ring of 0.082 the cords left the disk 12 mm short of its own edge and read
-// as tied to thin air.
-const PLATE_R = 0.098;
-const PLATE_MASS = 0.150;
+// as tied to thin air. The 1.195 overhang on the ring is kept.
+const PLATE_R = 0.12395;
+const PLATE_T = 0.012;             // disk thickness, the same 12 mm scene.js draws
+
+// THE DISK IS A DISK, and the two numbers below are what one weighs and how its
+// weight is spread. Both were wrong, and wrong in the same direction, which is
+// what put the rig into the state described under solveConstraints: it could
+// not stand still in dead air.
+//
+// PLATE_A is the circumradius of the three particles that stand in for the
+// disk. Three point masses of M/3 at radius a have polar moment M*a^2; a
+// uniform disk of radius R has M*R^2/2. They agree only at a = R/sqrt(2), which
+// is the disk's own radius of gyration. This file already applies exactly that
+// rule to the tubes -- see T_A and T_B, placed to reproduce a rod's mL^2/12
+// rather than at its ends -- and then broke it for the plate: 0.06956 against a
+// 0.12395 disk is 0.561 R, so the plate was carrying 37 percent less rotational
+// inertia than the object drawn on screen, and the lightest torque spun it.
+const PLATE_A = PLATE_R / Math.SQRT2;      // 0.08765 m
 const PLATE_EDGE = PLATE_A * Math.sqrt(3);
+// PLATE_MASS was 0.150 kg. The disk scene.js draws is 123.95 mm in radius and
+// 12 mm thick: 5.79e-4 cubic metres, so 0.150 kg makes it 259 kg/m^3 -- lighter
+// than balsa, and a third of the lightest wood anyone builds a chime top from.
+// White oak, which is what a garden chime's top actually is, puts it at 0.437
+// kg. That matters beyond pedantry: the plate is the anchor the whole tube set
+// hangs from, and at 0.050 kg per particle against 0.46 kg per tube particle
+// the constraint solver was being asked to hold a 9:1 mass ratio through lever
+// arms greater than one.
+const PLATE_WOOD_RHO = 755;        // white oak, kg/m^3
+const PLATE_MASS = Math.PI * PLATE_R * PLATE_R * PLATE_T * PLATE_WOOD_RHO;
 const PLATE_Y = 2.05;
 const PLATE_THETA = [Math.PI * 0.5, Math.PI * 7 / 6, Math.PI * 11 / 6];
 // Edge-on only; the face is horizontal. Diameter times thickness, so it tracks
 // the rendered disk.
-const PLATE_DRAG_AREA = PLATE_R * 2 * 0.012;
+const PLATE_DRAG_AREA = PLATE_R * 2 * PLATE_T;
 const CD_PLATE = 1.1;
 
 // THE PLATE HANGS ON A THREE-CORD BRIDLE, not on one cord to its middle, and
@@ -135,10 +169,29 @@ const CD_PLATE = 1.1;
 // attitude and the assembly swings as one body, while rotation about the
 // vertical is still free (all three cords keep their length under yaw) so the
 // chime can still turn slowly in the wind.
-const BRIDLE_CORD = Math.sqrt(HOOK_CORD * HOOK_CORD + PLATE_A * PLATE_A);  // 0.55274
+const BRIDLE_CORD = Math.sqrt(HOOK_CORD * HOOK_CORD + PLATE_A * PLATE_A);  // 0.55694
 
-const R_RING = 0.082;              // radius of the ring the tube cords hang from
-const R_OVER_A = R_RING / PLATE_A; // 1.4909 - the ring sits OUTSIDE the triangle
+// Radius of the ring the tube cords hang from. Sized off the tube, not typed
+// in: Theta publish a 14 inch top ring on the Supergiant's 3 inch tubes, which
+// is a ring radius of 2.333 diameters. It used to be 0.082 against a 28 mm tube
+// - 2.93 diameters, looser than a real chime.
+//
+// An earlier version of this comment claimed the ring was what stopped the rig
+// clacking tube on tube. That was wrong and it is worth recording why, because
+// it is the kind of wrong that survives a plausible-sounding argument. At eight
+// tubes this ring leaves 34.9 mm between neighbours against the old rig's 34.8
+// - the same clearance to a tenth of a millimetre - so it cannot have been the
+// difference, and widening the ring until the clearance matched the six-tube
+// figure changed the contact rate by nothing measurable. What was actually
+// wrong was the plate above and the single constraint sweep below, and the
+// giveaway was that the rig clattered in DEAD AIR, where a spacing argument has
+// nothing to explain. Widening the ring also has a cost that only shows up when
+// you try it: the clapper hangs at the centre, so a wider ring puts the tubes
+// further out of its reach, and at eight tubes it stopped ringing them at all
+// below 12 mph.
+const RING_OVER_OD = 2.3333;
+const R_RING = RING_OVER_OD * TUBE_STOCK.od;   // 0.10372 m
+const R_OVER_A = R_RING / PLATE_A; // 1.1833 - the ring sits OUTSIDE the triangle
 
 // Tube particles sit at the radius of gyration, not at the ends. Two point
 // masses at t = 0.2113 and 0.7887 reproduce a uniform rod's I = mL^2/12.
@@ -149,9 +202,15 @@ const T_B = 0.7887;
 const T_SPAN = T_B - T_A;          // 0.5774
 const NODE_T = 0.2242;             // the free-free fundamental node: where the cord goes
 const TUBE_CORD_BASE = 0.060;      // every tube's TOP hangs this far below the plate
-const TUBE_LINDENS = 0.3372;       // kg/m for 28/25 mm aluminium
-const TUBE_R = 0.014;              // outer radius
-const TUBE_OD = 0.028;
+// The tube's section, straight off modal.js's stock rather than re-typed here.
+// 44.45 mm OD, 2.6 mm wall: 0.9229 kg/m and a 22.2 mm outer radius, against the
+// 0.3372 kg/m and 14 mm this file used to assume for 28 mm curtain rod. A real
+// chime tube is heavy, and it shows in the wind - see the note in modal.js on
+// what unifying the two cost.
+const TUBE_OD = TUBE_STOCK.od;
+const TUBE_R = TUBE_OD * 0.5;
+const TUBE_LINDENS = Math.PI * 0.25 *
+  (TUBE_STOCK.od * TUBE_STOCK.od - TUBE_STOCK.id * TUBE_STOCK.id) * TUBE_STOCK.rho;
 const CD_TUBE = 1.15;              // cylinder in crossflow
 
 // Axial twist of a tube on its cord. See the torsion block in the aero pass.
@@ -166,9 +225,10 @@ const TWIST_ARM = 4.7e-4;
 const TWIST_K = 2.6e-4;
 const TWIST_C = 3.0e-5;
 
-// Tubes must not be able to render through one another. At the 4.6 degree
-// steady lean they never would - adjacent ring points sit 82 mm apart against
-// a 28 mm tube diameter - but a gust, a grab or a scale change can swing two
+// Tubes must not be able to render through one another. At the 2.7 degree
+// steady lean they never would - adjacent ring points sit 81 mm apart at eight
+// tubes against a 44 mm tube diameter - but a gust, a grab or a scale change
+// can swing two
 // together, and a tube passing through its neighbour is the most obviously
 // fake thing this picture can do. Solved as capsule-vs-capsule over all pairs;
 // N is at most 8, so that is 28 segment tests per substep.
@@ -203,8 +263,10 @@ export const PART_DEFAULTS = {
 
 export const PART_LIMITS = {
   // The upper bound is where the disk closes the gap to the tubes entirely:
-  // R_RING - TUBE_R is 0.068 m of radius, so a diameter past about 0.11 leaves
-  // the clapper permanently in contact and it buzzes instead of ringing.
+  // R_RING - TUBE_R is 0.0815 m of radius now the ring and the tube have both
+  // grown, so a diameter past about 0.163 leaves the clapper permanently in
+  // contact and it buzzes instead of ringing. The margin at the 0.100 limit is
+  // 31.5 mm, up from 18 mm on the old 28 mm tube and small ring.
   clapperWidth: [0.030, 0.100],
   clapperMass: [0.008, 0.090],
   // Down to where the disk sits level with the shortest tube's bottom, up to
@@ -265,9 +327,10 @@ let CLAPPER_CORD = PART_DEFAULTS.clapperDrop;
 let CLAPPER_AREA = PART_DEFAULTS.clapperWidth * 0.014;
 const CD_CLAPPER = 1.1;
 
-// Clapper-to-tube gap = R_RING - TUBE_R - CLAPPER_R, 0.034 m at the default
-// width. Widened from 0.025 during design review: at 0.025 a hard gust pins the
-// clapper against a tube and it buzzes instead of ringing. A wide clapper
+// Clapper-to-tube gap = R_RING - TUBE_R - CLAPPER_R, 0.0475 m at the default
+// width, up from 0.034: the ring grew faster than the tube did. Comfortably
+// clear of the 0.025 where a hard gust pins the clapper against a tube and it
+// buzzes instead of ringing. A wide clapper
 // narrows this on purpose -- that is what the width control is FOR -- but the
 // upper limit stops it closing altogether.
 let GAP = R_RING - TUBE_R - CLAPPER_R;
@@ -476,6 +539,15 @@ export function createRig(freqs) {
 
   const rig = {
     tubes: [],
+    // The section this rig's tubes are actually cut from, and the ONE place
+    // anything downstream should read it. main.js hands it straight to
+    // audio.setTubes, so the tube that is drawn, the tube that is weighed in
+    // the wind and the tube that is voiced cannot drift apart: a caller that
+    // rebuilds this rig on a different section gets a chime that looks, swings
+    // and sounds like that section, with no second copy of the numbers to keep
+    // in step. Mode ratios depend on it, not only pitch does -- a fat tube and
+    // a thin one cut to the same note have different overtones.
+    stock: TUBE_STOCK,
     state: null,
     contactMask: new Uint8Array(0),
     errors: [],
@@ -903,8 +975,10 @@ export function createRig(freqs) {
     // with half the tube's projected area. Because the two samples sit at
     // different heights they see different wind through the log profile, and
     // the tube gets a real overturning torque with no extra code. Lean at
-    // 12 mph is 4.6 degrees for EVERY tube: drag and weight both scale with L,
-    // so lean is length-independent.
+    // 12 mph is 2.7 degrees for EVERY tube: drag and weight both scale with L,
+    // so lean is length-independent. It was 4.6 on the old 28 mm tube - lean
+    // goes as diameter over mass per metre, and real chime stock is 59 percent
+    // fatter but 2.7 times heavier, so the wind moves it markedly less.
     for (let i = 0; i < N; i++) {
       const L = rig.tubes[i].L;
       const a3 = (TUBE0 + 2 * i) * 3, b3 = a3 + 3;
@@ -1363,8 +1437,34 @@ export function createRig(freqs) {
     porchPoint(pos[sb3], pos[sb3 + 1], pos[sb3 + 2], SAIL_HIT_R, SAIL_B, 1, -1, 0);
   }
 
+  // TWO Gauss-Seidel sweeps over the cord network, not one, and this is the
+  // difference between a chime that hangs still and one that never stops
+  // moving. Measured in DEAD AIR at 1/240 s, with no wind function at all: on
+  // one sweep the default six-tube set never reached equilibrium, its tube tips
+  // wandering 20 to 140 mm off plumb for as long as it was left running and
+  // clattering 175 times a minute against neighbours 59 mm away. It settled at
+  // 1/1920 s, which is the signature of a solver that has not converged rather
+  // than of a rig that is genuinely being pushed around.
+  //
+  // The load tripled when the tubes became real chime stock -- 0.92 kg/m
+  // against 0.34 -- and one sweep no longer takes the cord network far enough
+  // toward its solution. The residual is not neutral: fed back through the ring
+  // weights, which extrapolate outside the plate triangle and so have terms
+  // above 1 and below 0, it pumps.
+  //
+  // Two sweeps and the corrected plate above are independent fixes for the same
+  // failure and they are both kept, because either one alone is marginal.
+  // Sweeping the plate's wood density with one sweep, the rig only settles
+  // above about 700 kg/m^3, so the choice of oak would be doing the work; with
+  // two sweeps the boundary drops to about 450 and every wood a chime top is
+  // made of is safely inside it. Cost is one extra pass over N+5 cord links per
+  // substep -- no allocation, no new state.
+  const CORD_SWEEPS = 2;
+
   function solveConstraints(h) {
-    for (let i = 0; i < links.length; i++) solveLink(links[i], h);
+    for (let s = 0; s < CORD_SWEEPS; s++) {
+      for (let i = 0; i < links.length; i++) solveLink(links[i], h);
+    }
     solveTubeSeparation(true);
     solvePorch();
     solveContacts();

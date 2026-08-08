@@ -20,6 +20,7 @@ import { createRig, freqsFor, SCALES, setParts, PART_DEFAULTS, PART_LIMITS } fro
 import { createStage } from './scene.js';
 import { createWindViz } from './windviz.js';
 import { createAudio } from './audio.js';
+import { DECAY_NOMINAL } from './modal.js';
 import * as weather from './weather.js';
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ const DEFAULTS = {
 	scaleName: 'cMajorPentatonic',
 	noteCount: 6,
 	attack: 0.002,
-	decay: 8.0,            // T60 of the fundamental, seconds
+	decay: 8.0,            // ring trim; 8 is the tube as modelled, see modal.js DECAY_NOMINAL
 	loudness: 0.5,
 	sunElevDeg: null,     // null means "whatever the active style calls default"
 	style: 'storybook',   // 'storybook' (flat, orthographic) or 'golden' (lit, perspective)
@@ -343,7 +344,9 @@ try {
 	// The tier has to reach audio at boot as well as on a later change, or a
 	// phone runs the desktop's five partials and sixteen voices all session.
 	audio.setTier( tier );
-	audio.setTubes( rig.tubes );
+	// The section travels with the tubes. audio.js voices the mode ratios of
+	// the tube the rig is actually hanging rather than a constant of its own.
+	audio.setTubes( rig.tubes, rig.stock );
 
 } catch ( err ) {
 
@@ -446,7 +449,7 @@ function syncControlValues() {
 	if ( dom.attackSlider ) dom.attackSlider.value = String( params.attack );
 	setText( dom.attackValue, params.attack.toFixed( 4 ) + ' s' );
 	if ( dom.decaySlider ) dom.decaySlider.value = String( params.decay );
-	setText( dom.decayValue, params.decay.toFixed( 1 ) + ' s ring' );
+	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
 	if ( dom.loudnessSlider ) dom.loudnessSlider.value = String( params.loudness );
 	setText( dom.loudnessValue, Math.round( params.loudness * 100 ) + '%' );
 	if ( dom.sunSlider ) dom.sunSlider.value = String( params.sunElevDeg );
@@ -486,7 +489,7 @@ function rebuildChime() {
 		const f = freqsFor( params.scaleName, params.noteCount );
 		rig.rebuild( f );
 		if ( stage ) stage.buildChime( rig.tubes );
-		if ( audio ) audio.setTubes( rig.tubes );
+		if ( audio ) audio.setTubes( rig.tubes, rig.stock );
 		setNoteCountLabel();
 
 	} catch ( err ) {
@@ -675,7 +678,7 @@ bindRange( dom.attackSlider, ( v ) => {
 bindRange( dom.decaySlider, ( v ) => {
 
 	params.decay = clamp( v, 0.5, 16 );
-	setText( dom.decayValue, params.decay.toFixed( 1 ) + ' s ring' );
+	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
 
 } );
 
