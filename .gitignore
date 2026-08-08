@@ -160,3 +160,4 @@ tools/audio-analysis/test-signals/
 
 # Gauntlet scratch: bar reference shots and contracts for the structure run.
 .gauntlet-bar/
+.verify-out/

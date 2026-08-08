@@ -24,10 +24,45 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const SCRATCH = '/tmp/claude-1000/-home-myra-Dropbox-Work/4d8dba3e-bbad-463d-95d3-30793b935525/scratchpad';
-const puppeteer = require(join(SCRATCH, 'node_modules', 'puppeteer-core'));
 
 const ROOT = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
+
+// Where puppeteer-core is found, in order, with a legible failure at the end.
+//
+// This used to be one hard-coded path into a previous session's scratchpad
+// directory under /tmp. It worked for as long as that directory happened to
+// survive, and this file gates every piece in the run, so a machine reboot or a
+// /tmp sweep would have failed the gate for every agent after that one with a
+// MODULE_NOT_FOUND naming a path nobody would recognise.
+const PUPPETEER_CANDIDATES = [
+  process.env.WCS_PUPPETEER,                                  // explicit override
+  join(ROOT, 'node_modules', 'puppeteer-core'),               // beside the repo
+  'puppeteer-core',                                            // anywhere node resolves it
+  // Last: whatever scratchpad happens to be current, then the historical one.
+  process.env.CLAUDE_SCRATCHPAD && join(process.env.CLAUDE_SCRATCHPAD, 'node_modules', 'puppeteer-core'),
+  '/tmp/claude-1000/-home-myra-Dropbox-Work/4d8dba3e-bbad-463d-95d3-30793b935525/scratchpad/node_modules/puppeteer-core',
+].filter(Boolean);
+
+function loadPuppeteer() {
+  const tried = [];
+  for (const c of PUPPETEER_CANDIDATES) {
+    try { return require(c); } catch (err) { tried.push(`${c}  (${err.code || err.message})`); }
+  }
+  throw new Error(
+    'puppeteer-core could not be resolved. Tried:\n  ' + tried.join('\n  ') +
+    '\n\nFix by either:\n' +
+    '  npm i --no-save puppeteer-core        (from the repo root; it is dev-only and not shipped)\n' +
+    '  WCS_PUPPETEER=/path/to/puppeteer-core node tools/verify.mjs\n' +
+    'tools/shot.mjs and tools/count-clicks.mjs need none of this - they speak CDP over\n' +
+    "node's built-in WebSocket. This harness is the only thing here that wants npm."
+  );
+}
+
+const puppeteer = loadPuppeteer();
+
+// Screenshots land next to the repo unless asked otherwise, so a run leaves its
+// evidence somewhere the next reader can actually find it.
+const SCRATCH = process.env.CLAUDE_SCRATCHPAD || join(ROOT, '.verify-out');
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
