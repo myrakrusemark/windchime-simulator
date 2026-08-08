@@ -268,20 +268,49 @@ def build_diff(fa, fb, label_a, label_b):
         k = "%gs" % m
         va = (ea.get("rms_rel_peak_db") or {}).get(k)
         vb = (eb.get("rms_rel_peak_db") or {}).get(k)
-        r = row("energy", "RMS at %s (dB under peak)" % k, va, vb, "%.1f", "dB",
-                kind="abs", unit_size=DIVERGENCE_UNITS["energy_rel_db"])
+        # Reported, not scored: the struck-tube row below is the scored one, and
+        # scoring both would count the same disagreement twice on the clips where
+        # they are the same number, which is most of them.
+        r = row("energy", "RMS at %s (dB under peak)" % k, va, vb, "%.1f", "dB")
         if (ea.get("truncated") or {}).get(k) or (eb.get("truncated") or {}).get(k):
             r["note"] = "clip ends inside the window"
+
+    # The same three marks with each file's own leftover tubes cut out. On a clip
+    # that has none this is the row above, repeated; on one that has some it is
+    # the only version of the row that is about the tube somebody hit. Both are
+    # printed because the raw row is what a listener's ear gets and the struck
+    # row is what the instrument did, and they are different questions. Only the
+    # struck row is scored, so the score is about the instrument.
+    sa = fa.get("struck_energy_trajectory") or {}
+    sb = fb.get("struck_energy_trajectory") or {}
+    d["struck_notched_a"] = sa.get("notched_hz") or []
+    d["struck_notched_b"] = sb.get("notched_hz") or []
+    for m in marks:
+        k = "%gs" % m
+        va = (sa.get("rms_rel_peak_db") or {}).get(k)
+        vb = (sb.get("rms_rel_peak_db") or {}).get(k)
+        r = row("energy", "struck-tube RMS at %s (dB under peak)" % k, va, vb,
+                "%.1f", "dB", kind="abs", unit_size=DIVERGENCE_UNITS["energy_rel_db"])
+        if d["struck_notched_a"] or d["struck_notched_b"]:
+            r["note"] = "A cut %s Hz, B cut %s Hz" % (
+                d["struck_notched_a"] or "-", d["struck_notched_b"] or "-")
 
     if marks:
         # one summary number for the whole tail, so a variant can be ranked on
         # "how much of the ring is missing" without reading three rows. Taken
-        gaps = [_delta((ea.get("rms_rel_peak_db") or {}).get("%gs" % m),
-                       (eb.get("rms_rel_peak_db") or {}).get("%gs" % m))
-                for m in marks]
-        gaps = [g for g in gaps if g is not None]
+        # from the struck-tube rows, for the same reason those are the scored
+        # ones; the raw version is kept beside it so the two can be compared.
+        def _gaps(pa, pb):
+            g = [_delta((pa.get("rms_rel_peak_db") or {}).get("%gs" % m),
+                        (pb.get("rms_rel_peak_db") or {}).get("%gs" % m))
+                 for m in marks]
+            return [v for v in g if v is not None]
+        gaps = _gaps(sa, sb) or _gaps(ea, eb)
+        raw_gaps = _gaps(ea, eb)
         d["energy_gap_db"] = gaps
         d["energy_gap_mean_db"] = (sum(gaps) / len(gaps)) if gaps else None
+        d["energy_gap_raw_db"] = raw_gaps
+        d["energy_gap_raw_mean_db"] = (sum(raw_gaps) / len(raw_gaps)) if raw_gaps else None
 
     ia, ib = fa["inharmonicity"], fb["inharmonicity"]
     for k, ideal in enumerate(IDEAL_FREE_FREE):

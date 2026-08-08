@@ -540,6 +540,62 @@ def validate_noise_floor_invariance(ck):
         shutil.rmtree(tmpd, ignore_errors=True)
 
 
+def validate_struck_trajectory(ck):
+    """Cutting a neighbour's tube out of the energy trajectory must recover the
+    struck tube's own trajectory, and must do nothing at all when there is no
+    neighbour to cut.
+
+    Built as a two-tube signal with both decays known: a 464 Hz strike at the
+    onset and a 311 Hz tone that started long before and is 23 dB down, which is
+    the corinthian reference's situation with its own numbers. The struck-only
+    trajectory of the pair must come back to the trajectory of the 464 Hz tube
+    rendered on its own.
+    """
+    group = "struck-tube energy trajectory  (synthetic two-tube clip)"
+    sr = 48000
+    n = int(6.0 * sr)
+    tt = np.maximum(0.0, np.arange(n) / sr - 0.05)
+    struck = np.sin(2 * np.pi * 464.0 * tt) * 10.0 ** (-3.0 * tt / 15.0)
+    struck[: int(0.05 * sr)] = 0.0
+    # the neighbour: struck earlier, so further into a slower decay, and steady
+    leftover = 10 ** (-23.0 / 20.0) * np.sin(2 * np.pi * 311.0 * np.arange(n) / sr)
+    leftover = leftover * 10.0 ** (-3.0 * (np.arange(n) / sr) / 30.0)
+    tmpd = tempfile.mkdtemp(prefix="chime-struck-")
+    try:
+        both = (struck + leftover)
+        alone = struck / (np.max(np.abs(struck)) / 0.7)
+        both = both / (np.max(np.abs(both)) / 0.7)
+        pa = os.path.join(tmpd, "alone.wav")
+        pb = os.path.join(tmpd, "both.wav")
+        wavfile.write(pa, sr, (alone * 32767).astype(np.int16))
+        wavfile.write(pb, sr, (both * 32767).astype(np.int16))
+        fa, fb = analyze.analyze_wav(pa), analyze.analyze_wav(pb)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+    # the clip with no neighbour must be untouched, exactly
+    sa = fa["struck_energy_trajectory"]
+    ck.boolean(group, "clip with no leftover is not notched", True,
+               sa.get("identical_to_raw") is True and not sa.get("notched_hz"))
+    for k in ("1s", "3s", "5s"):
+        ck.boolean(group, "no-leftover clip unchanged at %s" % k, True,
+                   sa["rms_rel_peak_db"][k] == fa["energy_trajectory"]["rms_rel_peak_db"][k])
+
+    # the two-tube clip must find the neighbour and come back to the tube alone
+    sb = fb["struck_energy_trajectory"]
+    ck.boolean(group, "leftover tube found and cut", True,
+               any(abs(f - 311.0) < 5 for f in (sb.get("notched_hz") or [])))
+    for k in ("1s", "3s", "5s"):
+        want = fa["energy_trajectory"]["rms_rel_peak_db"][k]
+        raw = fb["energy_trajectory"]["rms_rel_peak_db"][k]
+        got = sb["rms_rel_peak_db"][k]
+        ck.explicit(group, "struck-only RMS at %s recovers the tube alone" % k,
+                    want, got, 1.5, unit="dB")
+        # and it must be an improvement on the raw number, or there was no point
+        ck.boolean(group, "struck-only beats raw at %s" % k, True,
+                   abs(got - want) <= abs(raw - want) + 1e-9)
+
+
 def validate_bessel(ck):
     """modal.js's Bessel polynomials, against scipy, over the range it evaluates.
 
@@ -662,6 +718,7 @@ def main(argv=None):
     validate_bessel(ck)
     validate_estimator_continuity(ck)
     validate_noise_floor_invariance(ck)
+    validate_struck_trajectory(ck)
 
     model = validate_model(ck)
 

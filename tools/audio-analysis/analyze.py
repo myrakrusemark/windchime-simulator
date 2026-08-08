@@ -1385,6 +1385,77 @@ def energy_trajectory(x, sr, onset_i, marks=ENERGY_MARKS_S, win_s=ENERGY_WIN_S):
     return out
 
 
+# How wide a stop-band to cut around a tone that belongs to a different tube.
+# The partial's own measured band is used when there is one; this is the
+# fallback and the minimum, and it is set by the fact that these lines beat -
+# a 3 Hz doublet needs more than 3 Hz of room or the notch leaves the sidebands.
+ENERGY_NOTCH_HALF_HZ = 8.0
+
+
+def struck_energy_trajectory(x, sr, onset_i, leftovers, **kw):
+    """The energy trajectory of the tube that was actually hit.
+
+    WHY THIS EXISTS. energy_trajectory() above measures the whole file, which is
+    the right thing to measure right up until the file contains a second
+    instrument. Two of the three reference clips do: a tube struck before the
+    recording started is still ringing under the one being measured, and because
+    those leftovers were struck earlier they are further into their own decay and
+    decaying more slowly than the fresh strike on top of them. So they matter
+    more the later you look, which is exactly where the interesting part of the
+    measurement is.
+
+    MEASURED, on the corinthian clip at the 5 s mark: the struck tube's
+    fundamental is at -21.9 dB under the file's peak and the leftovers are at
+    -20.2, so 78 percent of the energy in that window belongs to a tube nobody
+    hit. Scored raw, a synthesis with a perfect 464 Hz tube is 4 dB adrift for
+    reasons that have nothing to do with the tube.
+
+    WHAT KEEPS IT HONEST. The bands are not chosen here and they are not read off
+    the reference set. They are whatever THIS file's own fundamental selection
+    has already labelled "another tube left ringing, not this strike" - a
+    classification analyze.py has been making, printing and acting on since the
+    harness was built. The same function runs over both sides of a comparison
+    with each side's own labels, so a synthesis that grows a spurious tone below
+    its fundamental gets it cut out too and gains nothing. Both numbers are
+    reported; nothing is hidden behind the correction.
+    """
+    out = dict(energy_trajectory(x, sr, onset_i, **kw))
+    out["notched_hz"] = [round(float(f), 2) for f, _ in leftovers]
+    if not leftovers:
+        out["identical_to_raw"] = True
+        return out
+    X = np.fft.rfft(x)
+    freqs = np.fft.rfftfreq(x.size, 1.0 / sr)
+    for f0, half in leftovers:
+        X[np.abs(freqs - f0) <= max(half, ENERGY_NOTCH_HALF_HZ)] = 0.0
+    y = np.fft.irfft(X, x.size)
+    out.update(energy_trajectory(y, sr, onset_i, **kw))
+    out["notched_hz"] = [round(float(f), 2) for f, _ in leftovers]
+    out["identical_to_raw"] = False
+    return out
+
+
+def leftover_bands(fund_info, partials):
+    """(freq, half-bandwidth) for every partial this file says is another tube."""
+    if not fund_info:
+        return []
+    bands = []
+    for r in fund_info.get("rejected", []):
+        if "another tube left ringing" not in r.get("why", ""):
+            continue
+        f0 = float(r["freq_hz"])
+        half = ENERGY_NOTCH_HALF_HZ
+        for p in partials:
+            if abs(p["freq_hz"] - f0) < 1e-6:
+                # the partial's own band, opened out by its doublet split so a
+                # beating leftover is removed rather than half-removed
+                half = max(half, 0.5 * p.get("band_bw_hz", 0.0)
+                           + p.get("spectral_split_hz", 0.0))
+                break
+        bands.append((f0, half))
+    return bands
+
+
 # ----------------------------------------------------------------------------
 # 6. inharmonicity
 # ----------------------------------------------------------------------------
@@ -1791,6 +1862,8 @@ def analyze_wav(path, max_partials=10, min_partials=6, floor_db=45.0,
                       "max_partials": int(max_partials), "fmin_hz": float(fmin)},
         "spectral_centroid": spectral_centroids(x, sr, onset_i),
         "energy_trajectory": energy_trajectory(x, sr, onset_i),
+        "struck_energy_trajectory": struck_energy_trajectory(
+            x, sr, onset_i, leftover_bands(fund_info, partials)),
         "inharmonicity": inharmonicity(partials, f0=fund["freq_hz"] if fund else None),
         "noise": noise_and_click(x, sr, onset_i, partials,
                                  peak_dbfs=on.get("peak_level_dbfs")),
