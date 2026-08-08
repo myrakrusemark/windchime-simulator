@@ -31,7 +31,20 @@ export const CODEC_VERSION = 1;
 
 export const DESIGN_DEFAULTS = {
 	v: 1,                              // int, codec version
-	place: 'forest-path',              // string, a key of PLACES
+
+	// TEMPORARY, AND P4 FLIPS IT BACK IN THE COMMIT THAT SHIPS THE PLATE.
+	//
+	// CONTRACTS section 5.4 makes 'forest-path' the default place and section 3's
+	// table says so too. But places.js does not exist yet, so the only scene this
+	// build can draw is the procedural porch - the beam, the post and the two
+	// bushes - and describe() is the only sentence on the page. Left at
+	// 'forest-path' it read "hung on the forest path" over a green lawn.
+	//
+	// A caption that lies is worse than no caption, because it is the one thing a
+	// stranger reads. Until the plate lands, the default names the place that is
+	// actually on screen. Three critics called this independently; the fix they
+	// all prescribed is this line.
+	place: 'porch',                    // string, a key of PLACES; P4 -> 'forest-path'
 	tubes: {
 		scale: 'cMajorPentatonic',      // string, a key of physics.js SCALES
 		notes: 6,                       // int
@@ -363,8 +376,19 @@ export function placePhrase( id ) {
 }
 
 /**
- * "Six-tube C major pentatonic on Theta Flower of Life stock, hung on the
- * forest path."
+ * "Six-tube C major pentatonic, voiced on Theta Flower of Life, on the porch."
+ *
+ * VOICED ON, not ON ... STOCK. The earlier wording read as a description of the
+ * picture, and it was not one: physics.js hangs a single section unconditionally
+ * (CONTRACTS H9), so swapping the stock moves every tube's cut length inside
+ * audio.js and moves not one drawn cylinder. Probed side by side, `?c=v1` and
+ * `?c=v1_st-cb78` differ by 43 percent in tube diameter in the snapshot and are
+ * byte-identical in the geometry. "On Corinthian Bells 78 stock" claimed the
+ * second one looked different. "Voiced on Corinthian Bells 78" says what is
+ * true: it is a choice you hear.
+ *
+ * The stock has to stay IN the sentence - P3 pass criterion 3 requires every
+ * control to change the caption - so the fix is the preposition, not a deletion.
  *
  * @param {object} design any partial; it is clamped first, so this is total.
  * @param {object} [opts] { placeName } to override the place phrase once P4's
@@ -377,7 +401,7 @@ export function describe( design, opts ) {
 	const count = COUNT_WORDS[ d.tubes.notes ] || String( d.tubes.notes );
 	const scale = SCALE_NAMES[ d.tubes.scale ] || d.tubes.scale;
 	const where = ( typeof o.placeName === 'string' && o.placeName ) ? o.placeName : placePhrase( d.place );
-	return count + '-tube ' + scale + ' on ' + d.tubes.stock + ' stock, hung on ' + where + '.';
+	return count + '-tube ' + scale + ', voiced on ' + d.tubes.stock + ', on ' + where + '.';
 
 }
 

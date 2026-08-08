@@ -430,7 +430,7 @@ ok( 'hang round trip worse than 0.005', maxHangError <= 0.005, String( maxHangEr
 // all off default too, is measured as well and reported honestly: it does not
 // fit in 120 and is not reachable from the pill row.
 const MAX_SLOTS = D.clampDesign( {
-	place: 'porch',
+	place: 'forest-path',
 	tubes: { scale: 'cMinorPentatonic', notes: 8, stock: 'Corinthian Bells 65' },
 	clapper: { width: 0.100, mass: 0.090, drop: 0.620 },
 	sail: { mass: 0.090, height: 0.300 },
@@ -463,12 +463,13 @@ line( 'encode(DESIGN_DEFAULTS)  = ' + JSON.stringify( D.encode( D.DESIGN_DEFAULT
 
 const VECTORS = [
 	[ 'v1_sc-lyd_n-8', { tubes: { scale: 'cLydian', notes: 8 } } ],
-	[ 'v1_pl-porch', { place: 'porch' } ],
+	[ 'v1_pl-forest-path', { place: 'forest-path' } ],
 	[ 'v1_st-cb65', { tubes: { stock: 'Corinthian Bells 65' } } ],
 	[ 'v1_st-tf-s', { tubes: { stock: 'Theta Twin Flame small' } } ],
-	// forest-path is the DEFAULT place, so pl is correctly absent from this one.
-	[ 'v1_hu-38_hv-55_hs-130', { place: 'forest-path', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
-	[ 'v1_pl-porch_hu-38_hv-55_hs-130', { place: 'porch', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
+	// porch is the DEFAULT place until P4 lands the plate, so pl is correctly
+	// absent from this one and present on the next.
+	[ 'v1_hu-38_hv-55_hs-130', { place: 'porch', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
+	[ 'v1_pl-forest-path_hu-38_hv-55_hs-130', { place: 'forest-path', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
 	[ 'v1_su-34', { view: { sun: 34 } } ],
 	[ 'v1_q-l', { view: { quality: 'low' } } ],
 	[ 'v1_at-70', { voice: { attack: 0.0070 } } ],
@@ -496,8 +497,8 @@ ok( 'decay quantum is not tenths of a second', D.decode( 'v1_dk-120' ).voice.dec
 ok( 'clapper width quantum is not millimetres', D.decode( 'v1_cw-82' ).clapper.width === 0.082 );
 
 // Field order is canonical whatever order the object was built in.
-ok( 'field order is not canonical', D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'porch' } ) === 'v1_pl-porch_n-8_w-24',
-	D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'porch' } ) );
+ok( 'field order is not canonical', D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'forest-path' } ) === 'v1_pl-forest-path_n-8_w-24',
+	D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'forest-path' } ) );
 
 // An unknown but well-formed place id survives, so a link from a newer build is
 // not mangled by an older one.
@@ -591,7 +592,7 @@ for ( const v of HOSTILE_VALUES ) {
 ok( 'describe is not total', describeOk );
 line( 'defaults      ' + D.describe( D.DESIGN_DEFAULTS ) );
 line( 'v1_sc-lyd_n-8 ' + D.describe( D.decode( 'v1_sc-lyd_n-8' ) ) );
-line( 'v1_pl-porch   ' + D.describe( D.decode( 'v1_pl-porch_st-cb78_n-3' ) ) );
+line( 'v1_pl-forest-path   ' + D.describe( D.decode( 'v1_pl-forest-path_st-cb78_n-3' ) ) );
 
 // ---------------------------------------------------------------------------
 // 8. No drift against the files that actually own these numbers
