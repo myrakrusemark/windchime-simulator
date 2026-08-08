@@ -39,10 +39,83 @@ export const IDEAL_RATIOS = [1.0, 2.7565, 5.4039, 8.933, 13.3443];
 // It converges to 1 fast; mode 1 is the only one meaningfully off.
 export const SIGMA = [0.9825022, 1.0007773, 0.9999665, 1.0000014, 0.9999999];
 
-// Higher modes radiate into the air more efficiently than the fundamental, but a
-// wooden clapper is a soft exciter and unchecked they are shrill. This taper is
-// the difference between "chime" and "dropped a spanner".
-export const RAD = [1.0, 0.85, 0.7, 0.55, 0.45];
+// --- Upper-mode level -------------------------------------------------------
+//
+// RAD[n] scales mode n's amplitude at the strike. It used to carry the comment
+// "higher modes radiate into the air more efficiently than the fundamental" and
+// then attenuate them - a comment and an array pointing opposite ways. The
+// array's DIRECTION is the one real recordings support. The comment was wrong,
+// and the interesting part is that it was not wrong by a sign: no radiation
+// term of any sign belongs here at all.
+//
+// RADIATION IS A BOOST, NOT A TAPER. Fed each reference instrument's own
+// published tube, the radiation weight that this file's own radiationJ() implies
+// for the pressure a listener hears - A_n goes as (f_n/f_1)^1.5 sqrt(J_n/J_1),
+// from P_rad = w E / Q_rad with Q_rad = m' / (pi rho0 a^4 k^2 J_n) - comes out
+//
+//   Corinthian 65   464 Hz  2.25 in   m2 +17.7  m3 +22.9  m4 +23.8  m5 +24.2 dB
+//   Theta Supergiant 593 Hz    3 in   m2 +12.0  m3 +13.6  m4 +13.8  m5 +14.0
+//   Flower of Life  739 Hz  1.75 in   m2 +15.6  m3 +19.1  m4 +19.6  m5 +19.8
+//
+// Twelve to twenty-four dB the WRONG WAY, saturating from mode 3 up. That is not
+// an artefact of the quadrature: a bending tube's radiation resistance climbs as
+// (k_r a)^3 until the section stops being compact and then flattens, so every
+// channel in the radiation budget makes the overtones louder, never quieter.
+//
+// THE COINCIDENCE FREQUENCY DOES NOT RESCUE IT. f_c = c_air^2 / (2 pi c_L r),
+// with c_L = sqrt(E/rho) and r the radius of gyration, is 201 Hz on the
+// Corinthian 65's stock, 143 Hz on the Supergiant's, 250 Hz on the Flower of
+// Life's and 429 Hz on the 1 in tube, the slimmest stock in CATALOGUE. f_c is
+// the frequency BELOW which a tube's radiation collapses; above it the
+// efficiency saturates towards 1. Every partial of every clean reference sits
+// 2 to 37 times ABOVE its own tube's f_c, all of them on the saturated side, so
+// coincidence separates nothing inside a chime's own mode set. It decides
+// whether a bass fundamental radiates at all - modeT60s leans on it hard, and
+// correctly - and says nothing about mode 1 against mode 3.
+//
+// WHAT THIS TAPER REALLY IS: excitation. The share of the clapper's impulse a
+// mode can take. `bright` in strikeVoice models that as a Lorentzian in
+// f / (1/2 tau_c) whose tail falls 27 dB per decade; the recordings need 60 to
+// 90. RAD carries the difference, and the name is kept only because every tool
+// and test in the tree imports it.
+//
+// THE NUMBERS, and what they are not. Every level below is a partial's peak in a
+// 60 ms window from the onset, relative to mode 1 of the same file, with our
+// render put through the reference's own channel first - the same measurement on
+// both sides. Order is 464 / 592 / 739 Hz throughout.
+//
+//   Modes 1 and 2 are UNTOUCHED. Mode 2 reads -16.0 / -11.5 / -18.3 on the
+//   instruments and -15.3 / -16.5 / -17.6 here, inside 0.7 dB on two of the
+//   three. There was nothing to fix and touching it would have broken it.
+//
+//   Modes 3 to 5 keep their old relative spacing and are scaled by one shared
+//   factor, -18 dB. Mode 3 goes -17.1 / -18.8 / -19.9 to -35.1 / -36.7 / -37.8
+//   against a measured -37.7 / -33.9 / -38.7: an error of +20.6 / +15.1 / +18.8
+//   dB becomes +2.6 / -2.8 / +0.9.
+//
+//   That -18 dB is CALIBRATED, not derived. It is set from the references'
+//   mode-3 levels, which is the quantity this taper exists to reproduce. It is
+//   not fitted to their pitches: nothing here changes with f1, because the
+//   free-free eigenvalue problem fixes f_n/f_1 for every tube, so one per-mode
+//   array is one law at every pitch. A law in frequency was tried first and does
+//   not exist. Mode 2 of the 739 Hz tube (1916 Hz) has to stay where it is while
+//   mode 3 of the 464 Hz tube (2277 Hz) drops 18 dB, 19 percent higher in
+//   frequency; no smooth curve in f does both, and the reason is that a mode's
+//   level tracks its place in the series, not the frequency it happens to land
+//   on.
+//
+//   Modes 4 and 5 are the weakest claim in the file. One reference clip shows a
+//   mode 4 (-37.4 on the Corinthian, where we now give -45.3) and none shows a
+//   mode 5, so their spacing is inherited, not measured. They are set to keep the
+//   rendered rolloff monotone, which is all the evidence supports about them.
+//
+//   NOT EVERY STRUCK TUBE OBEYS THIS. On the tier-1 galvanised-steel pipe chimes,
+//   which the maker struck with a large steel nail, the same 60 ms measurement
+//   puts mode 2 at +22.6 dB and mode 3 at +2.9 dB ABOVE mode 1. A nail is a much
+//   harder exciter than a wooden clapper, and this taper is the clapper's. It
+//   belongs with tau_c in strikeVoice, not here, and a proper contact model would
+//   put it there.
+export const RAD = [1.0, 0.85, 0.0881, 0.0692, 0.0567];
 
 export const MAX_PARTIALS = BETA_L.length;
 
@@ -477,6 +550,349 @@ export function f1ForLength(L, tube) {
 // advance, from geometry and material only, that it is not entitled to speak
 // about the Supergiant's mode 2. Nothing here is tuned to close that gap,
 // because the gap is not in the beam theory.
+
+// --- The bending doublet ----------------------------------------------------
+//
+// EVERY BENDING MODE OF A TUBE IS TWO MODES. A tube bends in two orthogonal
+// planes, and on a perfectly circular section those two bend at exactly the same
+// frequency. No real section is circular, so they do not, and a struck tube
+// arrives as a pair of lines a fraction of a percent apart whose sum beats at
+// their difference. Every reference recording in the set does this and, until
+// this section existed, this model did not do it at all: measured on the
+// analyser's own beat detector, the three tier-1 fundamentals beat at 1.62 /
+// 1.19 / 1.25 Hz with depths 0.375 / 0.152 / 0.159, and ours beat at depths of
+// 0.037 / 0.019 / 0.008, which is the detector reading its own noise.
+//
+// WHERE THE SPLIT COMES FROM, and it is worth being explicit because the obvious
+// candidate turns out to be the wrong one.
+//
+//   OUT OF ROUND. Write the outside radius as a(theta) = a0 (1 + e cos 2theta).
+//   To first order the area does not change - the cos 2theta term integrates to
+//   zero - but the second moments do: I about one principal axis goes as
+//   (1 - 1.5 e) and about the other as (1 + 1.5 e). f goes as sqrt(I/A), so
+//   df/f = 1.5 e, and since ovality is conventionally (Dmax - Dmin)/Dmean = 2 e,
+//     df/f = 0.75 * ovality.
+//
+//   WALL ECCENTRICITY. Write the wall as h(theta) = hbar (1 + lam cos theta).
+//   This one is subtler and it is the bigger term. A cos-theta wall does NOT
+//   split the second moments about the tube's geometric centre at first order -
+//   the integral vanishes the same way - but it MOVES THE CENTROID, by a*lam/2,
+//   and the parallel-axis term A*xbar^2 comes off one principal axis only:
+//     df/f = lam^2 / 4.
+//   Second order in lam and still the larger contributor, because drawn tube is
+//   held round to about a tenth of a percent and its wall to about ten percent.
+//
+//   THE CORD HOLE IS NOT IT. The obvious culprit - a hole drilled through both
+//   walls at the node - was computed and is an order of magnitude too small. Two
+//   holes of diameter d at the extreme fibres take 2d/(pi a) off the local I,
+//   about 10 percent for a 1/8 in hole in this stock, but they take it off over
+//   an axial length of d out of a metre-long tube, and the Rayleigh weight
+//   Y''(s_hang)^2 * d / int Y''^2 is 2.0e-3 for the fundamental. The product is
+//   df/f ~ 1e-4, a twenty-fifth of what the recordings show. It also predicts a
+//   DIFFERENT fraction for every mode, because Y_n'' at the grip has nothing to
+//   do with Y_1'' there, and the recordings do not show that either. The split
+//   is a property of the section, not of the hole.
+//
+// THE SAME FRACTION FOR EVERY MODE - very nearly. Ovality and wall eccentricity
+// are uniform along the tube, so both principal radii of gyration are constants
+// of the section and every mode's frequency scales with r the same way. Mode 5's
+// absolute split is therefore about 13.3x the fundamental's. Only "about",
+// because f_n also depends on r through the Timoshenko slowing factor, which is
+// stronger at mode 5 than at mode 1 and pulls the upper modes' fractional split
+// down a few percent. Nothing here assumes the constant-fraction result: both
+// principal sections are run through the same beam law and the difference is
+// taken, so whatever the slowing does is in the answer.
+//
+// THE NUMBERS ARE TOLERANCES, not measurements of any reference instrument. A
+// 0.1 percent out-of-round and a 10 percent wall are the ordinary mill tolerances
+// drawn seamless aluminium tube is supplied to, and they give df/f = 2.6e-3
+// against a reference set that measures 1.69e-3, 2.01e-3 and 3.49e-3 - inside the
+// observed range, and not fitted to any one of it. What no tolerance can do is
+// reproduce all three at once: those three fractions differ by 2.1x on three
+// tubes that are supposed to be the same kind of object, which is the signature
+// of a per-tube draw rather than a law. tubeImperfection() below is that draw.
+export const TUBE_ROUNDNESS = 0.0010;      // out-of-round, as a fraction of OD
+export const WALL_ECCENTRICITY = 0.10;     // wall variation, as a fraction of wall
+
+// Midpoint quadrature over theta. The integrands are 2pi-periodic and smooth -
+// the highest harmonic present is cos 4theta - so the midpoint rule converges
+// spectrally and 64 points is exact to machine precision. It is not a fine grid
+// standing in for a fine answer; it is a closed form nobody has to transcribe.
+const SECTION_QUAD = 64;
+
+/**
+ * The two principal radii of gyration of a slightly imperfect tube section.
+ *
+ * Integrates the real annulus - outside radius a0(1 + e cos 2theta), wall
+ * hbar(1 + lam cos(theta - axis)) - for area, first moments and second moments,
+ * shifts to the centroid, and diagonalises. Returns sqrt(I/A) for each principal
+ * axis, which is the only quantity the beam law downstream wants.
+ *
+ * Doing it this way rather than typing 0.75*ovality and lam^2/4 is deliberate:
+ * the two closed forms are thin-ring limits and these walls are 6 percent of the
+ * diameter, the axes of the two defects are unrelated so they have to combine as
+ * a tensor rather than as scalars, and a quadrature cannot get a sign wrong the
+ * way an algebraic derivation can. validate.py checks it against both closed
+ * forms in the limits where they hold.
+ */
+export function principalGyration(tube, ovality, ecc, eccAxis) {
+  const s = stockOf(tube);
+  const a0 = 0.5 * s.od;
+  const hbar = 0.5 * (s.od - s.id);
+  const e = 0.5 * Math.max(0, num(ovality, 0));      // ovality = (Dmax-Dmin)/Dmean = 2e
+  const lam = Math.max(0, num(ecc, 0));
+  const ax = num(eccAxis, 0);
+  const dt = 2 * Math.PI / SECTION_QUAD;
+  let A = 0, Sx = 0, Sy = 0, Ixx = 0, Iyy = 0, Ixy = 0;
+  for (let i = 0; i < SECTION_QUAD; i++) {
+    const th = (i + 0.5) * dt;
+    const c = Math.cos(th), sn = Math.sin(th);
+    const ro = a0 * (1 + e * Math.cos(2 * th));
+    const h = hbar * (1 + lam * Math.cos(th - ax));
+    const ri = Math.max(1e-9, ro - h);
+    const ro2 = ro * ro, ri2 = ri * ri;
+    const m2 = 0.5 * (ro2 - ri2);                       // dA / dtheta
+    const m3 = (ro2 * ro - ri2 * ri) / 3;               // first moment / dtheta
+    const m4 = 0.25 * (ro2 * ro2 - ri2 * ri2);          // second moment / dtheta
+    A += m2; Sx += c * m3; Sy += sn * m3;
+    Ixx += sn * sn * m4; Iyy += c * c * m4; Ixy += sn * c * m4;
+  }
+  A *= dt; Sx *= dt; Sy *= dt; Ixx *= dt; Iyy *= dt; Ixy *= dt;
+  const xb = Sx / A, yb = Sy / A;
+  Ixx -= A * yb * yb;
+  Iyy -= A * xb * xb;
+  Ixy -= A * xb * yb;
+  const mid = 0.5 * (Ixx + Iyy);
+  const dev = Math.sqrt(0.25 * (Ixx - Iyy) * (Ixx - Iyy) + Ixy * Ixy);
+  return {
+    rHi: Math.sqrt(Math.max(0, mid + dev) / A),
+    rLo: Math.sqrt(Math.max(0, mid - dev) / A),
+    area: A
+  };
+}
+
+/**
+ * The five mode frequencies of a tube of cut length L whose section has radius
+ * of gyration r. Extracted from tubeModes() so that the two principal sections
+ * of one tube can be run through the identical beam law - including the
+ * Timoshenko slowing, which is why the doublet's fractional split is not quite
+ * the same at mode 5 as at mode 1.
+ */
+function freqsForGyration(r, L, k, cL, out) {
+  const b1 = BETA_L[0];
+  const eps1 = (r * b1 / L) * (r * b1 / L);
+  const s1 = modeSlowing(eps1, k);
+  const f1 = (b1 * b1 / (2 * Math.PI * L * L)) * r * cL * s1;
+  for (let n = 0; n < MAX_PARTIALS; n++) {
+    out[n] = f1 * IDEAL_RATIOS[n] * modeSlowing(eps1 * IDEAL_RATIOS[n], k) / s1;
+  }
+  return out;
+}
+
+// The nominal tube: the tolerances above, with the wall's eccentric axis at 45
+// degrees to the oval's. That angle is not a shrug. The two defects each perturb
+// the section's second-moment tensor at the second angular harmonic, so they
+// combine as vectors in 2*theta and their sum depends on the angle between them:
+// aligned they partly cancel (1.8e-3 here), crossed they add (3.3e-3). At 45
+// degrees the cross term vanishes and the split is the root-sum-square, 2.6e-3,
+// which is the value a rig of tubes with independent defect axes averages to in
+// energy. It is the honest single number to render one tube at.
+export const NOMINAL_ECC_AXIS = Math.PI / 4;
+
+// Strike azimuth, measured from the stiffer principal axis.
+//
+// THIS IS THE ONE NUMBER IN THIS SECTION THAT IS NOT GEOMETRY, and it is worth
+// saying exactly which part of it is not.
+//
+// The mechanism is geometry: a blow along a principal axis excites one
+// polarisation and the mode does not beat at all, a blow at 45 degrees excites
+// both equally and it beats to silence, and in between the weak line's amplitude
+// is |tan| of the angle. What no part of this model knows is the ANGLE - the
+// section's principal axes come from the mill and the clapper's line of approach
+// comes from the ring, and neither has any reason to know about the other.
+//
+// A UNIFORM DRAW IS MEASURABLY TOO DEEP. Its median is 22.5 degrees, r = 0.414,
+// and rendered at that angle and put through each reference's own channel the
+// analyser reads our fundamentals at depth 0.421 / 0.414 / 0.405 against the
+// references' own 0.375 / 0.152 / 0.159. The channel is not what makes the
+// difference - it is applied to both sides - so real strikes really do land
+// nearer a principal axis than chance would put them, and the model has to say
+// so. Across all the detected partials of the three tier-1 clips the depths run
+// 0.11 to 0.68 with a median near 0.18.
+//
+// So the azimuth is drawn uniformly over 0 to STRIKE_AZIMUTH_SPREAD rather than
+// over the full quarter turn, and that bound is the one quantity here fitted to
+// the recordings: 30 degrees puts the median at r = 0.268, the middle of the
+// observed cluster, and the top of the range at 0.577, near its top. Everything
+// else about the doublet - how far apart the two lines sit, how that scales with
+// mode number, how it varies from tube to tube - comes from the section.
+export const STRIKE_AZIMUTH_SPREAD = Math.PI / 6;
+export const NOMINAL_STRIKE_AZIMUTH = 0.5 * STRIKE_AZIMUTH_SPREAD;
+
+/**
+ * Deterministic per-tube draw of the section's defects and its clocking.
+ *
+ * A chime is not one object transposed. Its tubes are cut from one length of
+ * stock, but the stock's ovality and wall run out slowly along its length and
+ * each tube is clocked differently on its cord, so each tube beats at its own
+ * rate and its own depth. This is what makes a set sound like several objects,
+ * and it costs one hash per tube at rig build.
+ *
+ * A hash, not a PRNG: the same tube index gives the same tube in this session,
+ * in the next session, in the offline renderer and in a test. splitmix32's
+ * finaliser, which is a standard integer avalanche and not a constant anyone
+ * here chose.
+ */
+export function tubeImperfection(index, seed) {
+  let z = ((index | 0) * 0x9E3779B9 + ((seed | 0) || 0x6D2B79F5)) >>> 0;
+  const u = () => {
+    z = (z + 0x9E3779B9) >>> 0;
+    let t = z;
+    t = Math.imul(t ^ (t >>> 16), 0x21F0AAAD) >>> 0;
+    t = Math.imul(t ^ (t >>> 15), 0x735A2D97) >>> 0;
+    return ((t ^ (t >>> 15)) >>> 0) / 4294967296;
+  };
+  return {
+    // Half to one and a half times the typical figure. A tolerance is a bound and
+    // a mill does not aim at zero; this spreads the rig's beat rates over about
+    // 2x, which is the spread the three reference instruments themselves show.
+    ovality: TUBE_ROUNDNESS * (0.5 + u()),
+    ecc: WALL_ECCENTRICITY * (0.5 + u()),
+    // Only the angle mod pi matters: a second-harmonic perturbation is symmetric
+    // under a half turn.
+    eccAxis: Math.PI * u(),
+    // The strike azimuth, over the narrower spread the reference depths ask for.
+    // Some tubes come out within a couple of degrees of a principal axis and do
+    // not audibly beat at all, which is also what the reference set shows: three
+    // of the ten partials in the Corinthian clip and four of the eight in the
+    // Flower of Life's carry no detectable modulation.
+    az: STRIKE_AZIMUTH_SPREAD * u()
+  };
+}
+
+/**
+ * The exact envelope of a doublet whose two polarisations start in phase.
+ *
+ * A strike is an impulse: it excites both polarisations at the same instant with
+ * the same sign, so they add coherently at t = 0 and dephase from there. With
+ * amplitude ratio r the complex envelope about the strong line is 1 + r e^{i w t}
+ * (w = 2 pi * split), which gives
+ *
+ *   magnitude  sqrt(1 + r^2 + 2 r cos(w t))          - the beat you hear
+ *   phase      atan2(r sin(w t), 1 + r cos(w t))     - and the wobble you do not
+ *
+ * BOTH HALVES MATTER, and the second one is the reason this is a function rather
+ * than a gain envelope. Amplitude modulation alone puts sidebands at +/- split
+ * either side of the carrier: a line that is not there below, and half the line
+ * that should be there above. The phase term cancels the lower one and completes
+ * the upper one, and only with it does the pair of lines in the spectrum sit
+ * where a real doublet's do. The analyser measures spectral_split_hz separately
+ * from the beat rate, and on a real chime they are the same number; on an
+ * amplitude-only fake they differ by a factor of two.
+ */
+export function beatMagnitude(t, r, splitHz) {
+  const c = Math.cos(2 * Math.PI * splitHz * t);
+  return Math.sqrt(Math.max(0, 1 + r * r + 2 * r * c));
+}
+
+/** Instantaneous frequency offset, in Hz, of the same doublet from its strong line. */
+export function beatFreqOffset(t, r, splitHz) {
+  const w = 2 * Math.PI * splitHz * t;
+  const c = Math.cos(w);
+  const d = 1 + r * r + 2 * r * c;
+  if (!(d > 1e-12)) return 0;
+  return splitHz * r * (r + c) / d;
+}
+
+// --- Paying for the doublet with no extra oscillators ------------------------
+//
+// THE COST OF THIS PIECE IS CPU, NOT SOUND, and it has to be paid on purpose.
+// audio.js builds one OscillatorNode per entry in voice.freqs and the polyphony
+// cap counts VOICES, not oscillators, so handing it a doubled partial list
+// doubles the node count of every strike and the cap does not notice. A chime is
+// left running for hours; a graph that costs twice as much per gust is not a
+// detail.
+//
+// So the browser does not get a second oscillator. The sum of two decaying sines
+// of nearly equal frequency IS one sine at the stronger one's frequency, carrying
+// the amplitude and phase of 1 + r e^{i w t}. That is not an approximation of the
+// doublet, it is the doublet rewritten, and Web Audio can play it as one
+// oscillator whose gain and frequency each follow a setValueCurveAtTime. The
+// curves are Float32Arrays a few hundred long, built once per strike, and they
+// cost no nodes at all: the same five oscillators as before now carry ten lines.
+//
+// WHAT IS APPROXIMATE is only the sampling. setValueCurveAtTime interpolates
+// linearly between the points it is given, so the beat and the decay are both
+// piecewise linear. The grid is set from whichever of the two is faster - 24
+// points per beat cycle, 8 per decay time constant - which puts the worst-case
+// linear-interpolation error at (2 pi / 24)^2 / 8 of the modulation depth, about
+// 0.35 percent of the partial's amplitude, or -49 dB. tools/verify-beat.mjs
+// measures the real error against the exact two-sine sum rather than trusting
+// that estimate, and validate.py gates it.
+//
+// render-offline.mjs does NOT use these curves. It sums the two sines directly,
+// because offline nothing is paying for oscillators and the exact sum is the
+// thing the curves are trying to be. The gap between them is what verify-beat
+// measures.
+export const BEAT_PTS_PER_CYCLE = 24;
+export const BEAT_PTS_PER_TAU = 8;
+export const BEAT_CURVE_MAX = 2048;
+
+// setValueCurveAtTime throws if any other automation event lands inside the
+// curve's own span, endpoints included, so the curve cannot begin at the instant
+// the attack ramp ends. It begins 0.1 ms later and the param holds its ramp
+// value across the gap. A tenth of a millisecond is a twentieth of the shortest
+// attack and a fourteenth of the shortest decay time constant in the model.
+export const BEAT_CURVE_LEAD = 1e-4;
+
+/**
+ * The gain and frequency curves for one partial of a beating voice, as the
+ * browser's two AudioParams want them. Pure arithmetic, so it can be tested and
+ * measured without an AudioContext.
+ *
+ *   amp      the MODE's total amplitude; the two polarisations divide it as
+ *            cos/sin of the strike azimuth, so their squares sum to amp^2
+ *   r        weak polarisation over strong, 0..1
+ *   splitHz  partner minus strong, signed
+ *   t60      the mode's ring time (both polarisations share it: they are 0.3
+ *            percent apart in frequency, which is nothing to a loss budget)
+ *   attack   the linear ramp already scheduled before this curve
+ *   until    when the oscillator stops, seconds after the voice's t0
+ *   freq     the strong line, Hz
+ */
+export function beatCurves(amp, r, splitHz, t60, attack, until, freq) {
+  const tau = decayTau(t60);
+  const split = Math.abs(splitHz);
+  const start = attack + BEAT_CURVE_LEAD;
+  const span = Math.max(1e-4, until - start);
+  let h = tau / BEAT_PTS_PER_TAU;
+  if (split > 0) h = Math.min(h, 1 / (BEAT_PTS_PER_CYCLE * split));
+  let n = Math.ceil(span / h) + 1;
+  if (n < 2) n = 2;
+  if (n > BEAT_CURVE_MAX) n = BEAT_CURVE_MAX;
+  const step = span / (n - 1);
+  const scale = amp / Math.sqrt(1 + r * r);
+  const gain = new Float32Array(n);
+  const fcurve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = start + i * step;
+    gain[i] = scale * beatMagnitude(t, r, split) * Math.exp(-(t - attack) / tau);
+    fcurve[i] = freq + beatFreqOffset(t, r, splitHz);
+  }
+  // The frequency the oscillator has to run at BEFORE the curve takes over, and
+  // it is not the strong line. An oscillator's phase is the integral of its
+  // frequency, so the attack's two and a bit milliseconds at the wrong frequency
+  // leave a constant phase error for the rest of the note - measured at 0.010
+  // rad, which is a 1 percent amplitude error, -40 dB, and the single largest
+  // term in the residual until it was removed. The doublet's own instantaneous
+  // frequency at t = 0 is split*r/(1+r) above the strong line, so starting there
+  // makes the phase right to O(attack^2). tools/verify-beat.mjs measures what is
+  // left.
+  return {
+    gain, freq: fcurve, freq0: freq + beatFreqOffset(0, r, splitHz),
+    start, span, points: n, step
+  };
+}
 
 // --- Excitation constants --------------------------------------------------
 
@@ -1234,6 +1650,44 @@ export function strikeVoice(opts) {
     t60s[n] = clamp(t60s[n] * ringTrim, 0.02, 40);
   }
 
+  // The doublet. freqs[] above is the line the STRIKE FAVOURS, and it stays
+  // exactly where it was: a maker cuts the tube until the note he can hear is
+  // the note he wants, and the note he can hear is the louder polarisation. The
+  // partner is placed relative to it, so nothing this section does moves the
+  // pitch, the mode ratios or any level measured before it existed.
+  const splitHz = new Array(nPartials).fill(0);
+  let partner = 0;
+  let splitFrac = 0;
+  if (o.doublet !== false) {
+    const ovality = Math.max(0, num(o.ovality, TUBE_ROUNDNESS));
+    const ecc = Math.max(0, num(o.ecc, WALL_ECCENTRICITY));
+    const eccAxis = num(o.eccAxis, NOMINAL_ECC_AXIS);
+    const az = num(o.az, NOMINAL_STRIKE_AZIMUTH);
+    const stock = stockOf(o.tube);
+    const pg = principalGyration(stock, ovality, ecc, eccAxis);
+    const cL = Math.sqrt(stock.E / stock.rho);
+    const k = modes.k;
+    const fHi = freqsForGyration(pg.rHi, modes.L, k, cL, new Array(MAX_PARTIALS));
+    const fLo = freqsForGyration(pg.rLo, modes.L, k, cL, new Array(MAX_PARTIALS));
+    // Excitation of each polarisation is the projection of the blow onto its own
+    // bending plane, so the two amplitudes are cos and sin of the azimuth and
+    // their squares still sum to the mode's energy. Whichever is larger is the
+    // line the tube is tuned to; the other sits below it if the stiff axis won
+    // and above it if the soft one did, which is why half a rig beats upward.
+    const cHi = Math.abs(Math.cos(az));
+    const cLo = Math.abs(Math.sin(az));
+    const hiWins = cHi >= cLo;
+    const sign = hiWins ? -1 : 1;
+    partner = clamp(hiWins ? (cHi > 0 ? cLo / cHi : 1) : (cLo > 0 ? cHi / cLo : 1), 0, 1);
+    for (let n = 0; n < nPartials; n++) splitHz[n] = sign * (fHi[n] - fLo[n]);
+    splitFrac = freqs[0] > 0 ? Math.abs(splitHz[0]) / freqs[0] : 0;
+  }
+  // Both polarisations start in phase, so the mode's peak is (1+r)/sqrt(1+r^2)
+  // times what a single line of the same energy would reach. Every caller that
+  // asks "how loud is this partial" - the voice stealer, the oscillator retirement
+  // - has to ask about that peak and not about amps[n].
+  const beatPeak = (1 + partner) / Math.sqrt(1 + partner * partner);
+
   return {
     // Echo of the resolved inputs, so a renderer never has to re-derive them.
     f1, s, vn, mu, isTube,
@@ -1242,8 +1696,12 @@ export function strikeVoice(opts) {
     // The tube, as resolved: length, radius of gyration, slenderness, ratios.
     tube: modes,
     ratios,
-    // The modes themselves.
+    // The modes themselves. splitHz[n] is the partner polarisation's offset from
+    // freqs[n], signed; partner is its amplitude as a fraction of the strong
+    // line's, one number for the whole voice because the strike azimuth is one
+    // angle and every mode bends in the same two planes.
     nPartials, freqs, amps, t60s,
+    splitHz, partner, splitFrac, beatPeak,
     // Envelope and level. gain is the pre-distance voice gain; audio.js scales
     // it by the listener term and an offline dry render uses it as it stands.
     attack, decay, loudness,
