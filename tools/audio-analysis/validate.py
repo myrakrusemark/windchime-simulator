@@ -429,6 +429,75 @@ def validate_model(ck):
     return rep
 
 
+def validate_beat(ck):
+    """Run tools/verify-beat.mjs and fold its verdict into this report.
+
+    Every bending mode of a tube is TWO lines - the two orthogonal bending
+    polarisations, split by the section's ovality and wall eccentricity - and the
+    two renderers realise that pair differently on purpose. render-offline.mjs
+    sums two sines, because offline nothing is paying for oscillators. audio.js
+    plays the identical pair as ONE oscillator carrying their combined amplitude
+    and phase, because its polyphony cap counts voices and not nodes, so a
+    doubled partial list would double the graph of every strike and the cap would
+    not notice.
+
+    That is a claim about two pieces of code agreeing, which is exactly the kind
+    of claim that rots. verify-beat.mjs plays both out sample by sample and
+    measures the residual, the spurious lower line an amplitude-only fake would
+    leave, and the spacing the spectrum actually shows. It also checks the
+    section quadrature against the two thin-ring closed forms it generalises.
+
+    Same skip-not-fail contract as validate_model when node is missing.
+    """
+    tool = os.path.normpath(os.path.join(HERE, "..", "verify-beat.mjs"))
+    if not os.path.exists(tool):
+        return None
+    try:
+        p = subprocess.run(["node", tool, "--json"], capture_output=True, text=True,
+                           timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if not p.stdout.strip():
+        return None
+    try:
+        rep = json.loads(p.stdout)
+    except ValueError:
+        return None
+    group = "modal.js bending doublet  (tools/verify-beat.mjs, %d cases)" % len(rep["cases"])
+    bars = rep["bars"]
+    w = rep["worst"]
+    ck.boolean(group, "one oscillator matches two sines, worst residual %.1f dB"
+               % w["err_db"], True, w["err_db"] <= bars["err_db_max"])
+    ck.boolean(group, "no spurious line below the strong one, worst %.1f dB "
+               "(amplitude-only modulation would be -6)" % w["image_db"],
+               True, w["image_db"] <= bars["image_db_max"])
+    ck.boolean(group, "the spectrum's spacing IS the modelled split, worst %.2f %% off"
+               % (100.0 * w["split_err"]), True, w["split_err"] <= bars["split_tol"])
+    ck.boolean(group, "section quadrature reproduces 0.75*ovality and lambda^2/4 in the "
+               "thin-ring limit, worst %.3f %%" % (100.0 * w["law_rel_err"]),
+               True, w["law_rel_err"] <= 0.02)
+    # A rig has to sound like several objects, not one transposed. Each tube draws
+    # its own section defects, so the beat rates across a set must actually differ.
+    rates = [t["beat_hz"] for t in rep["rig"]]
+    depths = [t["depth"] for t in rep["rig"]]
+    spread = max(rates) / max(1e-9, min(rates))
+    ck.boolean(group, "a rig's tubes beat at different rates, spread %.2fx" % spread,
+               True, spread >= 2.0)
+    ck.boolean(group, "and at different depths, %.3f to %.3f" % (min(depths), max(depths)),
+               True, (max(depths) - min(depths)) >= 0.15)
+    ck.boolean(group, "every tube's split stays inside the range real chimes show "
+               "(0.3e-3 to 8e-3)", True,
+               all(3e-4 <= t["df_over_f"] <= 8e-3 for t in rep["rig"]))
+    for t in rep["cases"]:
+        ck.rows.append({"group": group,
+                        "name": "%s mode %d: %d curve points, %.3f Hz split"
+                                % (t["case"], t["mode"], t["curve_points"], t["split_hz"]),
+                        "true": None, "measured": t["err_db"], "error": None,
+                        "mode": "info", "tol": None, "unit": "dB", "pass": True,
+                        "kind": "info"})
+    return rep
+
+
 def validate_levels(ck):
     """Run tools/verify-levels.mjs and fold its verdict into this report.
 
@@ -769,6 +838,7 @@ def main(argv=None):
 
     model = validate_model(ck)
     levels = validate_levels(ck)
+    beat = validate_beat(ck)
 
     real = None
     if not args.no_real:
@@ -801,6 +871,15 @@ def main(argv=None):
                      levels["default_stock"]["worstGap32"],
                      levels["default_stock"]["bestGap32"],
                      levels["mode3_gap_floor_db"]))
+        if beat is None:
+            print("\ndoublet checks SKIPPED: node or tools/verify-beat.mjs not available")
+        else:
+            print("\nmodal.js bending doublet: %s. The browser's one-oscillator doublet sits "
+                  "%.1f dB under the exact two-sine sum and leaves no line below the strong "
+                  "one to within %.1f dB, so the second polarisation costs a Float32Array "
+                  "rather than an OscillatorNode."
+                  % ("pass" if beat["ok"] else "FAIL",
+                     -beat["worst"]["err_db"], -beat["worst"]["image_db"]))
         if real is None and not args.no_real:
             print("\nreal-recording checks SKIPPED: no manifest at %s" % args.real_refs)
         elif real is not None:
