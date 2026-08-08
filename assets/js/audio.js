@@ -9,55 +9,27 @@
 // contact time. Nothing is pre-rendered, because a pre-rendered buffer cannot
 // change timbre with strike height, and strike height is half the character.
 //
-// No DOM, no three.js, no project imports. The AudioContext is built lazily on a
-// user gesture; until then every entry point is a silent no-op and the simulation
-// runs on regardless.
-
-// --- Free-free bar modal data ---------------------------------------------
+// No DOM, no three.js. The one import is modal.js, which is pure arithmetic and
+// holds every number that decides how a strike sounds - the free-free mode
+// tables, the excitation model, the envelopes. Keeping it browser-free is what
+// lets tools/render-offline.mjs synthesise the identical voice in Node, so the
+// sound can be measured without a browser being involved in making it. Anything
+// audible belongs in modal.js; this file is the AudioContext around it.
 //
-// The roots of cos(bL)cosh(bL) = 1. Frequency goes as (beta*L)^2, so the ratios
-// below are betaL_n^2 / betaL_1^2.
-const BETA_L = [4.7300408, 7.8532046, 10.9956078, 14.1371655, 17.2787596];
-const RATIOS = [1.0, 2.7565, 5.4039, 8.933, 13.3443];
+// The AudioContext is built lazily on a user gesture; until then every entry
+// point is a silent no-op and the simulation runs on regardless.
 
-// sigma_n = (cosh(bL) - cos(bL)) / (sinh(bL) - sin(bL)), the mode-shape constant.
-// It converges to 1 fast; mode 1 is the only one meaningfully off.
-const SIGMA = [0.9825022, 1.0007773, 0.9999665, 1.0000014, 0.9999999];
-
-// Higher modes radiate into the air more efficiently than the fundamental, but a
-// wooden clapper is a soft exciter and unchecked they are shrill. This taper is
-// the difference between "chime" and "dropped a spanner".
-const RAD = [1.0, 0.85, 0.7, 0.55, 0.45];
-
-const MAX_PARTIALS = BETA_L.length;
-
-// Numerical guard, and it is a real one: mode shape Y_n(s) is a difference of
-// terms of size cosh(betaL_n * s) that cancels down to O(1). At n = 5 that is
-// cosh(17.28) ~ 1.6e7 cancelling to about 0.5, so double precision leaves roughly
-// 1.6e-8 of relative error - harmless. At n = 6 (betaL 20.42) and n = 7 it grows
-// by two decades a mode and the result becomes noise. DO NOT add partials to the
-// tables above without reformulating Y_n in terms of exponentials.
-
-// --- Small helpers ---------------------------------------------------------
-
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-
-function num(v, fallback) {
-  return typeof v === 'number' && isFinite(v) ? v : fallback;
-}
-
-/**
- * Free-free bar mode shape, normalised so |Y_n| = 1 at a free end.
- * s is the strike position as a fraction of the tube length, measured from the top.
- */
-function modeShape(n, s) {
-  const k = BETA_L[n];
-  const ks = k * s;
-  return 0.5 * (
-    Math.cosh(ks) + Math.cos(ks) -
-    SIGMA[n] * (Math.sinh(ks) + Math.sin(ks))
-  );
-}
+import {
+  MAX_PARTIALS,
+  CLICK_ATTACK,
+  CLICK_T60,
+  CLICK_Q,
+  CLICK_STOP,
+  clamp,
+  num,
+  decayTau,
+  strikeVoice
+} from './modal.js';
 
 // --- Module state ----------------------------------------------------------
 
@@ -73,18 +45,6 @@ export function createAudio(params) {
   // assume the generous case, since nothing can sound before unlock() anyway.
   let partialCount = MAX_PARTIALS;
   let maxVoices = 16;
-
-  // Strike speed that reaches full amplitude, m/s. Set from a measured
-  // distribution rather than by ear: p90 at 12 mph is about 0.30 and a 45 mph
-  // gale reaches 3.7, so ordinary weather sits well down the curve and only a
-  // gust tops it out. Roughly the top decile of a gale clips, which is what a
-  // gale should do.
-  const VN_FULL_SCALE = 1.5;
-  // Reduced mass at contact with the default hammer, kg.
-  const MU_NOMINAL = 0.030;
-  // Per-tube weighting for a tube-vs-tube contact, which emits one event per
-  // tube. See the note where it is applied.
-  const TUBE_PAIR_GAIN = 0.62;
 
   // Per-tube cache, refreshed by setTubes on boot and after every rebuild.
   let tubeF1 = [];
@@ -184,7 +144,7 @@ export function createAudio(params) {
    * approximation - it is the envelope. No AnalyserNode needed.
    */
   function estimateAmplitude(v, now) {
-    const tau = v.T60 / 6.908;
+    const tau = decayTau(v.T60);
     return v.A0 * Math.exp(-Math.max(0, now - v.t0) / tau);
   }
 
@@ -329,54 +289,27 @@ export function createAudio(params) {
       const freq = num(ev.freq, tubeF1[idx] !== undefined ? tubeF1[idx] : 261.63);
       if (!(freq > 20) || freq > 8000) return;
 
-      const s = clamp(num(ev.s, 0.45), 0.02, 0.98);
       const J = clamp(num(ev.J, 0.008), 0, 1);
-      const vn = Math.max(0.01, Math.abs(num(ev.vn, 0.4)));
 
-      // Loudness from the strike SPEED, with the hammer's weight as a separate,
-      // gentler term.
-      //
-      // This used to normalise the impulse against a fixed 0.014 N.s, which
-      // saturated at vn = 0.32 m/s. Real strikes run from the 0.045 m/s floor to
-      // about 5.7 in a gale, so the curve clipped constantly: measured over two
-      // simulated minutes, 13 percent of strikes at 12 mph came out at FULL
-      // amplitude, 36 percent at 25 mph and 71 percent at 45 -- and the softest
-      // strike the rig can make still arrived at a third of full volume. A tap
-      // and a wallop sounded the same.
-      //
-      // vn against a full-scale reference of 2.5 m/s spans the real range with
-      // headroom, and the 0.6 exponent stays for perceptual compression. That
-      // puts the floor near 0.09, a 12 mph median near 0.19 and full scale only
-      // where a gust genuinely throws the hammer.
-      // Declared here, not down in the contact-time block where it is also
-      // used: the amplitude below needs it first, and a const referenced above
-      // its own declaration is a dead-zone throw, not a hoist.
-      const isTube = ev.kind === 'tube';
-      const mu = Math.max(1e-4, num(ev.mu, MU_NOMINAL));
-      // A heavier hammer IS louder, but as a modest offset rather than as the
-      // whole scale -- otherwise the weight slider eats the dynamic range.
-      const massTerm = Math.pow(clamp(mu / MU_NOMINAL, 0.25, 4), 0.5);
-      // A tube-tube contact rings BOTH tubes, so it arrives as two events. Left
-      // at full weight a pair would be twice as loud as a clapper strike of the
-      // same speed, and in a gale the clatter would bury the chime it belongs
-      // to. It is also a glancing blow between two hanging bodies rather than a
-      // square hit, so less of the energy goes into the bending modes anyway.
-      const kindGain = isTube ? TUBE_PAIR_GAIN : 1;
-      const A0 = clamp(Math.pow(clamp(vn / VN_FULL_SCALE, 0, 1), 0.6) * massTerm * kindGain, 0, 1);
+      // Every audible number for this strike, in one pure call. Nothing below
+      // may recompute a frequency, an amplitude or a T60 by hand: if it is not
+      // in modal.js, the offline renderer cannot reproduce it, and a voice the
+      // offline renderer cannot reproduce is a voice nobody can measure.
+      const voice = strikeVoice({
+        f1: freq,
+        s: ev.s,
+        vn: ev.vn,
+        mu: ev.mu,
+        kind: ev.kind,
+        partials: partialCount,
+        decay: params && params.decay,
+        attack: params && params.attack,
+        loudness: params && params.loudness
+      });
+
+      const { A0, freqs, amps, t60s, attack } = voice;
+      const nPart = voice.nPartials;
       if (A0 < 1e-4) return;
-
-      // Hertzian contact: the harder you hit, the SHORTER the contact and the
-      // wider the excitation spectrum. One mechanism gives both "louder" and
-      // "brighter", which is why a hard strike does not just sound like a soft
-      // strike turned up.
-      // Aluminium on aluminium is a far stiffer contact than the wooden clapper
-      // on a tube, and a stiffer contact is a shorter one, which is what puts
-      // the energy up into the high partials. Halving the contact time is the
-      // whole difference between a clack and a bong -- the same mechanism that
-      // already makes a hard clapper strike brighter than a soft one.
-      const tauScale = isTube ? 0.5 : 1;
-      const tauC = clamp(tauScale * 0.0008 * Math.pow(0.4 / vn, 0.2), 0.0002, 0.002);
-      const fc = 1 / (2 * tauC);
 
       const now = ctx.currentTime;
       const t0 = now + 0.012 + Math.max(0, num(delaySec, 0));
@@ -394,37 +327,10 @@ export function createAudio(params) {
         if (live >= before) return;   // nothing left to steal; drop this strike
       }
 
-      const nPart = clamp(partialCount | 0, 1, MAX_PARTIALS);
-      const amps = new Array(nPart);
-      const freqs = new Array(nPart);
-      let sumSq = 0;
-      for (let n = 0; n < nPart; n++) {
-        const f = freq * RATIOS[n];
-        freqs[n] = f;
-        // Mode shape at the strike height decides which modes speak at all. The
-        // clapper hangs at the middle of the tube SET, so it lands near the
-        // midpoint of the short tubes (a node of modes 2 and 4 - they stay
-        // silent and the note rings pure) and well above the midpoint of the
-        // long ones (they speak, and it clangs). Nobody scripts that; it falls
-        // out of the geometry.
-        const shape = Math.abs(modeShape(n, s));
-        const bright = 1 / (1 + Math.pow(f / fc, 1.35));   // monotonic by construction
-        const a = shape * bright * RAD[n];
-        amps[n] = a;
-        sumSq += a * a;
-      }
-      const norm = sumSq > 1e-12 ? A0 / Math.sqrt(sumSq) : 0;
-      if (norm <= 0) return;
-      for (let n = 0; n < nPart; n++) amps[n] *= norm;
-
-      // Long low tube, short high tube: T60 scales with 1/sqrt(f), so the big
-      // one audibly outlasts the little one exactly as it does in life. The
-      // ratio^-1.15 term is most of what separates a chime from a synth pad -
-      // the bright clang collapses inside half a second and leaves a long hum.
-      const decayBase = clamp(num(params && params.decay, 8), 0.1, 30);
-      const freqScale = Math.sqrt(440 / freq);
-      const attack = Math.max(0.0005, num(params && params.attack, 0.002));
-      const loudness = clamp(num(params && params.loudness, 0.5), 0, 1);
+      // A strike that landed on a node of every mode at once has no energy to
+      // give anything. Checked here rather than before the steal loop so the
+      // sequence of side effects is exactly what it has always been.
+      if (voice.norm <= 0) return;
 
       // Camera-space pan and distance. Because the camera orbits, the chime
       // moves around the listener as you move, which sells the third dimension
@@ -440,12 +346,9 @@ export function createAudio(params) {
       }
       const distGain = clamp(1.6 / Math.max(0.8, listenerDistance), 0.35, 1.0);
 
-      // 0.22 was sized for an amplitude curve that spent most of its time near
-      // the ceiling. Now that a typical strike sits a third of the way up
-      // instead, the same headroom would just make the whole chime quiet: this
-      // keeps the ordinary strike about where it was and lets a hard one be
-      // genuinely twice as loud, which is the point of widening the range.
-      const base = A0 * loudness * 0.40 * distGain;
+      // voice.gain already carries A0, the loudness parameter and the voice
+      // trim; distance is the one term modal.js cannot know.
+      const base = voice.gain * distGain;
 
       const voiceGain = ctx.createGain();
       voiceGain.gain.value = base;
@@ -464,19 +367,16 @@ export function createAudio(params) {
 
       const oscs = [];
       const gains = [];
-      const t60s = new Array(nPart);
-      let T60_0 = 1;
+      const T60_0 = t60s[0];
 
       for (let n = 0; n < nPart; n++) {
-        const T60 = clamp(decayBase * freqScale * Math.pow(RATIOS[n], -1.15), 0.02, 40);
-        t60s[n] = T60;
-        if (n === 0) T60_0 = T60;
+        const T60 = t60s[n];
 
         const g = ctx.createGain();
         g.gain.setValueAtTime(0, t0);
         g.gain.linearRampToValueAtTime(amps[n], t0 + attack);
         // setTargetAtTime with tau = T60/6.908 lands exactly 60 dB down at T60.
-        g.gain.setTargetAtTime(0, t0 + attack, T60 / 6.908);
+        g.gain.setTargetAtTime(0, t0 + attack, decayTau(T60));
 
         const osc = ctx.createOscillator();
         osc.type = 'sine';
@@ -501,14 +401,13 @@ export function createAudio(params) {
 
         const bp = ctx.createBiquadFilter();
         bp.type = 'bandpass';
-        bp.frequency.value = clamp(fc, 60, ctx.sampleRate * 0.45);
-        bp.Q.value = 0.9;
+        bp.frequency.value = clamp(voice.clickFreq, 60, ctx.sampleRate * 0.45);
+        bp.Q.value = CLICK_Q;
 
         const cg = ctx.createGain();
-        const clickPeak = 0.1 * Math.pow(A0, 1.3);   // superlinear on purpose: hard hits tick
         cg.gain.setValueAtTime(0, t0);
-        cg.gain.linearRampToValueAtTime(clickPeak, t0 + 0.0008);
-        cg.gain.setTargetAtTime(0, t0 + 0.0008, 0.025 / 6.908);
+        cg.gain.linearRampToValueAtTime(voice.clickPeak, t0 + CLICK_ATTACK);
+        cg.gain.setTargetAtTime(0, t0 + CLICK_ATTACK, decayTau(CLICK_T60));
 
         noise.connect(bp);
         bp.connect(cg);
@@ -522,7 +421,7 @@ export function createAudio(params) {
         } catch (e) {
           try { noise.start(t0); } catch (e2) { /* click dropped; the tube still rings */ }
         }
-        try { noise.stop(t0 + 0.12); } catch (e) { /* stops itself at buffer end */ }
+        try { noise.stop(t0 + CLICK_STOP); } catch (e) { /* stops itself at buffer end */ }
       }
 
       const v = {
