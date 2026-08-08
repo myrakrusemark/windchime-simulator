@@ -592,11 +592,10 @@ export const Q_INTRINSIC = 2.8e5;
 //
 // HYSTERETIC, not viscous, and the distinction is load-bearing. A polymer's loss
 // per cycle is proportional to the strain energy per cycle and very nearly
-// independent of rate, i.e. R = eta*k/omega rather than a constant R. That one
-// choice is the difference between passing and failing the reference set: a
-// viscous support makes the fundamental's T60 FALL with pitch, a hysteretic one
-// makes it RISE, and the real chimes barely move across 464 to 739 Hz while the
-// radiation term alone falls eightfold. Nothing else in the model can flatten it.
+// independent of rate, i.e. R = eta*k/omega rather than a constant R. A viscous
+// support makes the fundamental's T60 FALL with pitch, a hysteretic one makes it
+// RISE, and the real chimes barely move across 464 to 739 Hz while the radiation
+// term alone falls eightfold.
 //
 // CONTACT STIFFNESS PROPORTIONAL TO LOAD. The cord is not bonded to the tube; it
 // is pressed into the hole by the tube's own weight, and a compliant polymer
@@ -605,17 +604,65 @@ export const Q_INTRINSIC = 2.8e5;
 // follows area, so k = kappa * M * g with kappa a property of the contact and not
 // of the tube. Order of magnitude from the same picture: kappa ~ E*/(p_flow * h)
 // with E* ~ 2 GPa, a flow pressure around 210 MPa and a 3 mm cord gives about
-// 3.2e3 per metre, against the 5.1e3 the reference decays ask for - a factor of
-// 1.6, which is as close as an estimate built from three quantities each good to
-// a factor of two has any right to be.
+// 3.2e3 per metre, the same order as the number the reference decays ask for.
 //
 // It also has a consequence worth stating because it is testable: a heavy tube
 // and a light one at the SAME pitch ring for the same time, because the heavier
 // one stores more energy and presses the cord harder in exactly the same ratio.
+//
 export const CORD = Object.freeze({
   eta: 0.10,                    // hysteretic loss factor of braided nylon
-  stiffnessPerLoad: 5.1e3      // kappa, 1/m: contact stiffness per newton of load
+  stiffnessPerLoad: 5.10e3      // kappa, 1/m: contact stiffness per newton of load
 });
+
+// WHAT IS NOT IN THE BUDGET, AND WHY - three channels built, measured against
+// all three reference clips and taken back out again.
+//
+// Each of them is defensible physics, each of them fixes something the two-term
+// budget gets wrong away from the references, and each of them costs more at
+// 739 Hz than at 592 Hz. That last property is fatal here and it is worth
+// understanding before reaching for a fourth: the fundamental's loss at 592 Hz
+// is 8 percent radiation and at 739 Hz it is 38 percent, so the cord carries
+// almost the whole 592 Hz decay and only two thirds of the 739 Hz one. Any
+// channel added on top is therefore diluted at 592 and not at 739, which TILTS
+// the pitch law downward exactly where the references tilt it up (measured
+// 14.50 / 14.32 / 17.47 s at 464 / 592 / 739). Recalibrating kappa moves all
+// three together and cannot undo a tilt. Every attempt below put at least one
+// clip's fundamental outside the 14-18 s window.
+//
+//   CORD LEG WAVE RADIATION. Past the contact the cord is a taut string, at
+//   chime frequencies a hundred wavelengths long with enough internal loss to
+//   swallow the round trip, so its input impedance is the real, frequency-flat
+//   characteristic impedance sqrt(T*mu) in series with the contact - T the
+//   tube's own weight, mu a cord diameter and a datasheet, no fitted number.
+//   It is the flat-in-frequency term the runaway treble wants: it takes an
+//   8.6 mm 2093 Hz tube on chimeStock() proportions from 44 s of ring to 8.5.
+//   MEASURED with a 2.0 mm cord and kappa refitted: fundamentals 15.6 / 17.4 /
+//   13.0 s. Sized to keep the 739 Hz clip inside the window the implied cord is
+//   0.8 mm, which is thread, not chime cord.
+//
+//   ROCKING AT THE BEARING. The cord goes THROUGH the tube, so it bears on two
+//   hole edges an outside diameter apart; two contact springs at +/- a resist
+//   rotation with k_rot = k*a^2, giving a second grip term (a/L)^2 * Y'_n(s_h)^2
+//   alongside Y_n(s_h)^2 with no new constant. Y'^2 at the grip is 8.2, 0.5,
+//   50.6, 61.6, 1.7 for modes 1 to 5 - it hammers modes 3 and 4 and leaves 2 and
+//   5 alone, which is exactly what the bass ordering needs, and on chimeStock()
+//   it removes the last inversion at 90 Hz. MEASURED with kappa refitted:
+//   fundamentals 15.1 / 17.5 / 13.2 s.
+//
+//   VISCOUS SKIN. The tube drags a Stokes layer whether or not it radiates:
+//   1/Q_visc = 4 pi a rho0 sqrt(nu/(2w)) / m', which goes as f^-1/2 in T60 and
+//   as the diameter in size, so it bites small tubes and treble tubes. 257 s at
+//   464 Hz and 204 s at 739 on this stock - six percent of the budget at both
+//   ends, the most nearly neutral of the three. MEASURED together with rocking,
+//   kappa refitted: fundamentals 15.8 / 18.1 / 13.2 s.
+//
+// The 739 Hz reading is the one that keeps failing, and part of that is the
+// harness rather than the model: analyze.py switches from a Schroeder T20 fit to
+// a T10 extrapolation as the decay lengthens, and on this clip the switch alone
+// moves the reported T60 from 13.06 s to 15.12 s for renders 1.8 percent apart.
+// Until that step is removed no T60 change of less than about 15 percent can be
+// told apart from it, which is the real blocker on this piece.
 
 /** gamma = eta * kappa: the support's hysteretic conductance per newton hung. */
 export const HANG_CONDUCTANCE_PER_LOAD = CORD.eta * CORD.stiffnessPerLoad;
@@ -637,21 +684,20 @@ export const GRAVITY = 9.81;
 //
 // Why it cannot be derived: the bearing is not a point. It is a drilled hole
 // with a cord pulled against its edge by the tube's weight and wrapping an arc
-// of it; mode 1 has the steepest slope of any mode at that station (Y_1' =
-// -3.95), so the tube rocks about the grip and drags the cord axially as well as
-// sideways; and the cord's own free length, its knot and the top ring all sit
+// of it, and the cord's own free length, its knot and the top ring all sit
 // behind it. Every one of those reads, in the energy ledger, as the cord
-// resisting the transverse motion of a station that is not the node, and none of
-// them can be computed from a spec sheet.
+// resisting the motion of a station that is not the node, and none of them can
+// be computed from a spec sheet.
 //
 // What it is NOT is a second knob for the fundamental. The fundamental's ring is
-// set by the PRODUCT of the conductance and Y_1(HANG_S)^2 - one number - and
-// this one only decides how hard the same cord grips the overtones. Past about
-// 0.08 L the overtones are radiation-limited and the model stops leaning on it:
-// moving it from 0.09 to 0.15 moves mode 2 by a quarter, against the 4.6-fold
-// spread the three reference chimes themselves show in that same partial.
+// set by the PRODUCT of the conductance and G_1(HANG_S) - one number - and this
+// one only decides how hard the same cord grips the overtones. Past about 0.08 L
+// the overtones are radiation-limited and the model stops leaning on it: moving
+// it from 0.09 to 0.15 moves mode 2 by a quarter, against the 4.6-fold spread
+// the three reference chimes themselves show in that same partial.
 export const HANG_BEARING_OFFSET = 0.10;
 export const HANG_S = NODE_1 + HANG_BEARING_OFFSET;
+
 
 /**
  * |Yhat_n(q)|^2, the squared wavenumber spectrum of mode n over the tube's own
@@ -778,9 +824,9 @@ export function radiationJ(n, u) {
  * the whole reason the old ratio^-1.15 could not be right about the fundamental
  * and the overtones at the same time.
  *
- * What the two channels end up doing, on this stock at 464 / 593 / 739 Hz:
+ * What the two channels end up doing, on this stock at 464 / 592 / 739 Hz:
  *
- *   mode 1   radiation 348 / 112 / 42 s     cord 17 / 22 / 27 s    -> cord
+ *   mode 1   radiation 346 / 113 / 42 s     cord 17 / 22 / 27 s    -> cord
  *   mode 2   radiation 4.1 / 1.8 / 0.9 s    cord 12 / 16 / 19 s    -> air
  *   mode 3   radiation 0.5 / 0.2 / 0.1 s    cord 177 / 221 / 269 s -> air
  *
@@ -793,18 +839,25 @@ export function radiationJ(n, u) {
  * Mode 3 is almost purely radiation-limited here, and the two reference clips
  * that show a measurable mode 3 disagree with each other in the wrong direction
  * (0.147 s at 2248 Hz against 0.459 s at 2894 Hz - the HIGHER partial outlasting
- * the lower one, which no monotone loss can produce). Nothing here is tuned to
- * those two numbers and the model should not be believed about mode 3 to better
- * than a factor of three.
+ * the lower one, which no monotone loss can produce, and a factor of 3.1 apart
+ * where the bar asks for 25 percent). Nothing here is tuned to those two numbers
+ * and the model should not be believed about mode 3 to better than a factor of
+ * three.
  *
  * Below the coincidence frequency - 250 Hz on this stock - a tube stops radiating
  * as a line source at all, so its fundamental is left entirely to the cord while
  * its third partial is still above coincidence and still radiating. On the 1.42 m
- * C3 tube that cOctaveIntervals asks for, that puts mode 3 at 686 Hz ringing
- * longer than the fundamental under it, which is not what a bass chime does.
- * There is no clean recording below 464 Hz to check it against, so it is stated
- * here as a known limit rather than papered over: this model is evidence-backed
- * from 464 Hz up and extrapolation below it.
+ * C3 tube that a bass scale asks for on THIS stock, that puts mode 3 at 686 Hz
+ * ringing longer than the fundamental under it, which is not what a bass chime
+ * does - refs/deep has three bass instruments and on all three T60 falls
+ * monotonically with partial frequency. The inversion is a symptom of cutting a
+ * 131 Hz tube from 44 mm stock, 32 diameters long where a maker builds 16 to 19:
+ * on chimeStock() proportions the same law puts that tube's mode 3 at 2.5 s
+ * against a 4.8 s fundamental and the ordering is right. tools/verify-decay.mjs
+ * sweeps both stocks and prints exactly where the line is. There is no clean
+ * recording below 464 Hz to settle it, so it is stated here as a known limit
+ * rather than papered over: this model is evidence-backed from 464 Hz up and
+ * extrapolation below it.
  */
 export function modeT60s(freqs, L, tube, out) {
   const s = stockOf(tube);

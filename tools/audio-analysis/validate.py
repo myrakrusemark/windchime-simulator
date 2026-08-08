@@ -21,6 +21,7 @@ import argparse
 import json
 import math
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -346,6 +347,61 @@ def validate_real(manifest_path, ck):
     return feats
 
 
+def validate_model(ck):
+    """Run tools/verify-decay.mjs and fold its verdict into this report.
+
+    validate.py has always gated the ANALYSER: it proves analyze.py recovers
+    what was put into a signal. It never gated the SYNTHESIS, which meant the
+    loss model in modal.js could put an 8.6 mm treble tube at forty-four seconds
+    of ring, or make a bass tube's third partial outlive its fundamental, and
+    every check here would still be green. Both of those happened.
+
+    verify-decay.mjs sweeps modal.js's per-mode T60 across 90-2100 Hz on both the
+    simulator's stock and maker proportions, and returns a pass/fail per property
+    plus the numbers behind them. Two of those properties are currently WRONG and
+    are gated against getting worse rather than against being right - read that
+    file's BASELINE block before trusting a green line here to mean the physics
+    is finished.
+
+    Node is required. When it is missing the model checks are skipped rather than
+    failed, because this file also has to run on a machine that only has Python -
+    but the skip is printed, not silent.
+    """
+    tool = os.path.join(HERE, "..", "verify-decay.mjs")
+    tool = os.path.normpath(tool)
+    if not os.path.exists(tool):
+        return None
+    try:
+        p = subprocess.run(["node", tool, "--json"], capture_output=True, text=True,
+                           timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if not p.stdout.strip():
+        return None
+    try:
+        rep = json.loads(p.stdout)
+    except ValueError:
+        return None
+    group = "modal.js loss budget  (tools/verify-decay.mjs, %d-%d Hz, %d tubes per stock)" % (
+        rep["range_hz"][0], rep["range_hz"][1], rep["steps"])
+    for name, ok in rep["checks"].items():
+        ck.boolean(group, name, True, ok)
+    # The numbers themselves, so the report carries them and not just a verdict.
+    for tag in ("default_stock", "maker_stock"):
+        s = rep[tag]
+        ck.boolean(group, "%s: every T60 finite and positive" % tag, True, s["allFinite"])
+        ck.rows.append({"group": group, "name": "%s: longest mode (s)" % tag,
+                        "true": None, "measured": s["longest"], "error": None,
+                        "mode": "info", "tol": None, "unit": "s", "pass": True,
+                        "kind": "info"})
+        ck.rows.append({"group": group,
+                        "name": "%s: worst overtone/mode1 T60" % tag,
+                        "true": None, "measured": s["worstInversionRatio"], "error": None,
+                        "mode": "info", "tol": None, "unit": "x", "pass": True,
+                        "kind": "info"})
+    return rep
+
+
 def format_report(ck):
     L = []
     W = 92
@@ -367,7 +423,10 @@ def format_report(ck):
             L.append("-" * W)
             L.append("  %-30s %14s %14s %16s  %s"
                      % ("feature", "true", "measured", "error", ""))
-        if r["mode"] == "bool":
+        if r["mode"] == "info":
+            err = ""
+            tv, mv = "-", ("-" if r["measured"] is None else "%.4f" % r["measured"])
+        elif r["mode"] == "bool":
             err = ""
             tv, mv = str(r["true"]), str(r["measured"])
         else:
@@ -421,6 +480,8 @@ def main(argv=None):
                  gen["known_nobeat"]["path"], gen["known_nobeat"]["truth"], ck,
                  expect_beats=False, expect_click=False)
 
+    model = validate_model(ck)
+
     real = None
     if not args.no_real:
         real = validate_real(args.real_refs, ck)
@@ -431,6 +492,16 @@ def main(argv=None):
         sys.stdout.write("\n")
     else:
         print(format_report(ck))
+        if model is None:
+            print("\nmodel checks SKIPPED: node or tools/verify-decay.mjs not available")
+        else:
+            print("\nmodal.js loss budget: %s. KNOWN AND NOT FIXED - default stock inverts "
+                  "mode order up to %.0f Hz (worst %.2fx); maker proportions ring %.1f s at "
+                  "the top of the range. Both are gated against getting worse, not against "
+                  "being right." % ("pass" if model["pass"] else "FAIL",
+                                    (model["default_stock"]["inversionBandHz"] or [0, 0])[1],
+                                    model["default_stock"]["worstInversionRatio"],
+                                    model["maker_stock"]["longest"]))
         if real is None and not args.no_real:
             print("\nreal-recording checks SKIPPED: no manifest at %s" % args.real_refs)
         elif real is not None:
