@@ -58,6 +58,13 @@
  *   --mu <kg>        reduced mass at contact                   (0.030)
  *   --kind <s>       'tube' for a tube-on-tube clack           (clapper)
  *   --partials <n>   modes to voice, 1..5                      (5)
+ *   --ovality <f>    section out-of-round, (Dmax-Dmin)/Dmean   (0.0010)
+ *   --ecc <f>        wall eccentricity as a fraction of wall   (0.10)
+ *   --ecc-axis <deg> angle between the two defects' axes       (45)
+ *   --az <deg>       strike azimuth from the stiffer axis      (15)
+ *   --tube-index <n> draw all four of the above for tube n of a rig, the way
+ *                    audio.js does, instead of using the nominal
+ *   --no-doublet     one line per mode instead of two; the old behaviour
  *   --sr <hz>        sample rate                               (48000)
  *   --bits <16|32>   16-bit PCM or 32-bit float                (16)
  *   --seed <n>       PRNG seed for the click noise             (1)
@@ -145,6 +152,14 @@ if (!(tube.id > 0) || !(tube.id < tube.od)) {
   process.exit(2);
 }
 
+// Which tube of a rig this is, if the caller wants the per-tube draw rather than
+// the nominal section. audio.js draws each tube's imperfection once at rig build
+// from exactly this function, so --tube-index 3 renders the same object the
+// fourth tube of the chime is.
+const TUBE_INDEX = arg('tube-index', null);
+const drawn = TUBE_INDEX === null ? null : modal.tubeImperfection(numArg('tube-index', 0) | 0);
+const DEG = Math.PI / 180;
+
 const voice = strikeVoice({
   f1: numArg('f1', 261.63),
   tube,
@@ -156,7 +171,14 @@ const voice = strikeVoice({
   partials: numArg('partials', modal.MAX_PARTIALS),
   decay: numArg('decay', 8),
   attack: numArg('attack', 0.002),
-  loudness: numArg('loudness', 0.5)
+  loudness: numArg('loudness', 0.5),
+  doublet: !flag('no-doublet'),
+  ovality: numArg('ovality', drawn ? drawn.ovality : undefined),
+  ecc: numArg('ecc', drawn ? drawn.ecc : undefined),
+  eccAxis: arg('ecc-axis', null) === null
+    ? (drawn ? drawn.eccAxis : undefined) : numArg('ecc-axis', 45) * DEG,
+  az: arg('az', null) === null
+    ? (drawn ? drawn.az : undefined) : numArg("az", 15) * DEG
 });
 
 // --- Deterministic noise ---------------------------------------------------
@@ -251,22 +273,41 @@ const { amps, freqs, t60s, attack, nPartials } = voice;
 // voice.gain is the same number.
 const stops = new Array(nPartials);
 for (let n = 0; n < nPartials; n++) {
-  stops[n] = partialStop(t60s[n], attack, voice.gain * amps[n]);
+  // The level partialStop cares about is the peak the mode actually reaches,
+  // and a doublet whose polarisations start in phase reaches (1+r)/sqrt(1+r^2)
+  // times a single line of the same energy. audio.js passes the same product.
+  stops[n] = partialStop(t60s[n], attack, voice.gain * amps[n] * voice.beatPeak);
 }
 // audio.js: `if (stops[n] > stops[lastOsc]) lastOsc = n;` starting from 0.
 let voiceLast = 0;
 for (let n = 0; n < nPartials; n++) if (stops[n] > stops[voiceLast]) voiceLast = n;
 const voiceUntil = stops[voiceLast];
 
+// Every bending mode is TWO lines, not one - the tube's two orthogonal bending
+// polarisations, split by the section's ovality and wall eccentricity. Here they
+// are summed directly, which is what an offline renderer that is not paying for
+// oscillators should do; audio.js plays the identical pair as a single
+// oscillator carrying their combined amplitude and phase, and tools/verify-beat.mjs
+// measures the gap between the two realisations. The strike is an impulse, so
+// both polarisations start at the same instant with the same sign and their
+// energies sum to the mode's: amp/sqrt(1+r^2) and amp*r/sqrt(1+r^2).
+const rPol = voice.partner;
+const polScale = 1 / Math.sqrt(1 + rPol * rPol);
 for (let n = 0; n < nPartials; n++) {
   const amp = amps[n];
   if (!(amp > 0)) continue;
   const tau = decayTau(t60s[n]);
-  const w = 2 * Math.PI * freqs[n] / SR;
   // The browser stops this oscillator here; past it the partial is silent.
   const stopAt = Math.min(N - LEAD_I, Math.round(stops[n] * SR));
-  for (let i = 0; i < stopAt; i++) {
-    out[LEAD_I + i] += Math.sin(w * i) * partialEnv(i / SR, amp, attack, tau);
+  const lines = [
+    { a: amp * polScale, w: 2 * Math.PI * freqs[n] / SR },
+    { a: amp * rPol * polScale, w: 2 * Math.PI * (freqs[n] + voice.splitHz[n]) / SR }
+  ];
+  for (const ln of lines) {
+    if (!(ln.a > 0)) continue;
+    for (let i = 0; i < stopAt; i++) {
+      out[LEAD_I + i] += Math.sin(ln.w * i) * partialEnv(i / SR, ln.a, attack, tau);
+    }
   }
 }
 
@@ -391,14 +432,17 @@ if (flag('json')) {
               `r ${(t.r * 1000).toFixed(3)} mm   L/r ${t.slenderness.toFixed(1)}   kappa ${t.kappa.toFixed(4)}   ` +
               `k ${t.k.toFixed(4)}   eps1 ${t.eps1.toExponential(4)}`);
   console.log(`peak ${rawPeak.toFixed(6)} (${dbfs(rawPeak)} dBFS)${NORM !== null ? `  -> normalised to ${NORM} dBFS` : ''}`);
+  console.log(`doublet  df/f ${(voice.splitFrac * 1e3).toFixed(3)}e-3   partner ${voice.partner.toFixed(4)} ` +
+              `(${voice.partner > 0 ? (20 * Math.log10(voice.partner)).toFixed(1) : '-inf'} dB)   peak x${voice.beatPeak.toFixed(4)}`);
   console.log('');
-  console.log('  n      ideal      ratio        freq Hz     cents      amp        T60 s     tau s');
+  console.log('  n      ideal      ratio        freq Hz     cents      amp        T60 s     tau s    split Hz');
   for (let n = 0; n < voice.nPartials; n++) {
     const c = 1200 * Math.log2(voice.ratios[n] / modal.IDEAL_RATIOS[n]);
     console.log(
       `  ${n + 1}   ${modal.IDEAL_RATIOS[n].toFixed(4).padStart(8)}  ${voice.ratios[n].toFixed(4).padStart(9)}  ` +
       `${voice.freqs[n].toFixed(3).padStart(11)}  ${c.toFixed(1).padStart(8)}  ` +
-      `${voice.amps[n].toFixed(6).padStart(9)}  ${voice.t60s[n].toFixed(4).padStart(9)}  ${decayTau(voice.t60s[n]).toFixed(5).padStart(8)}`
+      `${voice.amps[n].toFixed(6).padStart(9)}  ${voice.t60s[n].toFixed(4).padStart(9)}  ${decayTau(voice.t60s[n]).toFixed(5).padStart(8)}` +
+      `  ${voice.splitHz[n].toFixed(4).padStart(9)}`
     );
   }
 }
