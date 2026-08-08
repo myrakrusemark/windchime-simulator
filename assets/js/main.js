@@ -16,12 +16,19 @@
 import * as THREE from 'three';
 
 import { createWind } from './wind.js';
-import { createRig, freqsFor, SCALES, setParts, PART_DEFAULTS, PART_LIMITS } from './physics.js';
+import { createRig, freqsFor, setParts, PART_DEFAULTS, PART_LIMITS } from './physics.js';
 import { createStage } from './scene.js';
 import { createWindViz } from './windviz.js';
 import { createAudio } from './audio.js';
 import { CATALOGUE, DECAY_NOMINAL, TUBE_STOCK, stockFor, tubeLengthFor } from './modal.js';
 import * as weather from './weather.js';
+
+// === WCS:DESIGN-IMPORTS ===
+// Design + UI module imports. One line per piece, kept in alphabetical order by
+// module path so two pieces adding a line never collide on the same diff hunk.
+import { applyDesign, currentDesign, emitFrame, foldIntoParams, onDesign, onFrame, setBaseDesign } from './apply.js';
+import { RANGES, designFromLocation } from './design.js';
+// === /WCS:DESIGN-IMPORTS ===
 
 // ---------------------------------------------------------------------------
 // Defaults and tier tables
@@ -122,17 +129,24 @@ const params = Object.assign( {}, DEFAULTS );
 
 let urlQuery = '';
 
+// === WCS:DESIGN-BOOT ===
+// Decode the shared design from the URL and fold it into params. Runs BEFORE any
+// subsystem is constructed, so the first frame is already the shared chime.
+let design = null;
+
 try {
 
 	const q = new URLSearchParams( window.location.search );
-	if ( q.has( 'wind' ) ) params.windSpeedMph = clamp( finite( parseFloat( q.get( 'wind' ) ), DEFAULTS.windSpeedMph ), 0, 60 );
-	if ( q.has( 'dir' ) ) {
 
-		const d = finite( parseFloat( q.get( 'dir' ) ), DEFAULTS.dirDeg );
-		params.dirDeg = ( ( d % 360 ) + 360 ) % 360;
+	// design.js reads ?wind= ?dir= ?style= ?quality= through fromLegacyParams and
+	// then lets ?c= win on conflict, so every link ever shared still works. It is
+	// synchronous string work: nothing above startLoop() awaits, and that is the
+	// property the first paint depends on (H4).
+	design = designFromLocation( window.location.search, noteError );
 
-	}
-
+	// The look switch predates places. scene.js still reads params.style for its
+	// projection, tone mapping and materials, so the legacy value is honoured
+	// here until P4's places own the backdrop and the style becomes an idiom.
 	if ( q.has( 'style' ) ) {
 
 		const st = String( q.get( 'style' ) );
@@ -140,16 +154,10 @@ try {
 
 	}
 
-	if ( q.has( 'quality' ) ) {
-
-		const qual = String( q.get( 'quality' ) );
-		if ( qual === 'high' || qual === 'low' || qual === 'auto' ) params.quality = qual;
-
-	}
-
 	// ?q= is a location string. It only pre-fills the box: fetching weather is
 	// user-triggered work, so a shared link still costs the visitor no network
-	// until they press the button.
+	// until they press the button. It is not part of the design and never
+	// travels in ?c=.
 	if ( q.has( 'q' ) ) urlQuery = String( q.get( 'q' ) ).slice( 0, 120 );
 
 } catch ( err ) {
@@ -158,6 +166,12 @@ try {
 
 }
 
+// One writer into params, one direction, mutating in place: wind, scene, windviz
+// and audio are all about to capture this exact object (H1).
+design = setBaseDesign( design );
+foldIntoParams( design, params );
+// === /WCS:DESIGN-BOOT ===
+
 // ---------------------------------------------------------------------------
 // 2b. Quality tier. A throwaway context tells us whether we are on a software
 // rasteriser (SwiftShader in the verifier, llvmpipe on a bare Linux box),
@@ -165,8 +179,6 @@ try {
 // ---------------------------------------------------------------------------
 
 function detectTierName() {
-
-	if ( params.quality === 'high' || params.quality === 'low' ) return params.quality;
 
 	let name = 'high';
 
@@ -205,7 +217,20 @@ function detectTierName() {
 
 }
 
-let tier = TIERS[ detectTierName() ];
+// The probe runs EXACTLY ONCE per page. Re-running it burns another WebGL
+// context on a page browsers already cap, and the one the driver drops is as
+// likely to be the real renderer's as the throwaway's: black picture,
+// 'webgl-context-lost' in the snapshot (H35). Every later quality change
+// resolves 'auto' through this cached answer and goes via applyTier().
+const AUTO_TIER_NAME = detectTierName();
+
+function tierNameFor( quality ) {
+
+	return ( quality === 'high' || quality === 'low' ) ? quality : AUTO_TIER_NAME;
+
+}
+
+let tier = TIERS[ tierNameFor( params.quality ) ];
 
 // ---------------------------------------------------------------------------
 // DOM handles. Every one of these is optional: a partial or edited page must
@@ -470,20 +495,24 @@ let hudIdle = false;
 let toastDone = false;
 let autoRotateSuspended = true;   // starts suspended until the first idle window
 
-// The learn section is a plain anchor target, so pressing "How it works" leaves
-// #learn in the address bar -- and the next load lands the visitor in the
-// documentation with the simulation scrolled off the top. Browsers also restore
-// the previous scroll offset on reload, which does the same thing without any
-// hash at all. The simulation IS the page; it always opens on it.
+// The simulation IS the page; it always opens on it. Browsers restore the
+// previous scroll offset on reload, and pressing "How it works" leaves #learn in
+// the address bar, so a later load would land the visitor in the documentation
+// with the chime scrolled off the top. Both are handled by turning scroll
+// restoration off and going to the top.
+//
+// What used to be here as well was an unconditional replaceState that STRIPPED
+// the fragment. It is gone, for three reasons in order of weight (CONTRACTS
+// section 4.4): a shareable-URL product may not rewrite the URL it was handed,
+// and this fired at module-eval time so whatever a stranger pasted, the address
+// bar they can copy back is a different string; it races P6, which owns the
+// address bar and writes it with replaceState on every design change, and two
+// writers 200 lines apart is a boot-order dependency between two pieces that
+// must not know about each other; and it bought nothing on top of the two lines
+// below, which already fix both failures it was written for.
 try {
 
 	if ( 'scrollRestoration' in history ) history.scrollRestoration = 'manual';
-	if ( window.location.hash ) {
-
-		history.replaceState( null, '', window.location.pathname + window.location.search );
-
-	}
-
 	window.scrollTo( 0, 0 );
 
 } catch ( err ) {
@@ -692,11 +721,15 @@ function applyParts() {
 
 		try {
 
-			// physics.js clamps, and hands back what is actually in force, so a
-			// value the rig refused never lingers in the UI.
-			Object.assign( params, setParts( params ) );
-			rebuildChime();
-			syncPartControls();
+			// The debounce stays on the DRAG, not on the apply: a rebuild per input
+			// event of a slider drag is unaffordable. What lands at the end of it is
+			// the ordinary synchronous apply, so params, the rig, audio, the
+			// readouts and the shared design all move together and the design can
+			// never fall behind what the rig is actually built from.
+			applyDesign( {
+				clapper: { width: params.clapperWidth, mass: params.clapperMass, drop: params.clapperDrop },
+				sail: { mass: params.sailMass, height: params.sailHeight }
+			}, designCtx );
 
 		} catch ( err ) {
 
@@ -745,6 +778,27 @@ function bindRange( el, apply ) {
 
 }
 
+// The same idea as bindPart, one level up: a slider's travel comes from the
+// authority on the value, not from a number typed into the markup. Without it
+// the shipped attack slider runs to 0.05 while the design clamps at 0.020 and
+// the top half of its travel is silently dead, and the ring trim starts below
+// the range the design allows at all. index.html belongs to P3; this keeps the
+// two honest without either file having to know the other's numbers (H32).
+function bindDesignRange( el, key, apply ) {
+
+	if ( ! el ) return;
+	const r = RANGES[ key ];
+	if ( r ) {
+
+		el.min = String( r[ 0 ] );
+		el.max = String( r[ 1 ] );
+
+	}
+
+	bindRange( el, apply );
+
+}
+
 bindRange( dom.windSpeedSlider, ( v ) => {
 
 	params.windSpeedMph = clamp( v, 0, 60 );
@@ -763,9 +817,10 @@ if ( dom.chimeScaleSelect ) {
 
 	dom.chimeScaleSelect.addEventListener( 'change', () => {
 
-		const name = dom.chimeScaleSelect.value;
-		params.scaleName = Object.prototype.hasOwnProperty.call( SCALES, name ) ? name : 'cMajorPentatonic';
-		rebuildChime();
+		// Through applyDesign, like every other control: clampDesign refuses a
+		// scale that is not in the table, and the shared design cannot drift away
+		// from the chime that is hanging.
+		applyDesign( { tubes: { scale: dom.chimeScaleSelect.value } }, designCtx );
 
 	} );
 
@@ -790,55 +845,51 @@ if ( dom.tubeStockSelect ) {
 
 	dom.tubeStockSelect.addEventListener( 'change', () => {
 
-		const name = dom.tubeStockSelect.value;
-		if ( ! CATALOGUE.some( ( c ) => c.name === name ) ) return;
-		if ( name === params.stockName ) return;
-		params.stockName = name;
-		setStockLabel();
 		// No rebuild: the notes and the tube count are unchanged, and the rig is
 		// still hanging the section physics.js was built on. Only what audio.js
-		// voices moves. See the KNOWN LIMIT note above pushTubesToAudio.
-		pushTubesToAudio();
+		// voices moves, so applyDesign takes the push-once branch. See the KNOWN
+		// LIMIT note above pushTubesToAudio.
+		applyDesign( { tubes: { stock: dom.tubeStockSelect.value } }, designCtx );
 
 	} );
 
 }
 
-bindRange( dom.noteCountSlider, ( v ) => {
+bindDesignRange( dom.noteCountSlider, 'tubes.notes', ( v ) => {
 
-	// The old page allowed zero tubes, which is a chime that cannot ring.
-	const n = clamp( Math.round( v ), 3, 8 );
-	if ( n === params.noteCount ) return;
-	params.noteCount = n;
-	rebuildChime();   // sets the label from the tubes that were actually built
-
-} );
-
-bindRange( dom.attackSlider, ( v ) => {
-
-	params.attack = clamp( v, 0.0005, 0.05 );
-	setText( dom.attackValue, params.attack.toFixed( 4 ) + ' s' );
+	// The old page allowed zero tubes, which is a chime that cannot ring; three
+	// is the floor everywhere, and eight is structural rather than a UI limit -
+	// physics.js allocates its pair-collision arrays once per rig for MAX_TUBES,
+	// so a ninth tube would ring off the clapper and never clack against its
+	// neighbour (H33). clampDesign holds the same 3..8 so there is one authority.
+	applyDesign( { tubes: { notes: Math.round( v ) } }, designCtx );
 
 } );
 
-bindRange( dom.decaySlider, ( v ) => {
+// The voice and the sun are immediate: no rebuild, no audio push, nothing to
+// coalesce. They still go through applyDesign so the shared design is what the
+// address bar and the caption read, rather than a second copy of the state.
+bindDesignRange( dom.attackSlider, 'voice.attack', ( v ) => {
 
-	params.decay = clamp( v, 0.5, 16 );
-	setText( dom.decayValue, ringTrimText() );
+	applyDesign( { voice: { attack: v } }, designCtx );
 
 } );
 
-bindRange( dom.loudnessSlider, ( v ) => {
+bindDesignRange( dom.decaySlider, 'voice.decay', ( v ) => {
 
-	params.loudness = clamp( v, 0, 1 );
-	setText( dom.loudnessValue, Math.round( params.loudness * 100 ) + '%' );
+	applyDesign( { voice: { decay: v } }, designCtx );
+
+} );
+
+bindDesignRange( dom.loudnessSlider, 'voice.loudness', ( v ) => {
+
+	applyDesign( { voice: { loudness: v } }, designCtx );
 
 } );
 
 bindRange( dom.sunSlider, ( v ) => {
 
-	params.sunElevDeg = clamp( v, sunLo, sunHi );
-	setText( dom.sunValue, Math.round( params.sunElevDeg ) + ' deg' );
+	applyDesign( { view: { sun: v } }, designCtx );
 
 } );
 
@@ -877,7 +928,7 @@ if ( dom.qualitySelect ) {
 
 		const q = dom.qualitySelect.value;
 		params.quality = ( q === 'high' || q === 'low' ) ? q : 'auto';
-		applyTier( TIERS[ detectTierName() ] );
+		applyTier( TIERS[ tierNameFor( params.quality ) ] );
 
 	} );
 
@@ -897,6 +948,62 @@ if ( dom.menuToggle && dom.sliderMenu ) {
 if ( urlQuery && dom.locationInput ) dom.locationInput.value = urlQuery;
 
 syncControlValues();
+
+// ---------------------------------------------------------------------------
+// The design runtime.
+//
+// window.__wcs is the ONLY API the other five pieces get into this file. params,
+// rig, wind, viz and audio stay private: everything the pieces need, they get
+// through these five members, which is what keeps main.js a file one person can
+// still edit after six branches have landed in it.
+//
+// designCtx is the bundle of seams apply.js drives. Every member is a function
+// so a `let` that gets reassigned later - stage, viz, tier - is read live rather
+// than captured stale.
+// ---------------------------------------------------------------------------
+
+const designCtx = {
+	params,
+	noteError,
+	setParts,
+	rebuildChime,
+	pushTubesToAudio,
+	syncControlValues,
+	applyTier,
+	tierFor: ( quality ) => TIERS[ tierNameFor( quality ) ],
+	sunRange: () => [ sunLo, sunHi ],
+	defaultSun: () => ( stage && stage.sunElevation ? stage.sunElevation() : params.sunElevDeg ),
+	setWeather: ( mph, dirDeg ) => wind.setWeather( mph, dirDeg ),
+	// P4 adds setPlace to the stage object and P5 adds setFraming (CONTRACTS
+	// section 2.4). Routed through the stage so neither piece has to edit a line
+	// of main.js to be wired up; absent today, which makes both a no-op.
+	setPlace: ( id ) => {
+
+		if ( stage && stage.setPlace ) stage.setPlace( id );
+
+	},
+	setFraming: ( u, v, scale ) => {
+
+		if ( stage && stage.setFraming ) stage.setFraming( u, v, scale );
+
+	}
+};
+
+if ( ! window.__wcs ) window.__wcs = {};
+
+window.__wcs.design = () => structuredClone( currentDesign() );
+window.__wcs.applyDesign = ( d ) => applyDesign( d, designCtx );
+window.__wcs.onDesign = onDesign;
+window.__wcs.onFrame = onFrame;
+// A getter, not a copy: `stage` is rebuilt from scratch after a GL context loss,
+// and a piece holding the old handle would be drawing into a dead renderer.
+Object.defineProperty( window.__wcs, 'stage', { get: () => stage, configurable: true } );
+
+// === WCS:UI-MOUNT ===
+// UI pieces mount here, after the stage exists and after syncControlValues().
+// One line per piece, alphabetical by function name. A mount must not throw and
+// must not await; wrap your own body in try/catch and call noteError on failure.
+// === /WCS:UI-MOUNT ===
 
 // wind.js owns windSpeedMph and dirDeg once a weather reading is ramping in.
 // Mirror the ramp back onto the slider so the UI never lies about the state.
@@ -1905,6 +2012,12 @@ function frame( nowMs ) {
 
 	}
 
+	// === WCS:FRAME-HOOK ===
+	// Per-frame callbacks registered by UI pieces. Called once per rendered frame,
+	// after stage.render(). Must be allocation-free and must never throw.
+	emitFrame( dt, noteError );
+	// === /WCS:FRAME-HOOK ===
+
 	// The toast comes down when the context is actually RUNNING, not when the
 	// gesture arrives: resume() is a promise and can be refused, and a toast
 	// that leaves on the click would be lying in exactly the case it matters.
@@ -2155,7 +2268,9 @@ function snapshot() {
 
 }
 
-window.__wcs = {
+// Assign rather than replace: the design members were installed at WCS:UI-MOUNT,
+// ~1200 lines up, because the UI pieces mount there and need them.
+Object.assign( window.__wcs, {
 
 	snapshot,
 
@@ -2231,16 +2346,15 @@ window.__wcs = {
 
 	rebuild( scaleName, count ) {
 
-		if ( typeof scaleName === 'string' && Object.prototype.hasOwnProperty.call( SCALES, scaleName ) ) {
-
-			params.scaleName = scaleName;
-
-		}
-
-		if ( Number.isFinite( count ) ) params.noteCount = clamp( Math.round( count ), 3, 8 );
-		rebuildChime();
-		syncControlValues();
-		return { scaleName: params.scaleName, noteCount: params.noteCount, tubes: rig.tubes.length };
+		// Kept for the verifiers that already call it, but it is now a thin shim
+		// over applyDesign rather than a second writer: clampDesign refuses an
+		// unknown scale and holds the same 3..8 on the tube count, and the shared
+		// design cannot end up describing a chime other than the one hanging.
+		const patch = { tubes: {} };
+		if ( typeof scaleName === 'string' ) patch.tubes.scale = scaleName;
+		if ( Number.isFinite( count ) ) patch.tubes.notes = count;
+		const d = applyDesign( patch, designCtx );
+		return { scaleName: d.tubes.scale, noteCount: d.tubes.notes, tubes: rig.tubes.length };
 
 	},
 
@@ -2264,7 +2378,7 @@ window.__wcs = {
 
 	}
 
-};
+} );
 
 // ---------------------------------------------------------------------------
 // Go. Nothing above this line awaited anything, so the first frame is drawn
