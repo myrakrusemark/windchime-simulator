@@ -154,3 +154,6 @@ Thumbs.db
 
 # Windows Explorer thumbnail cache
 Thumbs.db
+
+# Generated audio-analysis test fixtures (regenerate with tools/audio-analysis/make_test_signal.py)
+tools/audio-analysis/test-signals/
