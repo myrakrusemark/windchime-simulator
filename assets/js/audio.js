@@ -29,6 +29,7 @@ import {
   clamp,
   num,
   decayTau,
+  partialStop,
   strikeVoice
 } from './modal.js';
 
@@ -147,13 +148,23 @@ export function createAudio(params) {
   }
 
   /**
-   * Current amplitude of a voice, estimated analytically. The fundamental's
+   * Current amplitude of a voice, estimated analytically. Every partial's
    * envelope is exactly setTargetAtTime, so exp(-age/timeConstant) is not an
    * approximation - it is the envelope. No AnalyserNode needed.
+   *
+   * Loudest surviving partial, not the fundamental. On a tube below the stock's
+   * coincidence frequency the fundamental is NOT the last thing standing (see
+   * the teardown note in strike()), and a stealer that only looked at partial 1
+   * would rank a voice as spent while a 686 Hz overtone was still 27 dB up.
    */
   function estimateAmplitude(v, now) {
-    const tau = decayTau(v.T60);
-    return v.A0 * Math.exp(-Math.max(0, now - v.t0) / tau);
+    const age = Math.max(0, now - v.t0);
+    let peak = 0;
+    for (let n = 0; n < v.amps.length; n++) {
+      const a = v.amps[n] * Math.exp(-age / decayTau(v.t60s[n]));
+      if (a > peak) peak = a;
+    }
+    return peak;
   }
 
   function stealQuietest(now) {
@@ -389,7 +400,6 @@ export function createAudio(params) {
 
       const oscs = [];
       const gains = [];
-      const T60_0 = t60s[0];
 
       for (let n = 0; n < nPart; n++) {
         const T60 = t60s[n];
@@ -450,7 +460,9 @@ export function createAudio(params) {
         tube: idx,
         t0,
         A0,
-        T60: T60_0,
+        // estimateAmplitude() needs every partial, not just the fundamental.
+        amps,
+        t60s,
         base,
         gain: voiceGain,
         pan: panner,
@@ -463,21 +475,39 @@ export function createAudio(params) {
       voices.push(v);
       if (idx >= 0 && idx < newestByTube.length) newestByTube[idx] = v;
 
-      // Free the slot as soon as the fundamental is 60 dB down plus a margin.
+      // Free the slot as soon as every partial is 60 dB down plus a margin.
       // A session left open all afternoon must not accumulate nodes.
+      //
       // Each partial stops once it is 69 dB down, not when the voice does, and
-      // that matters far more than it used to. modal.js now gives the fundamental
-      // the cord-limited T60 a real tube has - about 16 s at chime pitches, twice
-      // the old 8 - while the overtones are radiation-limited and gone in well
-      // under a second. So this retires four of the five oscillators almost at
-      // once and leaves one sine per voice humming: 16 voices cost about 17
-      // oscillators most of the time rather than 80.
-      // The fundamental is always the last to stop, so its onended is the single
-      // teardown path for the whole voice.
-      oscs[0].onended = () => releaseVoice(v);
+      // that matters far more than it used to. modal.js gives the fundamental the
+      // cord-limited T60 a real tube has - about 16 s at chime pitches, twice the
+      // old 8 - while the overtones are radiation-limited and gone in well under
+      // a second. So this retires four of the five oscillators almost at once and
+      // leaves one sine per voice humming: 16 voices cost about 17 oscillators
+      // most of the time rather than 80.
+      //
+      // TEARDOWN GOES ON THE LAST OSCILLATOR TO STOP, and which one that is has
+      // to be computed rather than assumed. It used to be hard-wired to oscs[0]
+      // on the grounds that the fundamental always outlives the overtones. On the
+      // stock this simulator hangs that is true above about 200 Hz and FALSE
+      // below it: at the 130.81 Hz bottom of the C-octave scale the per-partial
+      // stop times are 5.7 / 4.3 / 21.3 / 4.8 / 1.6 s, because a tube that long
+      // is below the coincidence frequency and its fundamental has no radiation
+      // channel while its third partial does (see modeT60s). Releasing on the
+      // fundamental disconnected a 686 Hz oscillator fifteen seconds from its own
+      // stop and about 27 dB under the strike peak: a step discontinuity, an
+      // audible tick, and a note chopped in half. render-offline.mjs cannot see
+      // that, because it has no voice-level teardown at all, so the harness this
+      // whole gauntlet is scored on could not have caught it.
+      const stops = new Array(oscs.length);
+      let lastOsc = 0;
+      for (let n = 0; n < oscs.length; n++) {
+        stops[n] = partialStop(t60s[n], attack, base * amps[n]);
+        if (stops[n] > stops[lastOsc]) lastOsc = n;
+      }
+      oscs[lastOsc].onended = () => releaseVoice(v);
       for (let n = oscs.length - 1; n >= 0; n--) {
-        const until = t0 + t60s[n] * 1.15 + 0.2;
-        try { oscs[n].stop(until); } catch (e) { if (n === 0) releaseVoice(v); }
+        try { oscs[n].stop(t0 + stops[n]); } catch (e) { if (n === lastOsc) releaseVoice(v); }
       }
 
       // Deliberately NOT damped at birth for being in contact. A strike happens

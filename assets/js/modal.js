@@ -837,6 +837,48 @@ export function decayTau(T60) {
   return T60 / TAU_PER_T60;
 }
 
+// Absolute amplitude at which a partial has stopped existing, as a fraction of
+// full scale. -120 dBFS, and the exponent was chosen by measurement rather than
+// by taste: at -100 dBFS the retired tails were still worth about a third of a
+// 16-bit LSB, enough to flip the rounding on a few thousand samples of a six
+// second render, and that alone moved compare.py's total on the Flower of Life
+// clip from 36.7 to 64.7 units. Nothing audible changed; the analyser simply
+// picked different peaks out of the noise floor. At -120 dBFS the renders are
+// bit-identical to the untruncated ones and the divergence totals do not move.
+//
+// (That fragility is worth knowing about on its own: a divergence total that
+// swings by 28 units on one LSB is not a quantity two rounds can be compared on
+// without pinning the render byte for byte first.)
+export const VOICE_FLOOR = 1e-6;
+
+/**
+ * When a partial's oscillator can be stopped, in seconds after its own onset.
+ *
+ * Two rules, whichever comes first. The old one is relative: 69 dB below the
+ * partial's own peak, which is where 1.15*T60 + 0.2 lands. The new one is
+ * absolute: the moment the partial passes VOICE_FLOOR of full scale, given the
+ * level it actually started at. They matter for different strikes. A hard hit on
+ * a long tube is retired by the relative rule; a soft one is 25 dB quieter to
+ * begin with and reaches the floor a third sooner, and it is soft strikes that a
+ * chime in a breeze produces by the dozen.
+ *
+ * This is a polyphony question, not a tuning one. audio.js schedules the voice
+ * teardown off the last oscillator to stop, so occupancy is set by exactly this
+ * number, and against a hard cap of 32 voices (16 on the low tier) a fundamental
+ * that now rings 16 s instead of 8 halves the sustained strike rate the pool can
+ * absorb before it starts stealing. Retiring on absolute level gives most of that
+ * back without touching anything audible.
+ *
+ * `level` is the partial's amplitude in the output, i.e. the voice gain times the
+ * partial's own amplitude times any distance term.
+ */
+export function partialStop(T60, attack, level) {
+  const relative = T60 * 1.15 + 0.2;
+  if (!(level > VOICE_FLOOR)) return Math.max(attack + 0.02, 0.05);
+  const absolute = attack + decayTau(T60) * Math.log(level / VOICE_FLOOR);
+  return Math.max(0.05, Math.min(relative, absolute));
+}
+
 /**
  * Everything a renderer needs to know about one strike, as plain numbers.
  *

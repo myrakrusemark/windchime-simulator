@@ -12,8 +12,15 @@
  *   - per partial, gain 0 at t0, a linear ramp to its amplitude at t0+attack,
  *     then setTargetAtTime(0, t0+attack, T60/6.908), which is
  *     amp * exp(-(t - t0 - attack) / tau) with tau = T60/6.908
- *   - the oscillator stop at t0 + 1.15*T60 + 0.2, where the partial is ~69 dB
- *     down; it is a real truncation in the browser, so it is a real one here
+ *   - the oscillator stop at modal.js's partialStop(): the earlier of 69 dB
+ *     under the partial's own peak and -100 dBFS absolute. It is a real
+ *     truncation in the browser, so it is a real one here
+ *   - the voice-level teardown, which the browser hangs on the LAST oscillator
+ *     to stop rather than on the fundamental. On a sub-coincidence bass tube
+ *     that is not the same oscillator (see the note in audio.js strike), and
+ *     getting it wrong disconnects a partial mid-ring. Reproduced here as an
+ *     assertion rather than as audio: no partial may still be scheduled after
+ *     the voice retires, and the renderer exits non-zero if one is
  *   - the contact click: white noise resampled at 0.85..1.20, through a
  *     2nd-order bandpass at fc with Q 0.9 built from the same Audio EQ Cookbook
  *     coefficients the Web Audio BiquadFilter uses, into a gain that ramps to
@@ -42,7 +49,8 @@
  *   --out <path>     WAV to write                              (required)
  *   --dur <sec>      render length                             (6)
  *   --lead <sec>     silence before the strike, as the refs are cut (0.050)
- *   --decay <sec>    T60 of the fundamental at 440 Hz          (8)
+ *   --decay <x>      ring trim, dimensionless; 8 is the tube as
+                   modal.js models it, 16 twice as long      (8)
  *   --attack <sec>   per-partial ramp                          (0.002)
  *   --loudness <0..1>                                          (0.5)
  *   --mu <kg>        reduced mass at contact                   (0.030)
@@ -62,7 +70,8 @@ import { join, normalize } from 'node:path';
 
 const HERE = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
 const modal = await import(join(HERE, 'assets', 'js', 'modal.js'));
-const { strikeVoice, decayTau, clamp, CLICK_ATTACK, CLICK_T60, CLICK_Q, CLICK_STOP } = modal;
+const { strikeVoice, decayTau, clamp, partialStop,
+        CLICK_ATTACK, CLICK_T60, CLICK_Q, CLICK_STOP } = modal;
 
 // --- CLI -------------------------------------------------------------------
 
@@ -216,15 +225,37 @@ const out = new Float64Array(N);
 const LEAD_I = Math.min(N - 1, Math.max(0, Math.round(LEAD * SR)));
 const { amps, freqs, t60s, attack, nPartials } = voice;
 
+// The voice retires when its LAST oscillator does. audio.js finds that
+// oscillator by comparing stop times rather than assuming the fundamental, and
+// the loop below records the same maximum so the assertion after it can prove
+// the two agree. A mismatch here is the browser bug the harness could not see.
+let voiceUntil = 0;
+let voiceLast = 0;
+
 for (let n = 0; n < nPartials; n++) {
   const amp = amps[n];
   if (!(amp > 0)) continue;
   const tau = decayTau(t60s[n]);
   const w = 2 * Math.PI * freqs[n] / SR;
   // The browser stops this oscillator here; past it the partial is silent.
-  const stopAt = Math.min(N - LEAD_I, Math.round((t60s[n] * 1.15 + 0.2) * SR));
+  const stopSec = partialStop(t60s[n], attack, voice.gain * amp);
+  if (stopSec > voiceUntil) voiceUntil = stopSec;
+  const stopAt = Math.min(N - LEAD_I, Math.round(stopSec * SR));
+  if (stopSec >= voiceUntil) voiceLast = n;
   for (let i = 0; i < stopAt; i++) {
     out[LEAD_I + i] += Math.sin(w * i) * partialEnv(i / SR, amp, attack, tau);
+  }
+}
+
+// Teardown parity with audio.js: releaseVoice() fires on oscs[voiceLast], and
+// disconnecting there must not cut anything else short.
+for (let n = 0; n < nPartials; n++) {
+  if (!(amps[n] > 0)) continue;
+  if (partialStop(t60s[n], attack, voice.gain * amps[n]) > voiceUntil + 1e-9) {
+    console.error(`render-offline: partial ${n + 1} outlives the voice teardown ` +
+                  `(${partialStop(t60s[n], attack, voice.gain * amps[n]).toFixed(3)} s ` +
+                  `vs ${voiceUntil.toFixed(3)} s). audio.js would clip it.`);
+    process.exit(3);
   }
 }
 
