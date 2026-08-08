@@ -429,6 +429,117 @@ def validate_model(ck):
     return rep
 
 
+def validate_estimator_continuity(ck):
+    """The T60 estimator must not step when the signal does not.
+
+    A Schroeder fit has to choose a stretch of the decay curve to fit, and until
+    this round analyze.py chose between three fixed stretches on hard thresholds.
+    Signals sitting near a threshold got whichever answer the rounding fell to:
+    on our own corinthian render a 0.1 percent change in the audio moved the
+    reported T60 from 15.04 s to 13.27 s, because the Schroeder curve's reach
+    crossed 28 dB and the T10 fit became a T20 fit. That is a twelve percent
+    step out of nothing, in the one number this whole gauntlet is scored on.
+
+    So: sweep a synthetic decay finely across the range the references live in,
+    and require that the reported T60 tracks the true one without a jump. The
+    signal is a beating doublet on a noise floor - what a chime recording is -
+    because a clean single exponential does not exercise the disagreement
+    between the two fit ranges.
+    """
+    group = "T60 estimator continuity  (synthetic doublet, true T60 swept 11-16 s)"
+    sr = 48000
+    rng = np.random.default_rng(5)
+    prev_true = prev_meas = None
+    worst_step = 0.0
+    worst_err = 0.0
+    tmpd = tempfile.mkdtemp(prefix="chime-cont-")
+    try:
+        for t60 in [11.0 + 0.25 * i for i in range(21)]:
+            n = int(6.0 * sr)
+            tt = np.maximum(0.0, np.arange(n) / sr - 0.05)
+            env = 10.0 ** (-3.0 * tt / t60)
+            x = np.sin(2 * np.pi * (463.65 - 0.8) * tt) * env
+            x += 0.37 * np.sin(2 * np.pi * (463.65 + 0.8) * tt + 0.3) * env
+            x[: int(0.05 * sr)] = 0.0
+            x = x + rng.normal(0, 10 ** (-58.0 / 20.0), n)
+            x = x / (np.max(np.abs(x)) / 0.7)
+            p = os.path.join(tmpd, "cont.wav")
+            wavfile.write(p, sr, (x * 32767).astype(np.int16))
+            feat = analyze.analyze_wav(p)
+            got = None
+            for q in feat["partials"]:
+                if abs(q["freq_hz"] - 463.65) < 30:
+                    got = q["decay"]["t60_s"]
+                    break
+            if got is None:
+                ck.boolean(group, "partial found at true T60 %.2f s" % t60, True, False)
+                continue
+            worst_err = max(worst_err, abs(got - t60) / t60)
+            if prev_meas is not None:
+                # how much the reported value jumped, over and above the change
+                # that was actually put into the signal
+                step = abs((got - prev_meas) / prev_meas - (t60 - prev_true) / prev_true)
+                worst_step = max(worst_step, step)
+            prev_true, prev_meas = t60, got
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+    # 3 percent is loose enough for the sweep's own quarter-second granularity
+    # and ten times tighter than the step this replaced.
+    ck.explicit(group, "worst jump between adjacent points", 0.0, worst_step, 0.03)
+    ck.explicit(group, "worst error against the true T60", 0.0, worst_err, 0.10)
+
+
+def validate_noise_floor_invariance(ck):
+    """The same decay under different hiss must measure the same.
+
+    This is the sharpest thing wrong with the harness that the last two rounds
+    were scored on. analyze.py only added back the energy its Schroeder integral
+    never saw when the Lundeby truncation had not fired, i.e. when it could see
+    the file run out under the note. A louder noise floor fires that truncation
+    earlier, the compensation stopped happening, and the decay read short - and
+    channelize.py hands our render the reference recording's own floor on
+    purpose, so the bias sat on both sides of every comparison at different
+    strengths.
+
+    Measured before the fix: a true 17 s decay read 16.73 s at -55 dBFS and
+    13.56 s at -45 dBFS. Same samples, different hiss, 20 percent apart.
+    """
+    group = "T60 vs noise floor  (same decay, floor swept -45 to -90 dBFS)"
+    sr = 48000
+    tmpd = tempfile.mkdtemp(prefix="chime-floor-")
+    try:
+        for true_t60 in (14.0, 17.0):
+            got = []
+            for nz in (-45.0, -55.0, -65.0, -75.0, -90.0):
+                rng = np.random.default_rng(11)
+                n = int(6.0 * sr)
+                tt = np.maximum(0.0, np.arange(n) / sr - 0.05)
+                env = 10.0 ** (-3.0 * tt / true_t60)
+                x = np.sin(2 * np.pi * (463.65 - 0.8) * tt) * env
+                x += 0.37 * np.sin(2 * np.pi * (463.65 + 0.8) * tt + 0.3) * env
+                x[: int(0.05 * sr)] = 0.0
+                x = x + rng.normal(0, 10 ** (nz / 20.0), n)
+                x = x / (np.max(np.abs(x)) / 0.7)
+                p = os.path.join(tmpd, "floor.wav")
+                wavfile.write(p, sr, (x * 32767).astype(np.int16))
+                feat = analyze.analyze_wav(p)
+                for q in feat["partials"]:
+                    if abs(q["freq_hz"] - 463.65) < 30:
+                        got.append(q["decay"]["t60_s"])
+                        break
+            if len(got) < 5:
+                ck.boolean(group, "all five floors measured at true %.0f s" % true_t60,
+                           True, False)
+                continue
+            spread = (max(got) - min(got)) / (sum(got) / len(got))
+            ck.explicit(group, "spread across the floor sweep, true %.0f s" % true_t60,
+                        0.0, spread, 0.03)
+            ck.explicit(group, "worst error against true %.0f s" % true_t60, 0.0,
+                        max(abs(g - true_t60) / true_t60 for g in got), 0.06)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+
 def validate_bessel(ck):
     """modal.js's Bessel polynomials, against scipy, over the range it evaluates.
 
@@ -549,6 +660,8 @@ def main(argv=None):
                  expect_beats=False, expect_click=False)
 
     validate_bessel(ck)
+    validate_estimator_continuity(ck)
+    validate_noise_floor_invariance(ck)
 
     model = validate_model(ck)
 

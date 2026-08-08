@@ -176,6 +176,13 @@ def build_diff(fa, fb, label_a, label_b):
             "rel_db_delta": _delta(a["rel_db"], b["rel_db"]),
             "t60_a": ta, "t60_b": tb, "t60_rel": _rel(ta, tb),
             "t60_r2_a": a["decay"].get("fit_r2"), "t60_r2_b": b["decay"].get("fit_r2"),
+            # The unextrapolated second opinion, carried alongside so a reader can
+            # see when the Schroeder number is doing the extrapolating and when
+            # the two agree. Not scored: one estimator per row is enough, and the
+            # Schroeder fit is the better one wherever it has the decay to work
+            # with. See analyze.py measure_t60_direct.
+            "t60_direct_a": a["decay"].get("t60_direct_s"),
+            "t60_direct_b": b["decay"].get("t60_direct_s"),
             "beat_a": bool(ba.get("detected")), "beat_b": bool(bb.get("detected")),
             "beat_rate_a": ba.get("rate_hz") if ba.get("detected") else None,
             "beat_rate_b": bb.get("rate_hz") if bb.get("detected") else None,
@@ -265,9 +272,10 @@ def build_diff(fa, fb, label_a, label_b):
                 kind="abs", unit_size=DIVERGENCE_UNITS["energy_rel_db"])
         if (ea.get("truncated") or {}).get(k) or (eb.get("truncated") or {}).get(k):
             r["note"] = "clip ends inside the window"
+
     if marks:
         # one summary number for the whole tail, so a variant can be ranked on
-        # "how much of the ring is missing" without reading three rows
+        # "how much of the ring is missing" without reading three rows. Taken
         gaps = [_delta((ea.get("rms_rel_peak_db") or {}).get("%gs" % m),
                        (eb.get("rms_rel_peak_db") or {}).get("%gs" % m))
                 for m in marks]
@@ -348,16 +356,19 @@ def format_diff(d, label_a, label_b):
         L.append("")
         L.append("PARTIALS  (matched by nearest frequency, within %.0f cents)" % MATCH_TOL_CENTS)
         L.append("   A#  B#      A freq      B freq    cents"
-                 "    A dB    B dB    ddB    A T60    B T60   dT60%   A beat   B beat")
-        L.append("  " + "-" * (W + 24))
+                 "    A dB    B dB    ddB    A T60    B T60   dT60%"
+                 "   Adirect  Bdirect   A beat   B beat")
+        L.append("  " + "-" * (W + 42))
         for p in d["partials"]:
-            L.append("  %3d %3d %11.3f %11.3f %8s %7s %7s %6s %8s %8s %7s %8s %8s"
+            L.append("  %3d %3d %11.3f %11.3f %8s %7s %7s %6s %8s %8s %7s %9s %8s %8s %8s"
                      % (p["a_index"], p["b_index"], p["freq_a"], p["freq_b"],
                         _fmt(p["cents"], "%+.1f"),
                         _fmt(p["rel_db_a"], "%.1f"), _fmt(p["rel_db_b"], "%.1f"),
                         _fmt(p["rel_db_delta"], "%+.1f"),
                         _fmt(p["t60_a"], "%.3f"), _fmt(p["t60_b"], "%.3f"),
                         _fmt(p["t60_rel"] * 100 if p["t60_rel"] is not None else None, "%+.0f"),
+                        _fmt(p.get("t60_direct_a"), "%.3f"),
+                        _fmt(p.get("t60_direct_b"), "%.3f"),
                         ("%.2fHz" % p["beat_rate_a"]) if p["beat_a"] else "none",
                         ("%.2fHz" % p["beat_rate_b"]) if p["beat_b"] else "none"))
         for u in d["only_a"]:

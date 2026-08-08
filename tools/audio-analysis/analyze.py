@@ -899,6 +899,65 @@ def band_noise_power(sos, sr, wideband_power, zero_phase=True):
     return float(wideband_power * frac)
 
 
+# Block length and span for the direct decay below. One second is long enough to
+# average out a 1-2 Hz doublet beat, which is what the reference fundamentals
+# do, and five blocks is what a six second clip has room for.
+DIRECT_BLOCK_S = 1.0
+DIRECT_BLOCKS = 6
+
+
+def measure_t60_direct(band, sr, onset_i, noise_power=None):
+    """Decay rate with nothing extrapolated: least squares through the band's
+    own energy, in one-second blocks, from the onset to the end of the clip.
+
+    WHY A SECOND ESTIMATOR. measure_t60() below is the right tool and stays the
+    primary number, but it is a Schroeder fit and a Schroeder curve on a clip
+    that ends before the sound does bends downward at its end, so the answer
+    depends on which stretch of the curve gets fitted. On the corinthian
+    reference that dependence is not subtle: fitting -5..-15 dB gives 15.9 s,
+    -5..-25 gives 11.6, -10..-30 gives 8.3 and -15..-35 gives 4.6, a factor of
+    3.4 across four defensible choices, and the method the code picks flips with
+    how much decay it thinks it has. Both critics of the last round named that
+    step as the thing that makes small T60 changes unreadable.
+
+    This estimator has no fit range to choose, no truncation compensation and no
+    tail model. It is just "how many dB did this band lose per second", which is
+    a weaker question but one with a single answer.
+
+    MEASURED, on the three references and on our own renders of them. On our
+    renders - clean single exponentials - the two agree to 7 percent. On the
+    recordings they part company: 20.2 / 12.7 / 21.1 s direct against 14.5 /
+    14.3 / 17.5 s Schroeder. That gap is not noise and it is not the model; it
+    is what a truncated Schroeder fit does to a decay longer than its clip. It
+    is reported rather than resolved, because resolving it needs recordings
+    longer than six seconds, which is a question for the reference set and not
+    for the estimator.
+    """
+    seg = band[onset_i:]
+    n = int(round(DIRECT_BLOCK_S * sr))
+    if seg.size < 3 * n:
+        return None
+    noise = float(noise_power) if (noise_power and np.isfinite(noise_power)) else 0.0
+    ts, vs = [], []
+    for k in range(DIRECT_BLOCKS):
+        i0, i1 = k * n, (k + 1) * n
+        if i1 > seg.size:
+            break
+        p = float(np.mean(seg[i0:i1] ** 2)) - noise
+        if p <= 0:                      # into the floor: stop, do not fit noise
+            break
+        ts.append(k * DIRECT_BLOCK_S + 0.5 * DIRECT_BLOCK_S)
+        vs.append(10.0 * math.log10(p))
+    if len(ts) < 3:
+        return None
+    slope, _icpt, r2 = linfit(np.array(ts), np.array(vs))
+    if not np.isfinite(slope) or slope >= 0:
+        return None
+    return {"t60_s": float(-60.0 / slope), "blocks": len(ts),
+            "span_s": float(ts[-1] - ts[0]), "fit_r2": float(r2),
+            "drop_db": float(vs[0] - vs[-1])}
+
+
 def measure_t60(band, sr, onset_i, band_noise_power=None):
     """Schroeder backward integration, T20 fit (T10 fallback).
 
@@ -906,6 +965,9 @@ def measure_t60(band, sr, onset_i, band_noise_power=None):
     energy before integrating (Chu), and the energy the recording cut off is
     estimated from the first fit and added back, so a decay that outlasts the
     file is not reported as shorter than it is.
+
+    See measure_t60_direct() above for the unextrapolated second opinion, and
+    for why it is worth having one.
     """
     seg = band[onset_i:]
     if seg.size < int(0.05 * sr):
@@ -972,15 +1034,34 @@ def measure_t60(band, sr, onset_i, band_noise_power=None):
         # integrate, so keep a 3 dB margin between the bottom of the fit and the
         # lowest value the curve reached. Fitting into that bend is what makes a
         # 6 s decay read as 3.5 s in a file that was cut short.
+        #
+        # THE FIT RANGE SLIDES; IT DOES NOT SNAP. This used to be three discrete
+        # regimes - T20 below a reach of -28 dB, T10 below -18, a short partial
+        # fit above that - and the regimes disagreed with each other, so a signal
+        # sitting on a boundary got a different answer for a rounding error's
+        # worth of reason. It was not hypothetical: adding the exact cylindrical
+        # radiation resistance to modal.js moved our corinthian render's reach
+        # from 27.8 dB to 28.0, flipped T10 to T20, and moved the reported T60
+        # from 15.04 s to 13.27 s - a 12 percent step out of a signal whose
+        # actual decay had changed by 0.1 percent, and enough on its own to take
+        # a render from inside the bar's 14-18 s window to outside it. Both
+        # critics of the previous round named this step as the thing that made
+        # small T60 changes unreadable; this is the repair.
+        #
+        # The bottom of the fit now follows the reach continuously, capped at
+        # -25 dB so a long clean decay still gets the standard T20. At reach
+        # -28 it gives exactly the old T20 range and at -18 exactly the old T10
+        # range, so the two old regimes are endpoints of the new rule rather
+        # than rivals, and everything between them is interpolated instead of
+        # rounded to one or the other.
         reach = float(edc_db[-1])
-        if reach <= -28.0:
-            f = fit_between(edc_db, t, -5.0, -25.0)
+        lo = max(-25.0, reach + 3.0)
+        if lo <= -15.0:
+            f = fit_between(edc_db, t, -5.0, lo)
             if f:
-                return f, "schroeder_T20", reach
-        if reach <= -18.0:
-            f = fit_between(edc_db, t, -5.0, -15.0)
-            if f:
-                return f, "schroeder_T10", reach
+                # Named for the span it actually used, so the number is not a
+                # regime label that hides which decade got fitted.
+                return f, "schroeder_T%d" % int(round(-5.0 - lo)), reach
         lo = max(reach + 3.0, -8.0)
         if lo <= -2.0:
             f = fit_between(edc_db, t, -1.0, lo)
@@ -993,14 +1074,35 @@ def measure_t60(band, sr, onset_i, band_noise_power=None):
         return {"valid": False, "note": "too few points"}
     fit, method, reach = best_fit(edc_db, t)
 
-    # Tail compensation. When the file ends before the note does, the energy the
-    # recording never captured is estimated from the fitted slope and added to
-    # the integral. The estimate depends on the slope and the slope depends on
-    # the estimate, so iterate to a fixed point; one pass badly under-corrects a
-    # decay that outlasts the file several times over.
+    # Tail compensation. Energy the integral never saw is estimated from the
+    # fitted slope and added back. The estimate depends on the slope and the
+    # slope depends on the estimate, so iterate to a fixed point; one pass badly
+    # under-corrects a decay that outlasts the file several times over.
+    #
+    # IT RUNS WHENEVER THE INTEGRAL IS SHORT OF ENERGY, not only when the file
+    # ran out. This used to be gated on `trunc >= sm.size - 1` - "the Lundeby
+    # truncation did not cut anything, so the note must outlast the clip" - which
+    # silently made the answer depend on the NOISE FLOOR. A loud floor moves the
+    # truncation point earlier, the gate stops firing, the energy past that point
+    # is neither integrated nor added back, and the Schroeder curve bends down.
+    #
+    # MEASURED on synthetic decays where the answer is known, identical signal,
+    # only the floor moved: a true 17.0 s decay reads 16.73 s at a -55 dBFS floor
+    # or quieter and 13.56 s at -45 dBFS, a 20 percent error out of nothing but
+    # hiss. A true 14.0 s reads 13.90 or 12.59 the same way. That is not a corner
+    # case here - channelize.py deliberately gives our render the reference
+    # recording's own noise floor, so this bias lands on both sides of every
+    # comparison and by different amounts, and it is a large part of why a
+    # 6 s clip of a 16 s chime has been so hard to measure.
+    #
+    # The formula below never assumed the truncation was at the end of the file;
+    # it integrates the remaining exponential from wherever `trunc` is. Only the
+    # gate was wrong. The guards inside the loop already handle the case where
+    # there is nothing left to add: `last` goes non-positive when the truncation
+    # landed in the noise, and the te > 20*base_energy break catches a runaway.
     tail_energy = 0.0
     tail_iters = 0
-    if fit is not None and trunc >= sm.size - 1:
+    if fit is not None:
         # Average the closing energy over at least a third of a second: sampling
         # the last few milliseconds lands in a beat null often enough to throw
         # the estimate off by 20 dB. The averaging window is then un-averaged
@@ -1032,15 +1134,20 @@ def measure_t60(band, sr, onset_i, band_noise_power=None):
                 break
             prev_t60 = new_t60
 
+    direct = measure_t60_direct(band, sr, onset_i, noise)
+
     if fit is None:
         return {"valid": False, "note": "no usable decay (only %.1f dB)" % abs(reach),
-                "usable_decay_db": abs(reach)}
+                "usable_decay_db": abs(reach), "direct": direct,
+                "t60_direct_s": (direct or {}).get("t60_s")}
 
     t60 = -60.0 / fit["slope"]
     note = ""
     valid = True
-    if method == "schroeder_T10":
-        note = "only %.0f dB of decay available; T60 extrapolated from a T10 fit" % abs(reach)
+    span = abs(fit["range_db"][1] - fit["range_db"][0])
+    if method.startswith("schroeder_T") and span < 20.0:
+        note = ("only %.0f dB of decay available; T60 extrapolated from a T%d fit"
+                % (abs(reach), round(span)))
     elif method == "schroeder_partial":
         note = "only %.0f dB of decay available; T60 heavily extrapolated" % abs(reach)
         valid = False
@@ -1049,9 +1156,18 @@ def measure_t60(band, sr, onset_i, band_noise_power=None):
         if fit["r2"] < 0.85:
             valid = False
 
+    if direct and t60 > 0:
+        rel = abs(direct["t60_s"] - t60) / t60
+        if rel > 0.20:
+            note = ((note + "; " if note else "") +
+                    "direct block fit says %.2f s, %.0f%% from the Schroeder value"
+                    % (direct["t60_s"], 100 * rel))
+
     return {
         "valid": bool(valid),
         "t60_s": float(t60),
+        "t60_direct_s": (direct or {}).get("t60_s"),
+        "direct": direct,
         "method": method,
         "fit_r2": float(fit["r2"]),
         "fit_range_db": list(fit["range_db"]),
