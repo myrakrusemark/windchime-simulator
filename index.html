@@ -22,16 +22,15 @@
       shared by about.html, terms.html and privacy.html and editing it un-styles
       three pages silently (CONTRACTS H26). All new CSS goes in these files.
 
-      The remaining four sheets ship WITH the piece that owns them, one line
-      each, so the page never links a file that is not on disk. A 404 here is a
-      failing tools/verify.mjs run, not a warning:
-        <link rel="stylesheet" href="assets/css/landing.css">   P2
+      The remaining sheets ship WITH the piece that owns them, one line each, so
+      the page never links a file that is not on disk. A 404 here is a failing
+      tools/verify.mjs run, not a warning:
         <link rel="stylesheet" href="assets/css/places.css">    P4
         <link rel="stylesheet" href="assets/css/hang.css">      P5
-        <link rel="stylesheet" href="assets/css/share.css">     P6
     -->
     <link rel="stylesheet" type="text/css" href="assets/css/tokens.css">
     <link rel="stylesheet" type="text/css" href="assets/css/slots.css">
+    <link rel="stylesheet" type="text/css" href="assets/css/landing.css">
     <link rel="stylesheet" type="text/css" href="assets/css/share.css">
 
     <!--
@@ -198,17 +197,6 @@
         <!-- === WCS:LANDING === -->
         <!-- === /WCS:LANDING === -->
 
-        <!-- Sits below the chime, in the middle band. Browsers will not start an
-             AudioContext without a gesture, so this is the page asking for one. -->
-        <div id="audioToast" role="status" aria-live="polite">
-            <span>Click or tap anywhere to hear the wind chime</span>
-        </div>
-
-        <!-- The weather status line. It was inside the wind dock, which is gone;
-             it stays because it is one of the page's only two aria-live regions
-             (CONTRACTS 2.5) and runWeatherChain still writes to it. -->
-        <p id="statusLine" role="status" aria-live="polite"></p>
-
         <!-- === WCS:SLOTS === -->
         <!--
           The builder shell. Bottom of the frame, over the live scene: a caption
@@ -231,6 +219,27 @@
           limit and no tube name is typed twice.
         -->
         <div id="wcsSlots" class="wcs-slots">
+
+            <!-- Both of these are absolutely positioned against the top edge of
+                 this column (assets/css/landing.css, assets/css/slots.css), so
+                 they stack upward over the scene and neither one can move the
+                 caption or the pill row by appearing.
+
+                 They are NOT deleted and NOT rebuilt: they are the page's only
+                 two aria-live regions (CONTRACTS 2.5) and main.js still owns
+                 both - the .done latch on the toast keys off audio.ready(), and
+                 runWeatherChain writes the status line. Only where they sit has
+                 changed. The toast used to be parked at top:72% of the viewport,
+                 which is on top of the object: at 1440 it was a 339x42 slab
+                 across the tube tips and the sail, and at 390 it sat squarely
+                 over the middle of the tube bundle. The bar's first frame
+                 contains no instruction at all, and this was the one thing in
+                 ours that read as being told what to do. -->
+            <div id="audioToast" role="status" aria-live="polite">
+                <span>Click or tap anywhere to hear the wind chime</span>
+            </div>
+
+            <p id="statusLine" role="status" aria-live="polite"></p>
 
             <p id="wcsCaption" class="wcs-caption" aria-live="polite"></p>
 
@@ -260,7 +269,7 @@
             <div id="wcsPanelHost" class="wcs-panel-host">
 
                 <!-- ---- Place ------------------------------------------- -->
-                <section class="wcs-panel" id="wcsPanel-place" data-slot="place" role="dialog" aria-labelledby="wcsTitle-place" tabindex="-1" hidden>
+                <section class="wcs-panel" id="wcsPanel-place" data-slot="place" role="dialog" aria-modal="true" aria-labelledby="wcsTitle-place" tabindex="-1" hidden>
                     <div class="wcs-panel-head">
                         <h2 class="wcs-panel-title" id="wcsTitle-place">Place</h2>
                         <button type="button" class="wcs-close" data-close>Done</button>
@@ -268,23 +277,55 @@
                     <div class="wcs-panel-body">
 
                         <!-- === WCS:PLACE-PANEL === -->
-                        <!-- P4's place picker goes here, and only here. -->
+                        <!-- P4's place picker goes here, and only here. Until it
+                             lands there is exactly one place, and the panel says
+                             so in one line rather than opening a picker-shaped
+                             hole. A pill named for a part has to be honest about
+                             what the part can currently do. -->
+                        <div class="wcs-group">
+                            <h3 class="wcs-group-title">Where it hangs</h3>
+                            <p class="wcs-note">The porch, on a sawn beam. It is the only place built so far - the forest path arrives with the next piece, and the link already carries which one you picked.</p>
+                        </div>
                         <!-- === /WCS:PLACE-PANEL === -->
 
                         <div class="wcs-group">
                             <h3 class="wcs-group-title">Weather here</h3>
-                            <p class="wcs-note">Every place has its own wind. Move a slider and this chime keeps that weather instead, wherever the link is opened.</p>
+                            <p class="wcs-note">Every place has its own wind. Move a slider and this chime keeps that weather instead, wherever the link is opened - or fetch what is really happening somewhere.</p>
+
+                            <!-- The live-weather entry point.
+                                 These two ids are the ONLY callers of
+                                 runWeatherChain() in main.js. The old .dock-start
+                                 block that carried them was deleted with P3's
+                                 chrome, which left the chain with zero reachable
+                                 callers - snapshot().weather permanently null,
+                                 #statusLine never written to, and the page's
+                                 <title> still selling "real weather" (H22, H37).
+                                 Rebuilding them here restores the feature with no
+                                 change to main.js at all.
+
+                                 BOTH of them, never just the button: a Start
+                                 trigger with no text box falls into the
+                                 empty-query branch and fires an unrequested
+                                 native geolocation prompt (H23). Behind a panel a
+                                 visitor opened and a button labelled for it, the
+                                 browser prompt is something they asked for by
+                                 name. Nothing on the first frame can reach it. -->
+                            <p class="wcs-weather-row">
+                                <label class="wcs-sr-only" for="locationInput">Town, state or country</label>
+                                <input type="text" id="locationInput" class="wcs-text" placeholder="City, State or Country" autocomplete="address-level2" spellcheck="false" maxlength="120">
+                                <button type="button" id="startButton" class="wcs-weather-go">Use live weather</button>
+                            </p>
 
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsWindSpeed"><span class="wcs-field-name">Wind speed</span><span class="wcs-field-value" data-value-for="wcsWindSpeed"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsWindSpeed">Wind speed</label><span class="wcs-field-value" data-value-for="wcsWindSpeed"></span></span>
                                 <input class="wcs-range" type="range" id="wcsWindSpeed" data-path="wind.mph" data-range="wind.mph" data-fmt="mph" step="1">
                             </p>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsWindDir"><span class="wcs-field-name">Wind direction</span><span class="wcs-field-value" data-value-for="wcsWindDir"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsWindDir">Wind direction</label><span class="wcs-field-value" data-value-for="wcsWindDir"></span></span>
                                 <input class="wcs-range" type="range" id="wcsWindDir" data-path="wind.dirDeg" data-fmt="bearing" min="0" max="359" step="1">
                             </p>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsTurbulence"><span class="wcs-field-name">Gustiness</span><span class="wcs-field-value" data-value-for="wcsTurbulence"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsTurbulence">Gustiness</label><span class="wcs-field-value" data-value-for="wcsTurbulence"></span></span>
                                 <input class="wcs-range" type="range" id="wcsTurbulence" data-path="wind.turbulence" data-range="wind.turbulence" data-fmt="ratio2" step="0.01">
                             </p>
                         </div>
@@ -292,7 +333,7 @@
                         <div class="wcs-group">
                             <h3 class="wcs-group-title">Light</h3>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsSun"><span class="wcs-field-name">Sun height</span><span class="wcs-field-value" data-value-for="wcsSun"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsSun">Sun height</label><span class="wcs-field-value" data-value-for="wcsSun"></span></span>
                                 <!-- min/max come from stage.sunRange() at mount: the legal
                                      elevation is place-dependent, 2-20 with a sky and 26-74
                                      without, and a number typed here would be wrong for one
@@ -311,7 +352,7 @@
                 </section>
 
                 <!-- ---- Tubes ------------------------------------------- -->
-                <section class="wcs-panel" id="wcsPanel-tubes" data-slot="tubes" role="dialog" aria-labelledby="wcsTitle-tubes" tabindex="-1" hidden>
+                <section class="wcs-panel" id="wcsPanel-tubes" data-slot="tubes" role="dialog" aria-modal="true" aria-labelledby="wcsTitle-tubes" tabindex="-1" hidden>
                     <div class="wcs-panel-head">
                         <h2 class="wcs-panel-title" id="wcsTitle-tubes">Tubes</h2>
                         <button type="button" class="wcs-close" data-close>Done</button>
@@ -325,7 +366,7 @@
 
                         <div class="wcs-group">
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsNotes"><span class="wcs-field-name">How many</span><span class="wcs-field-value" data-value-for="wcsNotes"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsNotes">How many</label><span class="wcs-field-value" data-value-for="wcsNotes"></span></span>
                                 <input class="wcs-range" type="range" id="wcsNotes" data-path="tubes.notes" data-range="tubes.notes" data-fmt="tubes" step="1">
                             </p>
                         </div>
@@ -340,15 +381,15 @@
                         <div class="wcs-group">
                             <h3 class="wcs-group-title">How they ring</h3>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsAttack"><span class="wcs-field-name">Strike</span><span class="wcs-field-value" data-value-for="wcsAttack"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsAttack">Strike</label><span class="wcs-field-value" data-value-for="wcsAttack"></span></span>
                                 <input class="wcs-range" type="range" id="wcsAttack" data-path="voice.attack" data-range="voice.attack" data-fmt="ms" step="0.0005">
                             </p>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsDecay"><span class="wcs-field-name">Ring trim</span><span class="wcs-field-value" data-value-for="wcsDecay"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsDecay">Ring trim</label><span class="wcs-field-value" data-value-for="wcsDecay"></span></span>
                                 <input class="wcs-range" type="range" id="wcsDecay" data-path="voice.decay" data-range="voice.decay" data-fmt="ring" step="0.1">
                             </p>
                             <p class="wcs-field">
-                                <label class="wcs-field-top" for="wcsLoudness"><span class="wcs-field-name">Loudness</span><span class="wcs-field-value" data-value-for="wcsLoudness"></span></label>
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsLoudness">Loudness</label><span class="wcs-field-value" data-value-for="wcsLoudness"></span></span>
                                 <input class="wcs-range" type="range" id="wcsLoudness" data-path="voice.loudness" data-range="voice.loudness" data-fmt="pct" step="0.01">
                             </p>
                             <p class="wcs-note">Ring time comes out of the air the tube pushes and the cord it hangs on. The trim only stretches or shortens it; at 1.00x you hear the tube as the physics builds it.</p>
@@ -358,7 +399,7 @@
                 </section>
 
                 <!-- ---- Striker ----------------------------------------- -->
-                <section class="wcs-panel" id="wcsPanel-striker" data-slot="striker" role="dialog" aria-labelledby="wcsTitle-striker" tabindex="-1" hidden>
+                <section class="wcs-panel" id="wcsPanel-striker" data-slot="striker" role="dialog" aria-modal="true" aria-labelledby="wcsTitle-striker" tabindex="-1" hidden>
                     <div class="wcs-panel-head">
                         <h2 class="wcs-panel-title" id="wcsTitle-striker">Striker</h2>
                         <button type="button" class="wcs-close" data-close>Done</button>
@@ -366,15 +407,15 @@
                     <div class="wcs-panel-body">
                         <p class="wcs-note">The wooden puck the tubes get hit by. It hangs on a cord and the sail drags it sideways until it reaches a tube.</p>
                         <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsClapperWidth"><span class="wcs-field-name">Across</span><span class="wcs-field-value" data-value-for="wcsClapperWidth"></span></label>
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsClapperWidth">Across</label><span class="wcs-field-value" data-value-for="wcsClapperWidth"></span></span>
                             <input class="wcs-range" type="range" id="wcsClapperWidth" data-path="clapper.width" data-range="clapper.width" data-fmt="mm" step="0.001">
                         </p>
                         <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsClapperMass"><span class="wcs-field-name">Weight</span><span class="wcs-field-value" data-value-for="wcsClapperMass"></span></label>
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsClapperMass">Weight</label><span class="wcs-field-value" data-value-for="wcsClapperMass"></span></span>
                             <input class="wcs-range" type="range" id="wcsClapperMass" data-path="clapper.mass" data-range="clapper.mass" data-fmt="g" step="0.001">
                         </p>
                         <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsClapperDrop"><span class="wcs-field-name">Hangs down</span><span class="wcs-field-value" data-value-for="wcsClapperDrop"></span></label>
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsClapperDrop">Hangs down</label><span class="wcs-field-value" data-value-for="wcsClapperDrop"></span></span>
                             <input class="wcs-range" type="range" id="wcsClapperDrop" data-path="clapper.drop" data-range="clapper.drop" data-fmt="cm" step="0.005">
                         </p>
                         <p class="wcs-note">How far it hangs moves the strike point up and down the tubes, which changes which overtones speak. Near a tube's middle it sings; well off centre it clangs.</p>
@@ -382,7 +423,7 @@
                 </section>
 
                 <!-- ---- Sail -------------------------------------------- -->
-                <section class="wcs-panel" id="wcsPanel-sail" data-slot="sail" role="dialog" aria-labelledby="wcsTitle-sail" tabindex="-1" hidden>
+                <section class="wcs-panel" id="wcsPanel-sail" data-slot="sail" role="dialog" aria-modal="true" aria-labelledby="wcsTitle-sail" tabindex="-1" hidden>
                     <div class="wcs-panel-head">
                         <h2 class="wcs-panel-title" id="wcsTitle-sail">Sail</h2>
                         <button type="button" class="wcs-close" data-close>Done</button>
@@ -390,11 +431,11 @@
                     <div class="wcs-panel-body">
                         <p class="wcs-note">The flat paddle on the long cord underneath. It is the only part the wind really works on, and everything the chime does starts here.</p>
                         <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsSailMass"><span class="wcs-field-name">Weight</span><span class="wcs-field-value" data-value-for="wcsSailMass"></span></label>
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsSailMass">Weight</label><span class="wcs-field-value" data-value-for="wcsSailMass"></span></span>
                             <input class="wcs-range" type="range" id="wcsSailMass" data-path="sail.mass" data-range="sail.mass" data-fmt="g" step="0.001">
                         </p>
                         <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsSailHeight"><span class="wcs-field-name">Height</span><span class="wcs-field-value" data-value-for="wcsSailHeight"></span></label>
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsSailHeight">Height</label><span class="wcs-field-value" data-value-for="wcsSailHeight"></span></span>
                             <input class="wcs-range" type="range" id="wcsSailHeight" data-path="sail.height" data-range="sail.height" data-fmt="mm" step="0.005">
                         </p>
                         <p class="wcs-note">Drag goes as the area and as the speed squared, so a taller sail in a gust throws the chime rather than nudging it.</p>
@@ -402,7 +443,7 @@
                 </section>
 
                 <!-- ---- Hang -------------------------------------------- -->
-                <section class="wcs-panel" id="wcsPanel-hang" data-slot="hang" role="dialog" aria-labelledby="wcsTitle-hang" tabindex="-1" hidden>
+                <section class="wcs-panel" id="wcsPanel-hang" data-slot="hang" role="dialog" aria-modal="true" aria-labelledby="wcsTitle-hang" tabindex="-1" hidden>
                     <div class="wcs-panel-head">
                         <h2 class="wcs-panel-title" id="wcsTitle-hang">Hang</h2>
                         <button type="button" class="wcs-close" data-close>Done</button>
@@ -416,19 +457,33 @@
                              not need markup in this file. -->
                         <!-- === /WCS:HANG === -->
 
-                        <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsHangU"><span class="wcs-field-name">Across the place</span><span class="wcs-field-value" data-value-for="wcsHangU"></span></label>
-                            <input class="wcs-range" type="range" id="wcsHangU" data-path="hang.u" data-range="hang.u" data-fmt="pct" step="0.01">
+                        <!-- The note comes BEFORE the sliders, and each slider
+                             carries its own reason, because a warning read after
+                             the drag is not a warning.
+
+                             These three ship `disabled`, not live. Driven, they
+                             wrote real values into the design and into the share
+                             link and moved nothing on screen: stage.setFraming
+                             does not exist until P4, so hang.u/v/scale had
+                             nowhere to land. A control that cannot act is present
+                             and visibly off with a one-line reason, never live
+                             and inert (CONTRACTS P5 criterion 5). hang.js takes
+                             the attribute off when setFraming exists. -->
+                        <p class="wcs-note">Where the chime sits in the place, and how big it hangs there. The chime itself never moves: the place moves behind it, which is what keeps the physics and the loudness out of it.</p>
+
+                        <p class="wcs-field is-disabled">
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangU">Across the place</label><span class="wcs-field-value" data-value-for="wcsHangU"></span></span>
+                            <input class="wcs-range" type="range" id="wcsHangU" data-path="hang.u" data-range="hang.u" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
-                        <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsHangV"><span class="wcs-field-name">Down from the top</span><span class="wcs-field-value" data-value-for="wcsHangV"></span></label>
-                            <input class="wcs-range" type="range" id="wcsHangV" data-path="hang.v" data-range="hang.v" data-fmt="pct" step="0.01">
+                        <p class="wcs-field is-disabled">
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangV">Down from the top</label><span class="wcs-field-value" data-value-for="wcsHangV"></span></span>
+                            <input class="wcs-range" type="range" id="wcsHangV" data-path="hang.v" data-range="hang.v" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
-                        <p class="wcs-field">
-                            <label class="wcs-field-top" for="wcsHangScale"><span class="wcs-field-name">Size</span><span class="wcs-field-value" data-value-for="wcsHangScale"></span></label>
-                            <input class="wcs-range" type="range" id="wcsHangScale" data-path="hang.scale" data-range="hang.scale" data-fmt="pct" step="0.01">
+                        <p class="wcs-field is-disabled">
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangScale">Size</label><span class="wcs-field-value" data-value-for="wcsHangScale"></span></span>
+                            <input class="wcs-range" type="range" id="wcsHangScale" data-path="hang.scale" data-range="hang.scale" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
-                        <p class="wcs-note">Where the chime sits in the place, and how big it hangs there. The chime itself never moves: the place moves behind it, which is what keeps the physics and the loudness out of it. These travel in the link today and take hold on screen once the plate places land.</p>
+                        <p class="wcs-note" id="wcsHangWhy">Off until the plate places land. The porch is a real world with a real size, so there is nothing yet for the chime to be moved across or scaled against.</p>
 
                     </div>
                 </section>

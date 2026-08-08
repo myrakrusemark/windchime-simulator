@@ -59,27 +59,49 @@ textarea:focus-visible,
 
    Row 1 is the title, row 2 is the empty band the object hangs in, row 3 is the
    shell. The object owns the middle and nothing is allowed into it.
+
+   THE ROW NEVER MOVES. This is the one rule the whole shell is built around and
+   the first version broke it: caption, pills and panel were three items in one
+   flex column, so opening a panel grew the column and pushed the caption and the
+   pill row 303px up at 1440 and 345px at 390 - out of the bottom band and into
+   the object's. The pill you had just pressed was no longer under your finger,
+   a live slider was, and the trailing press of a double-tap silently wrote a
+   setting nobody asked for (measured: wind.turbulence null -> 0.27).
+
+   So the caption and the pill row are the only things in the column, and
+   everything that opens - the panel, the unlock line, the weather status - is
+   absolutely positioned against the top edge of that column and grows UPWARDS
+   over the scene. `bottom: 100%` of a position:relative .wcs-slots is the top
+   edge of the row, and nothing above it can change where the row is.
    --------------------------------------------------------------------------- */
 
 .wcs-slots {
 	grid-row: 3;
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: var(--wcs-s3);
 	min-width: 0;
 	pointer-events: none;
+	/* On a phone the browser chrome and the home indicator eat the last band of
+	   the viewport. max() rather than a bare env() so a desktop, where the inset
+	   is 0px, still gets its gutter. */
+	padding-bottom: max(0px, env(safe-area-inset-bottom));
 }
 
-/* The weather status line used to live inside the wind dock. It sits just above
-   the shell now, and takes no space at all until something writes to it. */
+/* The weather status line used to live inside the wind dock. It sits above the
+   shell now, out of the column's flow so a reading arriving cannot shift the
+   pill row, and takes no space at all until something writes to it. */
 #statusLine {
-	grid-row: 2;
-	align-self: center;
-	justify-self: center;
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(100% + var(--wcs-s3) + 40px);
+	margin: 0 auto;
+	width: max-content;
+	max-width: 100%;
 	text-align: center;
-	max-width: 40ch;
-	margin: 0;
 	font-size: var(--wcs-fs-label);
 	line-height: 1.3;
 	color: var(--wcs-ink-dim);
@@ -197,13 +219,23 @@ textarea:focus-visible,
    only and kept all sixteen reachable by Tab (CONTRACTS H21).
    --------------------------------------------------------------------------- */
 
+/* Out of the column's flow entirely, anchored to the top edge of the row it
+   opens above. The row's y is identical open and closed, at every width and for
+   every panel - measured, not asserted. */
 .wcs-panel-host {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(100% + var(--wcs-s3));
 	width: min(760px, 100%);
+	margin: 0 auto;
 	min-width: 0;
 	pointer-events: none;
 }
 
-[hidden] {
+/* Scoped, not global. A piece stylesheet has no business authoring a rule that
+   matches every element on the page. */
+.wcs-panel[hidden] {
 	display: none !important;
 }
 
@@ -232,6 +264,22 @@ textarea:focus-visible,
 .wcs-panel.is-open {
 	opacity: 1;
 	transform: none;
+}
+
+/* Belt and braces on top of the layout fix above. For the length of the opening
+   transition the panel accepts no pointer input at all, so the second press of a
+   double-tap - anywhere, including the panel's own controls - cannot land on a
+   control that was not on screen when the finger went down. slots.js drops the
+   class on a timer. */
+/* The descendant selector is not padding. pointer-events:none on an ancestor is
+   overridden by any descendant that sets it back to auto, and the chips, the
+   Done button, the text box and every range in here do exactly that so the panel
+   can sit inside a pointer-events:none overlay. Without the second selector the
+   guard measured as having no effect at all: elementFromPoint on a chip returned
+   the chip 44 ms after the panel opened. */
+.wcs-panel.is-arming,
+.wcs-panel.is-arming * {
+	pointer-events: none;
 }
 
 .wcs-panel-head {
@@ -316,18 +364,45 @@ textarea:focus-visible,
 	margin-bottom: 0;
 }
 
+/* A row, not a label. The <label for> underneath wraps the NAME only.
+   The whole row used to be the label, which put the formatted number inside the
+   slider's accessible name - so a screen reader read "Across 68 mm, slider,
+   0.068", and the NAME changed on every arrow-key press. A slider's name is the
+   thing it names; its value belongs in aria-valuetext, which slots.js writes
+   from the same format() call that writes the number on screen. */
 .wcs-field-top {
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
 	gap: var(--wcs-s3);
 	margin-bottom: var(--wcs-s1);
-	cursor: pointer;
 }
 
 .wcs-field-name {
 	font-size: var(--wcs-fs-body);
 	color: var(--wcs-ink-dim);
+	cursor: pointer;
+}
+
+/* A control that cannot act yet is present and visibly off, with its reason on
+   its own label - never missing, and never live-but-inert (CONTRACTS P5
+   criterion 5). */
+.wcs-field.is-disabled .wcs-field-name,
+.wcs-field.is-disabled .wcs-field-value {
+	color: var(--wcs-ink-faint);
+	cursor: default;
+}
+
+input[type="range"].wcs-range:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.wcs-field-why {
+	display: block;
+	margin-top: 2px;
+	font-size: var(--wcs-fs-note);
+	color: var(--wcs-ink-faint);
 }
 
 .wcs-field-value {
@@ -362,6 +437,81 @@ input[type="range"].wcs-range {
 	font-size: var(--wcs-fs-note);
 	line-height: 1.5;
 	color: var(--wcs-ink-faint);
+}
+
+
+/* The live-weather row ------------------------------------------------------
+
+   #locationInput and #startButton are back, inside the Place panel, because they
+   are the only two callers of runWeatherChain() in main.js and deleting the dock
+   that held them deleted live weather with it. The ids are load-bearing and the
+   classes are only for the paint.
+
+   Both selectors carry the id as well as the class: assets/styles.css styles
+   #startButton at (1,0,0) as a big amber pill, and a bare class at (0,1,0) would
+   lose to it silently. #locationInput's box rules there are scoped to .dock-start
+   and match nothing now, so it arrives unstyled and is dressed from scratch. */
+
+.wcs-weather-row {
+	display: flex;
+	align-items: stretch;
+	gap: 6px;
+	margin: 0 0 var(--wcs-s3) 0;
+}
+
+input[type="text"]#locationInput.wcs-text {
+	pointer-events: auto;
+	flex: 1 1 120px;
+	min-width: 0;
+	min-height: 38px;
+	box-sizing: border-box;
+	padding: 0 12px;
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-sm);
+	background: var(--wcs-raise);
+	color: var(--wcs-ink);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-body);
+}
+
+input[type="text"]#locationInput.wcs-text::placeholder {
+	color: var(--wcs-ink-faint);
+}
+
+#startButton.wcs-weather-go {
+	pointer-events: auto;
+	flex: 0 0 auto;
+	min-height: 38px;
+	padding: 0 13px;
+	border: none;
+	border-radius: var(--wcs-r-sm);
+	background: var(--wcs-accent);
+	color: var(--wcs-ink-on-accent);
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+#startButton.wcs-weather-go:hover {
+	background: var(--wcs-accent-hi);
+}
+
+/* A label that exists for the accessibility tree and not for the eye. The
+   placeholder is not a label: it disappears the moment anything is typed, and
+   several screen readers never announce it at all. */
+.wcs-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
 }
 
 
@@ -432,8 +582,10 @@ input[type="range"].wcs-range {
 		gap: 6px;
 	}
 
+	/* Held at the full tap target, not shrunk to 40: a phone is where the 44px
+	   matters and the bar's own phone pills are bigger than its desktop ones. */
 	.wcs-pill {
-		min-height: 40px;
+		min-height: var(--wcs-tap);
 		padding: 0 12px;
 		font-size: var(--wcs-fs-label);
 		gap: 5px;
@@ -449,7 +601,7 @@ input[type="range"].wcs-range {
 	}
 
 	.wcs-panel-body {
-		max-height: min(32vh, 268px);
+		max-height: min(30vh, 240px);
 	}
 
 }
@@ -476,6 +628,41 @@ input[type="range"].wcs-range {
 
 	.wcs-pills {
 		gap: 4px;
+	}
+
+}
+
+
+/* The 430px step above holds one row down to 384 CSS px and no further: at 375
+   (iPhone SE and 8) and at 360 (the commonest Android width) the row broke to
+   four pills and an orphaned Hang. It also broke at 390 with the OS text size
+   turned up one notch. The glyph is the thing worth spending: five words is what
+   the row is FOR, and a location pin next to the word "Place" is decoration.
+   Measured at 320, the narrowest width anyone still ships: one row, 300px of
+   pills against 292px of usable width, so the row is also allowed to scroll
+   rather than wrap if a future label makes it too long. */
+@media (max-width: 383px) {
+
+	.wcs-pills {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		scrollbar-width: none;
+		justify-content: safe center;
+		max-width: 100%;
+		padding: 2px;
+	}
+
+	.wcs-pills::-webkit-scrollbar {
+		display: none;
+	}
+
+	.wcs-pill-glyph {
+		display: none;
+	}
+
+	.wcs-pill {
+		padding: 0 10px;
+		font-size: 0.8rem;
 	}
 
 }

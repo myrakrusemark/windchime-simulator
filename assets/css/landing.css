@@ -1,0 +1,86 @@
+/* ---------------------------------------------------------------------------
+   landing.css - the first frame's own chrome.
+
+   P2 owns this file (CONTRACTS 2.2) and this is a down-payment on it, not the
+   piece: exactly one thing is authored here, because exactly one thing in the
+   first frame was blocking.
+
+   THE PROBLEM, MEASURED
+
+   #audioToast shipped at `position:absolute; left:50%; top:72%`, which is on top
+   of the object. At 1440x900 it was a 339x42 dark slab at [550, 627] - directly
+   under the tube tips, which project to y=577, and across the sail. At 390x844
+   it was [98, 463, 195x54] while the tube bundle spans roughly y 320-555, so it
+   sat squarely over the middle of the bundle with cords showing above and below
+   it. It was also the highest-contrast element in both frames.
+
+   Apple Watch Studio's first frame contains no instruction at all. This was the
+   one thing in ours that read as being told what to do, and it was parked on the
+   thing it was telling you about.
+
+   THE FIX
+
+   The toast moved in the markup into #wcsSlots, and here it is taken out of that
+   column's flow and pinned to the top edge of it. So:
+
+     - it is never inside the object's bounding box, at any width;
+     - it cannot move the caption or the pill row by appearing or leaving, which
+       is the rule the whole shell is built on;
+     - it stops being a slab. No fill, no border, no blur - one quiet line in the
+       same ink as the caption, breathing. An affordance, not a notice.
+
+   assets/styles.css authors the original rules and is off limits (CONTRACTS
+   H26), so every one of these overrides it by loading later at equal
+   specificity. Both selectors are `#audioToast`, deliberately - not one point
+   more than it takes to win, so a later piece can still reason about the cascade.
+   --------------------------------------------------------------------------- */
+
+#audioToast {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: auto;
+	bottom: calc(100% + var(--wcs-s3));
+	transform: none;
+	margin: 0 auto;
+	width: max-content;
+	max-width: 100%;
+	z-index: var(--wcs-z-slots);
+
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: none;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+
+	text-align: center;
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	color: var(--wcs-ink-dim);
+	text-shadow: var(--wcs-halo);
+	pointer-events: none;
+}
+
+/* The shipped .done rule carries the centring transform inside its own
+   transform, so dropping the centring here means dropping it there too or the
+   toast leaps sideways as it fades. */
+#audioToast.done {
+	opacity: 0;
+	transform: scale(0.98);
+}
+
+/* styles.css narrows the toast to 62vw under 560px, which was right when it was
+   a slab in the middle of the picture and is wrong now that it is a line of copy
+   in the bottom band. */
+@media (max-width: 560px) {
+
+	#audioToast {
+		font-size: var(--wcs-fs-note);
+		white-space: normal;
+		max-width: min(34ch, 100%);
+	}
+
+}

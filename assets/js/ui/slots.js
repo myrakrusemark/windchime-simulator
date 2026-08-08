@@ -159,13 +159,23 @@ function writePath( obj, path, value ) {
 
 }
 
-// The fields whose change rebuilds the rig. Straight out of apply.js's
-// needsRebuild, and the reason those controls are deferred rather than applied
-// on the event (H8). Everything else - the voice, the sun, the wind, the hang,
-// the stock - is a push or a copy and costs nothing.
+// The fields whose change rebuilds the rig. This list has to be apply.js's
+// needsRebuild exactly, and the reason those controls are deferred rather than
+// applied on the event (H8). Everything else - the voice, the sun, the wind, the
+// hang, the stock - is a push or a copy and costs nothing.
+//
+// tubes.scale is in the list. It was missed the first time, and the miss was not
+// theoretical: six ArrowRight presses on the Scale chips 30 ms apart produced six
+// un-coalesced rebuildChime() + audio.setTubes() calls in about 250 ms, and
+// setTubes resets every per-tube contact tracker each time (H10). It is here
+// rather than imported because apply.js exports the applier, not the predicate;
+// if a third field is ever added to needsRebuild, it belongs in both or in
+// neither, and there is a test in tools/verify.mjs's sights either way.
+const HEAVY_PATHS = new Set( [ 'tubes.notes', 'tubes.scale' ] );
+
 function isHeavy( path ) {
 
-	return path === 'tubes.notes' ||
+	return HEAVY_PATHS.has( path ) ||
 		path.indexOf( 'clapper.' ) === 0 ||
 		path.indexOf( 'sail.' ) === 0;
 
@@ -173,6 +183,29 @@ function isHeavy( path ) {
 
 // The four fields where null is a real value meaning "the place decides".
 const NULLABLE = new Set( [ 'wind.mph', 'wind.dirDeg', 'wind.turbulence', 'view.sun' ] );
+
+/**
+ * What a screen reader says when the thumb moves.
+ *
+ * Without this, a slider announces its raw SI number - the Striker's width read
+ * "0.06800000369548798" while the screen said "68 mm", the attack read "0.002"
+ * against "2.0 ms", and the ring trim read "8" against "1.00x (as built)". The
+ * page had already computed the human string; it was just not telling anybody
+ * who could not see it.
+ *
+ * The other half of the same fix is in the markup: <label for> now wraps the
+ * field NAME only, not the whole row, so the accessible name is the stable
+ * "Across" instead of "Across 68 mm" - a name that changed on every arrow-key
+ * press, which is the one thing a name may never do.
+ *
+ * Together: "Across, slider, 68 mm", not "Across 68 mm, slider, 0.07".
+ */
+function setValueText( el, text ) {
+
+	if ( typeof text !== 'string' || text === '' ) el.removeAttribute( 'aria-valuetext' );
+	else if ( el.getAttribute( 'aria-valuetext' ) !== text ) el.setAttribute( 'aria-valuetext', text );
+
+}
 
 // ---------------------------------------------------------------------------
 // mountSlots
@@ -387,7 +420,7 @@ function build( wcs, note ) {
 			b.textContent = label;
 			b.addEventListener( 'click', () => {
 
-				apply( writePath( {}, path, value ) );
+				applyOrDefer( path, value );
 
 			} );
 			group.appendChild( b );
@@ -408,7 +441,11 @@ function build( wcs, note ) {
 			else next = ( at - 1 + items.length ) % items.length;
 			e.preventDefault();
 			items[ next ].focus();
-			apply( writePath( {}, path, items[ next ].dataset.value ) );
+			// Held down, an arrow key repeats at the OS rate - about 30 a second
+			// on a default Linux desktop - and Scale is a rig rebuild. Through the
+			// same 80 ms coalescer as the sliders, so a held key costs one rebuild
+			// rather than thirty (H8, H10).
+			applyOrDefer( path, items[ next ].dataset.value );
 
 		} );
 
@@ -455,27 +492,38 @@ function build( wcs, note ) {
 
 	}
 
+	/** One door for every control: coalesced if the field rebuilds the rig. */
+	function applyOrDefer( path, value ) {
+
+		const partial = writePath( {}, path, value );
+		if ( isHeavy( path ) ) defer( partial ); else apply( partial );
+
+	}
+
 	for ( const el of ranges ) {
 
 		const path = el.dataset.path;
 		const fmt = el.dataset.fmt;
 		const out = host.querySelector( '[data-value-for="' + el.id + '"]' );
-		const heavy = isHeavy( path );
 
 		el.addEventListener( 'input', () => {
 
 			const v = parseFloat( el.value );
 			if ( ! Number.isFinite( v ) ) return;
-			// The readout follows the pointer even where the apply is coalesced.
+			// The readout follows the pointer even where the apply is coalesced,
+			// and so does what a screen reader is told. Both come from the same
+			// format() call, so the number in the ear and the number on the screen
+			// cannot drift.
+			const text = format( fmt, v );
 			if ( out ) {
 
-				out.textContent = format( fmt, v );
+				out.textContent = text;
 				out.classList.remove( 'is-inherited' );
 
 			}
 
-			const partial = writePath( {}, path, v );
-			if ( heavy ) defer( partial ); else apply( partial );
+			setValueText( el, text );
+			applyOrDefer( path, v );
 
 		} );
 
@@ -521,10 +569,12 @@ function build( wcs, note ) {
 			const s = String( v );
 			if ( el.value !== s ) el.value = s;
 
+			const text = format( el.dataset.fmt, v ) + ( isNull && NULLABLE.has( path ) ? ' (this place)' : '' );
+			setValueText( el, text );
+
 			const out = host.querySelector( '[data-value-for="' + el.id + '"]' );
 			if ( out ) {
 
-				const text = format( el.dataset.fmt, v ) + ( isNull && NULLABLE.has( path ) ? ' (this place)' : '' );
 				if ( out.textContent !== text ) out.textContent = text;
 				out.classList.toggle( 'is-inherited', isNull );
 
@@ -568,6 +618,11 @@ function build( wcs, note ) {
 
 	let openSlot = null;
 	let awakeTimer = 0;
+	let armTimer = 0;
+
+	// Matched to --wcs-t-slow, the panel's own opening transition: the panel
+	// starts taking input at the moment it has finished arriving.
+	const ARM_MS = 300;
 
 	// H20. goIdle() reads the settings drawer's class list as its only "a mode is
 	// open" signal, and the drawer is gone. The one seam main.js leaves is the
@@ -579,7 +634,16 @@ function build( wcs, note ) {
 
 		try {
 
-			window.dispatchEvent( new PointerEvent( 'pointermove', { bubbles: false } ) );
+			const ev = new PointerEvent( 'pointermove', { bubbles: false } );
+			// Tagged, so a listener added later can tell a forged gesture from a
+			// visitor. main.js's markInteraction is the only window pointermove
+			// listener today and does not care, but anything that starts counting
+			// real input would otherwise inherit two phantom moves a second with no
+			// way to see they are ours. The honest fix is a real
+			// __wcs.setModeOpen(bool) that goIdle reads; this is the marker until
+			// P1 can be asked for one.
+			ev.__wcsSynthetic = true;
+			window.dispatchEvent( ev );
 
 		} catch ( err ) {
 
@@ -613,6 +677,84 @@ function build( wcs, note ) {
 
 	}
 
+	// -----------------------------------------------------------------------
+	// The modal half.
+	//
+	// The panels shipped as role="dialog" with a hard Tab trap and nothing else:
+	// no aria-modal, nothing inert outside them, and no pointer behaviour at all.
+	// That is neither of the two patterns ARIA defines. Measured, it meant a
+	// mouse visitor could orbit the scene and press the pills while a keyboard
+	// visitor was locked inside the dialog, and a screen-reader user browsing the
+	// page outside it was yanked back by the next Tab.
+	//
+	// Of the two ways out, this is the modal one, because CONTRACTS P3 criterion
+	// 4 requires role="dialog", a focus trap and Escape - so the trap stays and
+	// the rest of the pattern is completed around it:
+	//
+	//   aria-modal="true"   on the panel (in the markup).
+	//   inert               on everything outside it, so Tab and the screen
+	//                       reader's own browse mode agree with the trap instead
+	//                       of fighting it.
+	//   light dismiss       a press outside the panel closes it, which is the
+	//                       half that makes the trap survivable with a mouse.
+	//
+	// THREE THINGS ARE DELIBERATELY NOT INERT, and each one was measured before
+	// it was let off:
+	//
+	//   the canvas    holds nothing focusable and nothing an assistive technology
+	//                 reads, and `inert` removes a subtree from HIT TESTING as
+	//                 well as from focus - which would break main.js's
+	//                 capture-phase unlock listener, the one thing on the page
+	//                 that must accept a gesture from anywhere. The chime keeps
+	//                 swinging and sounding behind the panel, which is what
+	//                 CONTRACTS section 1 asks for.
+	//
+	//   the pill row  is the dialog's own tab strip, not the page behind it.
+	//                 Inerting it was tried first and elementFromPoint at the
+	//                 pill's own centre came back `glCanvas`: the row went out of
+	//                 hit testing, so pressing Sail while Tubes was open did
+	//                 nothing at all and the only way between two parts was to
+	//                 close and reopen. A modal whose own switcher is dead is not
+	//                 a stricter modal, it is a broken one.
+	//
+	//   the caption   is the live region that says what the control you just
+	//                 moved did. aria-live inside an aria-hidden subtree is not
+	//                 announced, so inerting it would have silently deleted the
+	//                 only feedback a screen-reader user gets from the panel.
+	//
+	// Everything else - the article, the top bar with Share in it, the status
+	// line and the unlock line - goes inert, which is what makes the Tab trap
+	// agree with browse mode instead of fighting it.
+	// -----------------------------------------------------------------------
+
+	const OUTSIDE = [ '#article', '.hud-top', '#audioToast', '#statusLine' ];
+
+	function setOutsideInert( on ) {
+
+		for ( const sel of OUTSIDE ) {
+
+			for ( const el of document.querySelectorAll( sel ) ) {
+
+				try {
+
+					// Both, and in this order. `inert` is the real mechanism and is
+					// what removes the subtree from the focus order and the
+					// accessibility tree; aria-hidden is the fallback for a browser
+					// too old to know the property, where it at least stops the
+					// content being narrated. Setting aria-hidden on a subtree that
+					// is ALSO inert cannot trap focus behind it, which is the usual
+					// reason not to use it.
+					if ( on ) el.setAttribute( 'inert', '' ); else el.removeAttribute( 'inert' );
+					if ( on ) el.setAttribute( 'aria-hidden', 'true' ); else el.removeAttribute( 'aria-hidden' );
+
+				} catch ( err ) { /* a missing region is not a failure */ }
+
+			}
+
+		}
+
+	}
+
 	function closePanel( slot, restoreFocus ) {
 
 		const panel = panels.get( slot );
@@ -627,9 +769,14 @@ function build( wcs, note ) {
 		// leave sixteen controls reachable by Tab behind an invisible surface.
 		// The close is therefore instant and only the open is animated.
 		panel.hidden = true;
+		panel.classList.remove( 'is-arming' );
+		clearTimeout( armTimer );
 		if ( pill ) pill.setAttribute( 'aria-expanded', 'false' );
 		if ( openSlot === slot ) openSlot = null;
 		stopAwake();
+		// The page comes back BEFORE focus is handed to the pill: focusing an
+		// element inside an inert subtree silently does nothing.
+		setOutsideInert( false );
 		if ( restoreFocus && pill ) {
 
 			try {
@@ -654,6 +801,15 @@ function build( wcs, note ) {
 		if ( openSlot && openSlot !== slot ) closePanel( openSlot, false );
 
 		panel.hidden = false;
+		// Deaf to the pointer for the length of the opening transition. The
+		// layout fix in slots.css is what actually stops a double-tap on a pill
+		// landing on a slider - the row does not move any more - but a panel that
+		// accepts a press before it has finished arriving is a bad idea on its own
+		// terms, and this costs one class and one timer.
+		panel.classList.add( 'is-arming' );
+		clearTimeout( armTimer );
+		armTimer = setTimeout( () => panel.classList.remove( 'is-arming' ), ARM_MS );
+
 		render( design() );
 		// A frame between "in the layout" and "open", so the transition has a
 		// from-value to run from rather than snapping.
@@ -666,6 +822,7 @@ function build( wcs, note ) {
 		if ( pill ) pill.setAttribute( 'aria-expanded', 'true' );
 		openSlot = slot;
 		startAwake();
+		setOutsideInert( true );
 
 		try {
 
@@ -687,6 +844,41 @@ function build( wcs, note ) {
 		pill.addEventListener( 'click', () => toggle( pill.dataset.slot ) );
 
 	}
+
+	// Light dismiss. The other half of the modal: a press anywhere that is not
+	// inside the open panel closes it. Without this the only exits were Escape,
+	// the Done button and the pill - and a mouse visitor who clicked the scene
+	// got a dialog that stayed open while their click reached the canvas
+	// underneath, which is a half-modal in the worst direction.
+	//
+	// pointerdown rather than click, and on the capture phase, so it fires before
+	// main.js's orbit handler claims the gesture; and the pill row is excluded
+	// because those buttons run toggle() themselves a moment later and a close
+	// here would make the second press look like it did nothing.
+	document.addEventListener( 'pointerdown', ( e ) => {
+
+		if ( ! openSlot ) return;
+		const panel = panels.get( openSlot );
+		if ( ! panel ) return;
+		const t = e.target;
+		if ( ! ( t instanceof Node ) ) return;
+		if ( panel.contains( t ) ) return;
+		if ( pillRow.contains( t ) ) return;
+
+		// And a geometric test on top of the DOM one, because for the first
+		// ~300 ms the panel is `is-arming` and therefore out of hit testing: a
+		// press ON the panel in that window has the canvas as its target and
+		// would otherwise read as a press outside, closing the panel the visitor
+		// just opened. Inside the rectangle is inside the panel, whatever the
+		// event says its target was.
+		const r = panel.getBoundingClientRect();
+		if ( e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom ) return;
+		// restoreFocus false: the visitor is pointing at something else, and
+		// yanking focus back to a pill they did not press would scroll the page
+		// under them.
+		closePanel( openSlot, false );
+
+	}, true );
 
 	for ( const [ slot, panel ] of panels ) {
 
