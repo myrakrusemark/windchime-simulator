@@ -20,6 +20,7 @@ import { createRig, freqsFor, SCALES, setParts, PART_DEFAULTS, PART_LIMITS } fro
 import { createStage } from './scene.js';
 import { createWindViz } from './windviz.js';
 import { createAudio } from './audio.js';
+import { DECAY_NOMINAL } from './modal.js';
 import * as weather from './weather.js';
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ const DEFAULTS = {
 	scaleName: 'cMajorPentatonic',
 	noteCount: 6,
 	attack: 0.002,
-	decay: 8.0,            // T60 of the fundamental, seconds
+	decay: 8.0,            // ring trim; 8 is the tube as modelled, see modal.js DECAY_NOMINAL
 	loudness: 0.5,
 	sunElevDeg: null,     // null means "whatever the active style calls default"
 	style: 'storybook',   // 'storybook' (flat, orthographic) or 'golden' (lit, perspective)
@@ -448,7 +449,7 @@ function syncControlValues() {
 	if ( dom.attackSlider ) dom.attackSlider.value = String( params.attack );
 	setText( dom.attackValue, params.attack.toFixed( 4 ) + ' s' );
 	if ( dom.decaySlider ) dom.decaySlider.value = String( params.decay );
-	setText( dom.decayValue, params.decay.toFixed( 1 ) + ' s ring' );
+	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
 	if ( dom.loudnessSlider ) dom.loudnessSlider.value = String( params.loudness );
 	setText( dom.loudnessValue, Math.round( params.loudness * 100 ) + '%' );
 	if ( dom.sunSlider ) dom.sunSlider.value = String( params.sunElevDeg );
@@ -677,7 +678,7 @@ bindRange( dom.attackSlider, ( v ) => {
 bindRange( dom.decaySlider, ( v ) => {
 
 	params.decay = clamp( v, 0.5, 16 );
-	setText( dom.decayValue, params.decay.toFixed( 1 ) + ' s ring' );
+	setText( dom.decayValue, ( params.decay / DECAY_NOMINAL ).toFixed( 2 ) + '\u00d7 ring' );
 
 } );
 

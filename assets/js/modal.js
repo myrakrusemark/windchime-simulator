@@ -498,6 +498,11 @@ export const TUBE_PAIR_GAIN = 0.62;
 // because 60 dB is 20*log10(e^6.908).
 export const TAU_PER_T60 = 6.908;
 
+// The ring-trim slider's neutral position. `decay` used to be the fundamental's
+// T60 in seconds at 440 Hz; the T60 is now computed from the tube, so the same
+// control is a multiplier and 8 is where it multiplies by one.
+export const DECAY_NOMINAL = 8;
+
 // Contact-click envelope. The click is a band-passed noise burst centred on the
 // contact frequency, so hardness reads in the attack before any partial has had
 // time to establish.
@@ -533,6 +538,298 @@ export function modeShape(n, s) {
     Math.cosh(ks) + Math.cos(ks) -
     SIGMA[n] * (Math.sinh(ks) + Math.sin(ks))
   );
+}
+
+/** Slope of the mode shape, dY_n/ds. */
+export function modeSlope(n, s) {
+  const k = BETA_L[n];
+  const ks = k * s;
+  return 0.5 * k * (
+    Math.sinh(ks) - Math.sin(ks) -
+    SIGMA[n] * (Math.cosh(ks) + Math.cos(ks))
+  );
+}
+
+/**
+ * The first node of mode n, as a fraction of the length from the end.
+ *
+ * Bisected off modeShape rather than typed in, so that 0.2242 is a RESULT here
+ * and not an input: it is where Y_1 crosses zero, and if BETA_L or SIGMA ever
+ * changed the hang point would follow. Mode 1's node is the one every chime
+ * maker drills for.
+ */
+export function firstNode(n) {
+  let lo = 1e-6, hi = 0.5;
+  const y0 = modeShape(n, lo);
+  for (let i = 0; i < 80; i++) {
+    const m = 0.5 * (lo + hi);
+    if (modeShape(n, m) * y0 > 0) lo = m; else hi = m;
+  }
+  return 0.5 * (lo + hi);
+}
+
+export const NODE_1 = firstNode(0);
+
+// --- Where the ring time actually comes from --------------------------------
+//
+// Not from the metal. The intrinsic Q of 6061-T6511 is measured at up to 2.8e5,
+// which at 300 Hz on its own would be a T60 of 2050 seconds; a real chime rings
+// for 5 to 30. So material damping is a rounding error and the ring time is set
+// by the two places the energy can actually leave: the air, and the cord.
+//
+// Losses add, T60s do not. Each mechanism contributes a 1/Q and they are summed
+// as reciprocals - a mode is as dead as its leakiest channel, never deader.
+
+export const AIR = Object.freeze({ rho: 1.2, c: 343 });
+
+// Intrinsic Q of the alloy. Present so the sum is complete and so a reader can
+// see how little it does, not because it matters at chime frequencies.
+export const Q_INTRINSIC = 2.8e5;
+
+// The hanging cord. Nylon is not incidental: its hysteretic loss factor is about
+// 0.1, four orders of magnitude above the aluminium's 4e-6, so the tiny fraction
+// of the tube's energy that reaches the cord is the fraction that is gone.
+//
+// HYSTERETIC, not viscous, and the distinction is load-bearing. A polymer's loss
+// per cycle is proportional to the strain energy per cycle and very nearly
+// independent of rate, i.e. R = eta*k/omega rather than a constant R. That one
+// choice is the difference between passing and failing the reference set: a
+// viscous support makes the fundamental's T60 FALL with pitch, a hysteretic one
+// makes it RISE, and the real chimes barely move across 464 to 739 Hz while the
+// radiation term alone falls eightfold. Nothing else in the model can flatten it.
+//
+// CONTACT STIFFNESS PROPORTIONAL TO LOAD. The cord is not bonded to the tube; it
+// is pressed into the hole by the tube's own weight, and a compliant polymer
+// bearing on a metal edge makes real contact over a patch whose area grows in
+// proportion to the load (Bowden and Tabor; Greenwood and Williamson). Stiffness
+// follows area, so k = kappa * M * g with kappa a property of the contact and not
+// of the tube. Order of magnitude from the same picture: kappa ~ E*/(p_flow * h)
+// with E* ~ 2 GPa, a flow pressure around 210 MPa and a 3 mm cord gives about
+// 3.2e3 per metre, against the 5.1e3 the reference decays ask for - a factor of
+// 1.6, which is as close as an estimate built from three quantities each good to
+// a factor of two has any right to be.
+//
+// It also has a consequence worth stating because it is testable: a heavy tube
+// and a light one at the SAME pitch ring for the same time, because the heavier
+// one stores more energy and presses the cord harder in exactly the same ratio.
+export const CORD = Object.freeze({
+  eta: 0.10,                    // hysteretic loss factor of braided nylon
+  stiffnessPerLoad: 5.1e3      // kappa, 1/m: contact stiffness per newton of load
+});
+
+/** gamma = eta * kappa: the support's hysteretic conductance per newton hung. */
+export const HANG_CONDUCTANCE_PER_LOAD = CORD.eta * CORD.stiffnessPerLoad;
+
+export const GRAVITY = 9.81;
+
+// Where the cord actually grips, as a fraction of the length from the top.
+//
+// The maker aims at NODE_1 = 0.2242, because Y_1 vanishes there and a cord tied
+// at a point exactly on it could not touch the fundamental at all. This model
+// says the grip is effectively 0.10 L further down, and that is the second and
+// last number here taken from a decay measurement rather than from geometry or
+// a datasheet.
+//
+// Why it cannot be nothing: with the grip exactly on the node the fundamental
+// would be purely radiation-limited, and on this stock that is a T60 of 348 s at
+// 464 Hz falling to 42 s at 739 - an eightfold swing across a range where three
+// real chimes vary by a factor of 1.2. Something grips mode 1.
+//
+// Why it cannot be derived: the bearing is not a point. It is a drilled hole
+// with a cord pulled against its edge by the tube's weight and wrapping an arc
+// of it; mode 1 has the steepest slope of any mode at that station (Y_1' =
+// -3.95), so the tube rocks about the grip and drags the cord axially as well as
+// sideways; and the cord's own free length, its knot and the top ring all sit
+// behind it. Every one of those reads, in the energy ledger, as the cord
+// resisting the transverse motion of a station that is not the node, and none of
+// them can be computed from a spec sheet.
+//
+// What it is NOT is a second knob for the fundamental. The fundamental's ring is
+// set by the PRODUCT of the conductance and Y_1(HANG_S)^2 - one number - and
+// this one only decides how hard the same cord grips the overtones. Past about
+// 0.08 L the overtones are radiation-limited and the model stops leaning on it:
+// moving it from 0.09 to 0.15 moves mode 2 by a quarter, against the 4.6-fold
+// spread the three reference chimes themselves show in that same partial.
+export const HANG_BEARING_OFFSET = 0.10;
+export const HANG_S = NODE_1 + HANG_BEARING_OFFSET;
+
+/**
+ * |Yhat_n(q)|^2, the squared wavenumber spectrum of mode n over the tube's own
+ * length, at axial wavenumber q = k_z * L. Closed form: the mode shape is a sum
+ * of four exponentials over a finite interval, and each one integrates exactly.
+ *
+ * Written out in real and imaginary parts rather than with a complex helper so
+ * that nothing allocates - this runs inside a strike.
+ */
+export function modeSpectrumSq(n, q) {
+  const b = BETA_L[n];
+  const sg = SIGMA[n];
+  // E(c) = int_0^1 e^{(c - i q)s} ds for c = +b, -b (real) and c = +ib, -ib.
+  // Real c: numerator e^c(cos q - i sin q) - 1 over (c - i q).
+  const cq = Math.cos(q), sq = Math.sin(q);
+  let coshR = 0, coshI = 0, sinhR = 0, sinhI = 0;
+  for (let j = 0; j < 2; j++) {
+    const c = j === 0 ? b : -b;
+    const ec = Math.exp(c);
+    const nr = ec * cq - 1, ni = -ec * sq;
+    const dr = c, di = -q;
+    const den = dr * dr + di * di;
+    const er = (nr * dr + ni * di) / den;
+    const ei = (ni * dr - nr * di) / den;
+    if (j === 0) { coshR = er; coshI = ei; sinhR = er; sinhI = ei; }
+    else { coshR = 0.5 * (coshR + er); coshI = 0.5 * (coshI + ei);
+           sinhR = 0.5 * (sinhR - er); sinhI = 0.5 * (sinhI - ei); }
+  }
+  // Imaginary c = i*m with m = +b - q and -b - q: E = (e^{i m} - 1)/(i m)
+  // = (sin m - i(cos m - 1))/m, and -> 1 + i m/2 as m -> 0.
+  let cosR = 0, cosI = 0, sinR = 0, sinI = 0;
+  for (let j = 0; j < 2; j++) {
+    const m = (j === 0 ? b : -b) - q;
+    let er, ei;
+    if (Math.abs(m) < 1e-9) { er = 1; ei = 0.5 * m; }
+    else { er = Math.sin(m) / m; ei = -(Math.cos(m) - 1) / m; }
+    if (j === 0) { cosR = er; cosI = ei; sinR = er; sinI = ei; }
+    else {
+      cosR = 0.5 * (cosR + er); cosI = 0.5 * (cosI + ei);
+      // sin(bs) = (e^{ibs} - e^{-ibs}) / 2i  ->  -0.5i * (E(ib) - E(-ib))
+      const dr = sinR - er, di = sinI - ei;
+      sinR = 0.5 * di; sinI = -0.5 * dr;
+    }
+  }
+  const re = 0.5 * (coshR + cosR - sg * (sinhR + sinR));
+  const im = 0.5 * (coshI + cosI - sg * (sinhI + sinI));
+  return re * re + im * im;
+}
+
+/**
+ * J_n(u), the finite-length radiation factor, u = k*L.
+ *
+ *   J_n(u) = int_{-u}^{u} |Yhat_n(q)|^2 (1 - q^2/u^2) dq
+ *
+ * This is the whole of what makes a real tube quieter than an infinite one, and
+ * it is the reason the radiation term cannot be a closed form. Replace
+ * |Yhat_n|^2 with a pair of deltas of mass pi/2 at q = +/- beta_n - which is
+ * what assuming an infinitely long tube does - and J collapses to
+ * (pi/2)(1 - (beta_n/u)^2), which puts Q_rad back at the textbook supersonic
+ * result 2 m' c^2 / (pi^2 rho0 a^4 w (w - w_coincidence)). A real chime tube is
+ * about one acoustic wavelength long, so its mode is nothing like a delta in
+ * wavenumber: at 464 Hz on this stock only 12 percent of mode 1's wavenumber
+ * content falls inside the radiation circle, and at 739 Hz, 25 percent. That
+ * factor of two is most of the difference between a chime that rings and one
+ * that does not.
+ *
+ * Below coincidence J is not zero but exponentially small, which is the correct
+ * statement of "a sub-coincidence tube radiates from its ends and nothing else"
+ * and is why the bass tubes here are cord-limited rather than air-limited.
+ *
+ * Simpson, with the point count tied to u because the integrand oscillates with
+ * period 2*pi in q (the window is one length long). About twelve points per
+ * oscillation; no allocation.
+ */
+export function radiationJ(n, u) {
+  if (!(u > 0)) return 0;
+  let N = 2 * Math.ceil(Math.max(24, u));
+  if (N > 640) N = 640;
+  const h = u / N;
+  let acc = modeSpectrumSq(n, 0);              // q = 0, weight 1, (1 - 0) = 1
+  for (let i = 1; i < N; i++) {
+    const q = i * h;
+    const t = 1 - (q / u) * (q / u);
+    acc += (i & 1 ? 4 : 2) * modeSpectrumSq(n, q) * t;
+  }
+  // q = u contributes zero: the taper (1 - q^2/u^2) vanishes there.
+  return 2 * (h / 3) * acc;                    // doubled: |Yhat(-q)| = |Yhat(q)|
+}
+
+/**
+ * Per-mode T60, in seconds, for one tube.
+ *
+ *   1/Q_n = 1/Q_radiation + 1/Q_hang + 1/Q_intrinsic,   T60 = 2.199 Q / f
+ *
+ * RADIATION. A bending tube is a line of transverse dipoles: each slice pushes
+ * air on one side and pulls it on the other, so the cross-section radiates with
+ * efficiency (k a)^3 rather than (k a), and that cube is why a slim tube is a
+ * quiet loudspeaker and a long-lived resonator. Taking the m = 1 cylindrical
+ * radiation impedance in the compact limit, Re z1 = rho0 c (pi/2)(k_r a)^3, and
+ * integrating over the mode's own wavenumber spectrum,
+ *
+ *     Q_rad,n = m' / (pi rho0 a^4 k_n^2 J_n(k_n L))
+ *
+ * with m' the tube's mass per metre and a its outside radius. No fitted number:
+ * air density, the speed of sound, the tube's section and its mode shape.
+ *
+ * HANG. The cord is a hysteretic spring attached at the grip, resisting the
+ * transverse motion of that station. Its conductance is G = gamma * M * g,
+ * proportional to the weight hung on it. Energy stored is (1/8) M w^2 A^2 - the
+ * free-free modes satisfy int_0^1 Y^2 ds = 1/4 exactly, which is worth checking
+ * rather than believing - and the power lost is (1/2) G w A^2 Y_n(s_hang)^2, so
+ *
+ *     Q_hang,n = w_n^2 / (4 gamma g Y_n(s_hang)^2)
+ *
+ * with the tube's mass cancelling out of it entirely.
+ *
+ * And there is the cliff the whole piece turns on. |Y_n| at the grip is 0.345,
+ * 0.658, 0.236, 0.436, 0.705 for modes 1 to 5, against 1.0 at a free end, so in
+ * energy the cord holds mode 2 3.6 times harder than the fundamental, mode 5
+ * 4.2 times harder, and mode 3 barely more than HALF as hard. It is not
+ * monotonic in mode number and it could not be: it is the shape of the mode at
+ * the place the string is tied, sampled at five points that have nothing to do
+ * with each other. No power law in frequency can produce that sequence, which is
+ * the whole reason the old ratio^-1.15 could not be right about the fundamental
+ * and the overtones at the same time.
+ *
+ * What the two channels end up doing, on this stock at 464 / 593 / 739 Hz:
+ *
+ *   mode 1   radiation 348 / 112 / 42 s     cord 17 / 22 / 27 s    -> cord
+ *   mode 2   radiation 4.1 / 1.8 / 0.9 s    cord 12 / 16 / 19 s    -> air
+ *   mode 3   radiation 0.5 / 0.2 / 0.1 s    cord 177 / 221 / 269 s -> air
+ *
+ * The fundamental is held by the cord and the overtones are given away to the
+ * air, and neither of those was chosen - they fall out of where the mode shapes
+ * put their zeros.
+ *
+ * WHERE IT STOPS BEING TRUE, twice.
+ *
+ * Mode 3 is almost purely radiation-limited here, and the two reference clips
+ * that show a measurable mode 3 disagree with each other in the wrong direction
+ * (0.147 s at 2248 Hz against 0.459 s at 2894 Hz - the HIGHER partial outlasting
+ * the lower one, which no monotone loss can produce). Nothing here is tuned to
+ * those two numbers and the model should not be believed about mode 3 to better
+ * than a factor of three.
+ *
+ * Below the coincidence frequency - 250 Hz on this stock - a tube stops radiating
+ * as a line source at all, so its fundamental is left entirely to the cord while
+ * its third partial is still above coincidence and still radiating. On the 1.42 m
+ * C3 tube that cOctaveIntervals asks for, that puts mode 3 at 686 Hz ringing
+ * longer than the fundamental under it, which is not what a bass chime does.
+ * There is no clean recording below 464 Hz to check it against, so it is stated
+ * here as a known limit rather than papered over: this model is evidence-backed
+ * from 464 Hz up and extrapolation below it.
+ */
+export function modeT60s(freqs, L, tube, out) {
+  const s = stockOf(tube);
+  const a = 0.5 * s.od;
+  const area = (Math.PI / 4) * (s.od * s.od - s.id * s.id);
+  const mline = s.rho * area;
+  const n = freqs.length;
+  const t60 = out || new Array(n);
+  const a4 = a * a * a * a;
+  const gHang = 4 * HANG_CONDUCTANCE_PER_LOAD * GRAVITY;
+  for (let i = 0; i < n; i++) {
+    const f = freqs[i];
+    if (!(f > 0)) { t60[i] = 0.02; continue; }
+    const w = 2 * Math.PI * f;
+    const k = w / AIR.c;
+    const J = radiationJ(i, k * L);
+    // 1/Q, summed. A vanishing J means the mode is below coincidence and does
+    // not radiate as a line source at all; the cord and the metal carry it.
+    let invQ = 1 / Q_INTRINSIC;
+    if (J > 1e-12) invQ += Math.PI * AIR.rho * a4 * k * k * J / mline;
+    const Y = modeShape(i, HANG_S);
+    invQ += gHang * Y * Y / (w * w);
+    t60[i] = 2.199 / (invQ * f);
+  }
+  return t60;
 }
 
 /** Time constant for a setTargetAtTime decay that is 60 dB down after T60 seconds. */
@@ -641,25 +938,30 @@ export function strikeVoice(opts) {
   const norm = sumSq > 1e-12 ? A0 / Math.sqrt(sumSq) : 0;
   for (let n = 0; n < nPartials; n++) amps[n] *= norm;
 
-  // Long low tube, short high tube: T60 scales with 1/sqrt(f), so the big
-  // one audibly outlasts the little one exactly as it does in life. The
-  // ratio^-1.15 term is most of what separates a chime from a synth pad -
-  // the bright clang collapses inside half a second and leaves a long hum.
-  const decay = clamp(num(o.decay, 8), 0.1, 30);
+  // The ring time is no longer a decay law. It is a loss budget: radiation into
+  // the air plus the cord at the hang point plus the alloy's own damping, summed
+  // as 1/Q and turned into a T60 per mode. See modeT60s.
+  //
+  // What went: `decay * sqrt(440/f) * ratio^-1.15`. That form was internally
+  // inconsistent - across tubes it implied Q ~ f^+0.5 and across the modes of one
+  // tube Q ~ f^-0.15, from a single supposed loss mechanism - and it could not
+  // be right about both the fundamental and the overtones at once. Scaling it
+  // until the fundamental matched a real chime stretched mode 3 to 2.07 s
+  // against a measured 0.459.
+  //
+  // `decay` survives as the RING TRIM the slider drives: 8 is the tube as
+  // modelled, 16 is twice as long, 0.5 is a damped one. It multiplies every
+  // mode equally, so moving it changes how long the chime rings and not which
+  // partial outlives which.
+  const decay = clamp(num(o.decay, DECAY_NOMINAL), 0.1, 30);
+  const ringTrim = decay / DECAY_NOMINAL;
   const freqScale = Math.sqrt(440 / f1);
   const attack = Math.max(0.0005, num(o.attack, 0.002));
   const loudness = clamp(num(o.loudness, 0.5), 0, 1);
 
-  // ratio^-1.15 is a stand-in for damping rising with frequency, so it has to
-  // read the frequency the partial ACTUALLY has. Feeding it the ideal ratio
-  // after correcting the pitch would give mode 3 the decay of a partial that is
-  // not there. This does make the upper partials ring longer than they used to,
-  // because they are now lower in frequency: real, and measurably still too
-  // long against a real chime, but that is the decay law's problem, not this
-  // one's.
-  const t60s = new Array(nPartials);
+  const t60s = modeT60s(freqs, modes.L, o.tube, new Array(nPartials));
   for (let n = 0; n < nPartials; n++) {
-    t60s[n] = clamp(decay * freqScale * Math.pow(ratios[n], -1.15), 0.02, 40);
+    t60s[n] = clamp(t60s[n] * ringTrim, 0.02, 40);
   }
 
   return {

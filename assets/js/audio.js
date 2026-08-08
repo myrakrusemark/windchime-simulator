@@ -465,10 +465,13 @@ export function createAudio(params) {
 
       // Free the slot as soon as the fundamental is 60 dB down plus a margin.
       // A session left open all afternoon must not accumulate nodes.
-      // Each partial stops once it is 69 dB down, not when the voice does. The
-      // fifth partial is finished in under half a second while the fundamental
-      // hums for eight, so this retires four of the five oscillators early - the
-      // difference between 16 voices costing 80 oscillators and costing about 20.
+      // Each partial stops once it is 69 dB down, not when the voice does, and
+      // that matters far more than it used to. modal.js now gives the fundamental
+      // the cord-limited T60 a real tube has - about 16 s at chime pitches, twice
+      // the old 8 - while the overtones are radiation-limited and gone in well
+      // under a second. So this retires four of the five oscillators almost at
+      // once and leaves one sine per voice humming: 16 voices cost about 17
+      // oscillators most of the time rather than 80.
       // The fundamental is always the last to stop, so its onended is the single
       // teardown path for the whole voice.
       oscs[0].onended = () => releaseVoice(v);
