@@ -297,6 +297,12 @@ export function createAudio(params) {
       // offline renderer cannot reproduce is a voice nobody can measure.
       const voice = strikeVoice({
         f1: freq,
+        // The cut length of THIS tube, straight off the rig. Mode ratios turn on
+        // it: a long bass tube's mode 2 lands 14 cents flat of the ideal ratio
+        // and a short treble tube's lands 110 flat, so a chime built from one
+        // stock still has a different overtone spectrum on every tube. Falls
+        // back to the length f1 implies when the tube list has not arrived yet.
+        L: tubeL[idx] > 0 ? tubeL[idx] : undefined,
         s: ev.s,
         vn: ev.vn,
         mu: ev.mu,

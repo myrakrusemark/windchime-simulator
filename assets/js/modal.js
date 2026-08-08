@@ -13,13 +13,22 @@
 // per-partial amplitudes taken from the exact mode shape evaluated at the height
 // the clapper actually landed, and with a brightness that follows the modelled
 // contact time.
+//
+// The partials are Timoshenko's, not Euler-Bernoulli's, and that is a per-tube
+// computation rather than a table. Euler-Bernoulli assumes the bending
+// wavelength is long against the cross-section; by mode 5 on a half-metre tube
+// it is about 21 radii of gyration, at which point shear deformation and rotary
+// inertia are not corrections but first-order terms. Ignoring them puts mode 3
+// of a real recorded chime 175 to 244 cents sharp. See modeSlowing.
 
 // --- Free-free bar modal data ---------------------------------------------
 //
-// The roots of cos(bL)cosh(bL) = 1. Frequency goes as (beta*L)^2, so the ratios
-// below are betaL_n^2 / betaL_1^2.
+// The roots of cos(bL)cosh(bL) = 1, and the ratios betaL_n^2 / betaL_1^2 that
+// follow from them. These are the EULER-BERNOULLI answer: they are the input to
+// the mode frequencies, not the mode frequencies. A real tube's partials are
+// flat of these and the gap widens with mode number - see modeRatios below.
 export const BETA_L = [4.7300408, 7.8532046, 10.9956078, 14.1371655, 17.2787596];
-export const RATIOS = [1.0, 2.7565, 5.4039, 8.933, 13.3443];
+export const IDEAL_RATIOS = [1.0, 2.7565, 5.4039, 8.933, 13.3443];
 
 // sigma_n = (cosh(bL) - cos(bL)) / (sinh(bL) - sin(bL)), the mode-shape constant.
 // It converges to 1 fast; mode 1 is the only one meaningfully off.
@@ -38,6 +47,194 @@ export const MAX_PARTIALS = BETA_L.length;
 // 1.6e-8 of relative error - harmless. At n = 6 (betaL 20.42) and n = 7 it grows
 // by two decades a mode and the result becomes noise. DO NOT add partials to the
 // tables above without reformulating Y_n in terms of exponentials.
+
+// --- The tube itself: geometry and material --------------------------------
+//
+// The stock the simulator hangs. Mirrors TUBE_OD and TUBE_LINDENS in physics.js
+// (0.3372 kg/m is exactly pi/4 * (28^2 - 25^2) mm^2 * 2700 kg/m^3), which is the
+// same tube seen from the mechanics side. If one of the two ever changes, both
+// have to: physics.js decides what the tube weighs and how it swings, this
+// decides what it sounds like, and they are one object.
+//
+// 6061-T6 aluminium. E and rho set the wave speed sqrt(E/rho) = 5054 m/s, which
+// is what makes a tube of a given length ring at the pitch it does; nu sets the
+// shear correction below.
+export const TUBE_STOCK = Object.freeze({
+  od: 0.028,       // outer diameter, m
+  id: 0.025,       // inner diameter, m
+  E: 6.9e10,       // Young's modulus, Pa
+  rho: 2700,       // density, kg/m^3
+  nu: 0.33         // Poisson's ratio
+});
+
+/**
+ * Radius of gyration of a tube's cross-section, sqrt(I/A) = sqrt(Do^2+Di^2)/4.
+ *
+ * This is the number the whole correction below turns on, and a TUBE is the
+ * worst case for it: all the metal sits far from the axis, so a 28/25 mm tube
+ * has r = 9.38 mm against 7.00 mm for a solid rod of the same outside diameter.
+ * A tube is 34 percent stubbier than it looks.
+ */
+export function gyrationRadius(od, id) {
+  return Math.sqrt(od * od + id * id) / 4;
+}
+
+/**
+ * Cowper's (1966) shear coefficient for a hollow circular section, kappa.
+ *
+ * Timoshenko theory replaces the true parabolic-ish shear stress over the
+ * section with a uniform one, and kappa is the fiddle factor that makes the two
+ * store the same energy. It is NOT a free parameter: it falls out of the
+ * elasticity solution for the section shape. 0.5369 for 28/25 mm at nu = 0.33.
+ */
+export function shearCoefficient(od, id, nu) {
+  const m2 = (id / od) * (id / od);
+  const s = (1 + m2) * (1 + m2);
+  return 6 * (1 + nu) * s / ((7 + 6 * nu) * s + (20 + 12 * nu) * m2);
+}
+
+/**
+ * k = E / (kappa * G), the ratio of bending stiffness to shear stiffness.
+ * G = E / (2(1+nu)) is isotropic, so E cancels and only nu and the section
+ * shape survive. 4.954 for this stock: shear is FIVE TIMES softer than bending,
+ * which is why ignoring it is not a rounding error.
+ */
+export function shearToBendingRatio(od, id, nu) {
+  return 2 * (1 + nu) / shearCoefficient(od, id, nu);
+}
+
+/**
+ * The Timoshenko slowing factor for one mode: omega_Timoshenko / omega_EB.
+ *
+ * eps = (r * beta_n)^2 is the squared ratio of the radius of gyration to the
+ * bending wavelength - the one dimensionless number that says how much of a
+ * beam this beam still is. The Timoshenko dispersion relation
+ *
+ *     k*eps^2 * X^2  -  (1 + eps*(1+k)) * X  +  1  =  0,    X = (w/w_EB)^2
+ *
+ * comes straight from substituting a travelling wave into
+ * EI w'''' + rho*A w.. - rho*I(1+k) w''.. + (rho^2 I/(kappa G)) w.... = 0,
+ * i.e. Euler-Bernoulli plus rotary inertia plus shear deformation. Its lower
+ * root is the bending branch.
+ *
+ * Written as 2/(B + sqrt(D)) rather than (B - sqrt(D))/(2A) on purpose: the
+ * textbook form subtracts two nearly equal numbers and loses every significant
+ * digit for a slender tube, where eps is 1e-3 and A is 1e-5. This form never
+ * cancels. The discriminant is expanded by hand for the same reason -
+ * B^2 - 4A works out to exactly 1 + 2*eps*(1+k) + eps^2*(k-1)^2, a sum of
+ * positive terms, so it can never go negative however stubby the tube gets.
+ *
+ * Both limits are right: eps -> 0 returns 1 (thin beam, Euler-Bernoulli), and
+ * eps -> infinity gives X -> 1/(k*eps), so f_n tends to a constant times beta_n
+ * rather than beta_n^2. A shear-dominated beam stops being dispersive, and its
+ * partials line up in a harmonic series. That is the direction real chimes lean.
+ */
+export function modeSlowing(eps, k) {
+  if (!(eps > 0)) return 1;
+  const b = 1 + eps * (1 + k);
+  const km1 = k - 1;
+  return Math.sqrt(2 / (b + Math.sqrt(1 + 2 * eps * (1 + k) + eps * eps * km1 * km1)));
+}
+
+function stockOf(tube) {
+  if (!tube || tube === TUBE_STOCK) return TUBE_STOCK;
+  return {
+    od: num(tube.od, TUBE_STOCK.od),
+    id: num(tube.id, TUBE_STOCK.id),
+    E: num(tube.E, TUBE_STOCK.E),
+    rho: num(tube.rho, TUBE_STOCK.rho),
+    nu: num(tube.nu, TUBE_STOCK.nu)
+  };
+}
+
+/**
+ * Everything about one tube's modes: the length, the slenderness, and the five
+ * partial ratios that follow.
+ *
+ * Give it a length and it tells you the pitch; give it a pitch and it tells you
+ * the length. The pitch case is a fixed point because f1 depends on the
+ * correction and the correction depends on f1, but the map is a strong
+ * contraction (the correction is a couple of percent) and it settles to machine
+ * precision in about five passes. Only +, *, / and sqrt are used, so a browser
+ * and Node agree bit for bit.
+ *
+ * WHY RATIOS CANNOT BE A CONSTANT: eps_n = (r*beta_n/L)^2 carries the tube's own
+ * length and its own wall. For this stock a 1.13 m bass tube comes out 14 cents
+ * flat of ideal on mode 2 and a 0.37 m treble tube 110 cents flat - the same
+ * beam theory, an eightfold difference in the answer. A fixed table of ratios is
+ * a table that is wrong for every tube but one.
+ */
+export function tubeModes(opts) {
+  const o = opts || {};
+  const stock = stockOf(o.tube);
+  const r = gyrationRadius(stock.od, stock.id);
+  const k = shearToBendingRatio(stock.od, stock.id, stock.nu);
+  const cL = Math.sqrt(stock.E / stock.rho);
+  const b1 = BETA_L[0];
+
+  let L = num(o.L, 0);
+  let eps1;
+  if (L > 0) {
+    eps1 = (r * b1 / L) * (r * b1 / L);
+  } else {
+    // f1 = (beta1^2 / (2 pi L^2)) * r * cL * slowing(eps1), and eps1 = (r beta1/L)^2,
+    // so eps1 = 2 pi f1 r / (cL * slowing(eps1)) with L eliminated entirely.
+    const f1 = Math.max(1e-6, num(o.f1, 261.63));
+    const base = 2 * Math.PI * f1 * r / cL;
+    eps1 = base;
+    for (let i = 0; i < 8; i++) {
+      const next = base / modeSlowing(eps1, k);
+      if (Math.abs(next - eps1) <= 1e-15 * next) { eps1 = next; break; }
+      eps1 = next;
+    }
+    L = b1 * r / Math.sqrt(eps1);
+  }
+
+  const s1 = modeSlowing(eps1, k);
+  const ratios = new Array(MAX_PARTIALS);
+  for (let n = 0; n < MAX_PARTIALS; n++) {
+    ratios[n] = IDEAL_RATIOS[n] * modeSlowing(eps1 * IDEAL_RATIOS[n], k) / s1;
+  }
+  return {
+    L, r, k, eps1, ratios,
+    kappa: shearCoefficient(stock.od, stock.id, stock.nu),
+    f1: (b1 * b1 / (2 * Math.PI * L * L)) * r * cL * s1,
+    slenderness: L / r
+  };
+}
+
+/** Just the five ratios for a tube of this fundamental. */
+export function modeRatios(f1, tube) {
+  return tubeModes({ f1, tube }).ratios;
+}
+
+/** The length a tube of this stock has to be cut to in order to ring at f1. */
+export function tubeLengthFor(f1, tube) {
+  return tubeModes({ f1, tube }).L;
+}
+
+/** The fundamental a tube of this stock rings at when cut to L metres. */
+export function f1ForLength(L, tube) {
+  return tubeModes({ L, tube }).f1;
+}
+
+// A note on the two length laws. physics.js cuts its tubes with
+// lengthForFreq(), which is the Euler-Bernoulli f = 168.92 / L^2 for this same
+// stock; tubeLengthFor() above is the same relation with the shear correction
+// in it, so for a given note it asks for a tube 0.1 to 1.0 percent shorter.
+// audio.js hands strikeVoice the length physics.js actually cut, so the
+// overtones follow the tube on screen, and the residual disagreement moves
+// mode 2 by well under a cent and mode 5 by about three. Collapsing the two
+// laws into one is worth doing, but it moves every tube's mass and inertia,
+// which makes it a physics change rather than an audio one.
+
+// Where this stops being true. Timoshenko theory is a one-dimensional model
+// and it holds while the tube is still recognisably a beam; past roughly
+// L/r = 10 the section is deforming and no beam theory of any order applies.
+// The simulator's own range is L/r 39 (a 0.37 m treble tube) to 121 (a 1.13 m
+// bass tube), comfortably inside. The formula stays finite and monotonic well
+// past that, so nothing explodes if a caller asks for something silly, but the
+// answer stops meaning anything.
 
 // --- Excitation constants --------------------------------------------------
 
@@ -114,6 +311,9 @@ export function decayTau(T60) {
  *   decay     T60 of the fundamental at 440 Hz, seconds
  *   attack    per-partial ramp-up time, seconds
  *   loudness  master 0..1
+ *   tube      {od, id, E, rho, nu} of the stock, defaulting to TUBE_STOCK
+ *   L         this tube's cut length in metres, if the caller knows it; the
+ *             length implied by f1 and the stock is used when it does not
  *
  * Nothing here reads a clock, a listener or a graph, so a caller is free to
  * evaluate it whenever it likes.
@@ -121,7 +321,11 @@ export function decayTau(T60) {
 export function strikeVoice(opts) {
   const o = opts || {};
 
-  const f1 = num(o.f1, 261.63);
+  // f1 is now a physical quantity - it decides how long the tube is, which
+  // decides where its overtones land - so it has to be positive. It always was
+  // in practice, but freqScale below is sqrt(440/f1) and a negative f1 turned
+  // every T60 into NaN in silence.
+  const f1 = Math.max(1e-6, num(o.f1, 261.63));
   const s = clamp(num(o.s, 0.45), 0.02, 0.98);
   const vn = Math.max(0.01, Math.abs(num(o.vn, 0.4)));
   const isTube = o.kind === 'tube';
@@ -165,12 +369,17 @@ export function strikeVoice(opts) {
   const tauC = clamp(tauScale * 0.0008 * Math.pow(0.4 / vn, 0.2), 0.0002, 0.002);
   const fc = 1 / (2 * tauC);
 
+  // The mode ratios are this tube's, not a constant. A tube nobody has ever
+  // recorded lands where its own geometry puts it.
+  const modes = tubeModes({ f1, L: o.L, tube: o.tube });
+  const ratios = modes.ratios;
+
   const nPartials = clamp(num(o.partials, MAX_PARTIALS) | 0, 1, MAX_PARTIALS);
   const freqs = new Array(nPartials);
   const amps = new Array(nPartials);
   let sumSq = 0;
   for (let n = 0; n < nPartials; n++) {
-    const f = f1 * RATIOS[n];
+    const f = f1 * ratios[n];
     freqs[n] = f;
     // Mode shape at the strike height decides which modes speak at all. The
     // clapper hangs at the middle of the tube SET, so it lands near the
@@ -199,9 +408,16 @@ export function strikeVoice(opts) {
   const attack = Math.max(0.0005, num(o.attack, 0.002));
   const loudness = clamp(num(o.loudness, 0.5), 0, 1);
 
+  // ratio^-1.15 is a stand-in for damping rising with frequency, so it has to
+  // read the frequency the partial ACTUALLY has. Feeding it the ideal ratio
+  // after correcting the pitch would give mode 3 the decay of a partial that is
+  // not there. This does make the upper partials ring longer than they used to,
+  // because they are now lower in frequency: real, and measurably still too
+  // long against a real chime, but that is the decay law's problem, not this
+  // one's.
   const t60s = new Array(nPartials);
   for (let n = 0; n < nPartials; n++) {
-    t60s[n] = clamp(decay * freqScale * Math.pow(RATIOS[n], -1.15), 0.02, 40);
+    t60s[n] = clamp(decay * freqScale * Math.pow(ratios[n], -1.15), 0.02, 40);
   }
 
   return {
@@ -209,6 +425,9 @@ export function strikeVoice(opts) {
     f1, s, vn, mu, isTube,
     // Excitation.
     A0, norm, tauC, fc,
+    // The tube, as resolved: length, radius of gyration, slenderness, ratios.
+    tube: modes,
+    ratios,
     // The modes themselves.
     nPartials, freqs, amps, t60s,
     // Envelope and level. gain is the pre-distance voice gain; audio.js scales

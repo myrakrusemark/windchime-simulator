@@ -29,6 +29,12 @@
  *
  * Options:
  *   --f1 <hz>        tube fundamental                          (261.63)
+ *   --od <mm>        tube outside diameter                     (28)
+ *   --wall <mm>      tube wall thickness                       (1.5)
+ *   --length <m>     cut length, if you know it; otherwise implied by --f1
+ *   --E <GPa>        Young's modulus                           (69, aluminium)
+ *   --rho <kg/m3>    density                                   (2700)
+ *   --nu             Poisson's ratio                           (0.33)
  *   --s <0..1>       strike height down the tube from the top  (0.45)
  *   --vn <m/s>       hammer normal speed at contact            (0.4)
  *   --out <path>     WAV to write                              (required)
@@ -91,8 +97,29 @@ const SEED = numArg('seed', 1);
 const WITH_CLICK = !flag('no-click');
 const NORM = arg('norm', null) === null ? null : numArg('norm', -3);
 
+// The tube being rendered. Mode ratios depend on the stock as well as on the
+// pitch - a fat tube and a thin one cut to the same note do NOT have the same
+// overtones - so a comparison against a recording of a particular instrument
+// has to be able to say which tube it is asking for, exactly as it already says
+// which note.
+const OD = numArg('od', modal.TUBE_STOCK.od * 1000) / 1000;
+const WALL = numArg('wall', (modal.TUBE_STOCK.od - modal.TUBE_STOCK.id) * 500) / 1000;
+const tube = {
+  od: OD,
+  id: OD - 2 * WALL,
+  E: numArg('E', modal.TUBE_STOCK.E / 1e9) * 1e9,
+  rho: numArg('rho', modal.TUBE_STOCK.rho),
+  nu: numArg('nu', modal.TUBE_STOCK.nu)
+};
+if (!(tube.id > 0) || !(tube.id < tube.od)) {
+  console.error(`--wall ${WALL * 1000} mm does not fit inside --od ${OD * 1000} mm`);
+  process.exit(2);
+}
+
 const voice = strikeVoice({
   f1: numArg('f1', 261.63),
+  tube,
+  L: arg('length', null) === null ? undefined : numArg('length', undefined),
   s: numArg('s', 0.45),
   vn: numArg('vn', 0.4),
   mu: arg('mu', null) === null ? undefined : numArg('mu', undefined),
@@ -287,12 +314,18 @@ if (flag('json')) {
   console.log(`${OUT}  ${SR} Hz  ${DUR}s  mono  ${BITS === 32 ? 'float32' : '16-bit PCM'}`);
   console.log(`f1 ${voice.f1} Hz   s ${voice.s}   vn ${voice.vn} m/s   mu ${voice.mu} kg   ${voice.isTube ? 'tube-on-tube' : 'clapper'}`);
   console.log(`A0 ${voice.A0.toFixed(6)}   tauC ${(voice.tauC * 1e6).toFixed(1)} us   fc ${voice.fc.toFixed(1)} Hz   voice gain ${voice.gain.toFixed(6)}`);
+  const t = voice.tube;
+  console.log(`tube ${(tube.od * 1000).toFixed(1)}/${(tube.id * 1000).toFixed(1)} mm   L ${t.L.toFixed(4)} m   ` +
+              `r ${(t.r * 1000).toFixed(3)} mm   L/r ${t.slenderness.toFixed(1)}   kappa ${t.kappa.toFixed(4)}   ` +
+              `k ${t.k.toFixed(4)}   eps1 ${t.eps1.toExponential(4)}`);
   console.log(`peak ${rawPeak.toFixed(6)} (${dbfs(rawPeak)} dBFS)${NORM !== null ? `  -> normalised to ${NORM} dBFS` : ''}`);
   console.log('');
-  console.log('  n   ratio        freq Hz       amp        T60 s     tau s');
+  console.log('  n      ideal      ratio        freq Hz     cents      amp        T60 s     tau s');
   for (let n = 0; n < voice.nPartials; n++) {
+    const c = 1200 * Math.log2(voice.ratios[n] / modal.IDEAL_RATIOS[n]);
     console.log(
-      `  ${n + 1}   ${modal.RATIOS[n].toFixed(4).padStart(8)}  ${voice.freqs[n].toFixed(3).padStart(11)}  ` +
+      `  ${n + 1}   ${modal.IDEAL_RATIOS[n].toFixed(4).padStart(8)}  ${voice.ratios[n].toFixed(4).padStart(9)}  ` +
+      `${voice.freqs[n].toFixed(3).padStart(11)}  ${c.toFixed(1).padStart(8)}  ` +
       `${voice.amps[n].toFixed(6).padStart(9)}  ${voice.t60s[n].toFixed(4).padStart(9)}  ${decayTau(voice.t60s[n]).toFixed(5).padStart(8)}`
     );
   }
