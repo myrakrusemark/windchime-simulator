@@ -13,20 +13,37 @@
  * floor and there is no way under it. The bar (Apple Watch Studio) has no
  * instruction anywhere in its first frame, and until now ours had the loudest
  * sentence on the page telling a stranger to click. The sentence is gone. What
- * is left is a small control that reports a state - the sound is off - in the
- * place the bar puts its one quiet extra control, directly under the object and
- * above the caption.
+ * is left is one underlined word that reports a state - the sound is off - in
+ * the place the bar puts its own one quiet control, directly under the object
+ * and above the caption.
  *
- * IT HAS NO CLICK HANDLER, ON PURPOSE
+ * THE RELAY, AND WHY IT EXISTS
  *
- * main.js already listens for `pointerdown` and `keydown` on window in the
- * capture phase and unlocks audio from any gesture anywhere (main.js, the block
- * above `window.addEventListener( 'blur', goIdle )`). Pressing this button is
- * one of those gestures, and so is pressing Share, and so is clicking the sky.
- * Wiring a second unlock path here would mean two callers racing one promise for
- * no gain. The button is an affordance for something the whole page already
- * does; it is a real <button> so that a keyboard visitor has somewhere to land
- * and something to press, and Enter or Space on it is a keydown.
+ * main.js listens for `pointerdown` and `keydown` on window in the capture phase
+ * and unlocks audio from any gesture anywhere. That covers a mouse press, a
+ * finger and a key, which is every gesture a human makes directly.
+ *
+ * It does not cover `click` arriving on its own, and `click` on its own is what
+ * assistive technology produces: a macOS or iOS Voice Control "click Muted", an
+ * NVDA or JAWS browse-mode activate, and anything calling HTMLElement.click().
+ * Measured before this was here: a trusted `document.getElementById('wcsSound')
+ * .click()` left `audioReady` false, the toast without `.done` and the control
+ * still on screen, with an empty error list - because no code had run at all.
+ * Mouse, touch and Space all worked. The hole was narrow, invisible from a
+ * keyboard, and total for the people who fell in it: the page stayed silent
+ * forever and the thing that said "Muted" was what had failed them.
+ *
+ * The fix is one window-level capture listener that turns a click into the
+ * gesture main.js is already listening for. It is deliberately on window rather
+ * than on the button, because "click anywhere" has to mean anywhere and a pill,
+ * Share and the canvas are all reachable the same way. `unlockAudio()` no-ops
+ * on `audioUnlocked || unlockInFlight`, so the redundant call every ordinary
+ * mouse click now makes costs one guarded return, and the listener is removed
+ * the moment the sound is on.
+ *
+ * An event dispatched at window has window as its whole propagation path, so
+ * this reaches main.js's unlock and nothing else - not slots.js's document-level
+ * outside-click, not the canvas's own pointerdown.
  *
  * WHEN IT GOES
  *
@@ -36,8 +53,8 @@
  * in exactly the case where it is the only thing on screen worth reading. So
  * this watches #audioToast for the `done` class main.js writes and leaves when
  * that arrives. #audioToast itself stays exactly where P3 put it, still the
- * page's aria-live region, carrying the sentence for a screen reader where a
- * mute glyph says nothing. landing.css takes it off the screen and nothing else.
+ * page's aria-live region - but its sentence is rewritten on the way out, see
+ * dismiss().
  */
 
 /**
@@ -63,18 +80,62 @@ export function mountLanding( wcs, noteError ) {
 		let unhook = null;
 		let done = false;
 
+		// See THE RELAY above. Capture, so a handler that stops propagation
+		// cannot swallow it; passive, because nothing here preventDefaults.
+		function relayClick() {
+
+			window.dispatchEvent( new Event( 'pointerdown' ) );
+
+		}
+
+		window.addEventListener( 'click', relayClick, { capture: true, passive: true } );
+
 		function dismiss() {
 
 			if ( done ) return;
 			done = true;
 
-			// visibility, not display: the fade needs something to fade, and the
-			// control sits in #hudOverlay's empty middle row where nothing else
-			// is laid out against it, so leaving the box in place costs nothing
-			// and moves nothing when it goes.
+			// Hand focus on BEFORE disabling. Disabling the focused element drops
+			// focus to <body>, and the next Tab then restarts at the top of the
+			// page - measured: activating this from the keyboard threw a visitor
+			// backwards past their own position in a tab order that runs
+			// [Share, Muted, Place, Tubes, Striker, Sail, Hang, ...]. Place is
+			// the next stop and it is where someone who just turned the sound on
+			// is going. Only if this control is what actually has focus: by the
+			// time the latch fires the visitor may have tabbed on, and stealing
+			// focus from them would be the same bug pointing the other way.
+			if ( document.activeElement === button ) {
+
+				const next = document.getElementById( 'wcsPill-place' );
+				if ( next && typeof next.focus === 'function' ) next.focus();
+
+			}
+
 			root.classList.add( 'is-done' );
 			button.disabled = true;
 			button.tabIndex = -1;
+
+			// The sentence describes the state it is in, not the one it was in.
+			//
+			// #audioToast is visually hidden and carries "Click or tap anywhere to
+			// hear the wind chime" for a screen reader, because a muted glyph
+			// reads as nothing at all. That is true before the click and false
+			// after it, and the first version of this piece left the instruction
+			// in the accessibility tree permanently - a stale order to do
+			// something the visitor had already done. It is also the only one of
+			// the page's four aria-live regions whose content never changed,
+			// which means the polite region never announced anything: text
+			// present at load is not an announcement. Rewriting it here fixes
+			// both at once - the instruction goes, and the transition is finally
+			// something the region can say.
+			if ( toast ) {
+
+				const line = toast.firstElementChild || toast;
+				line.textContent = 'The chime is sounding.';
+
+			}
+
+			window.removeEventListener( 'click', relayClick, { capture: true } );
 
 			if ( observer ) {
 
