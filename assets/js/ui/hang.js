@@ -394,22 +394,16 @@ function build( wcs, note ) {
 	let box = null;
 	let hold = null;
 
-	if ( container ) {
-
-		root = document.createElement( 'div' );
-		root.className = 'wcs-hang-gizmo';
-		// It is a picture of a control, not a control, and everything it says is
-		// already said by the panel's own line and by the sliders.
-		root.setAttribute( 'aria-hidden', 'true' );
-		box = document.createElement( 'div' );
-		box.className = 'wcs-hang-field';
-		hold = document.createElement( 'div' );
-		hold.className = 'wcs-hang-hold';
-		root.appendChild( box );
-		root.appendChild( hold );
-		container.appendChild( root );
-
-	}
+	// THE GIZMO IS GONE. Two rectangles over the object, and Myra's report was
+	// "I can't tell what they're for", which is the only test a wordless mark
+	// has to pass. They were a plate's idea of the gesture: a crop sliding
+	// behind a fixed object needed something to show it was sliding. Clicking
+	// the branch you want says it without a diagram.
+	//
+	// root/box/hold stay declared and null. Everything below is written against
+	// `if ( root )` and a null root turns the whole overlay into dead weight
+	// that costs one branch per frame, rather than a hundred lines removed by
+	// hand from a file that also owns the drag.
 
 	let enabled = false;
 	let shown = false;

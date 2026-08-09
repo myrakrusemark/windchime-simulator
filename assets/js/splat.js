@@ -273,7 +273,11 @@ export function createSplat( ctx, place, onError ) {
 	// not have to remember which one they are in. A press that travels more than
 	// a few pixels, or lasts longer than a moment, is a camera move and is left
 	// entirely alone.
-	const el = ctx.container;
+	// The CANVAS, not the container, and in the capture phase. OrbitControls
+	// binds to the renderer's own element and captures the pointer for the
+	// duration of a drag; a listener on the parent in the bubble phase is at the
+	// mercy of that. Capture on the same element sees every press first.
+	const el = ( ctx.renderer && ctx.renderer.domElement ) || ctx.container;
 	let downAt = null;
 	let downT = 0;
 
@@ -319,8 +323,8 @@ export function createSplat( ctx, place, onError ) {
 
 	if ( el ) {
 
-		el.addEventListener( 'pointerdown', onDown, { passive: true } );
-		el.addEventListener( 'pointerup', onUp, { passive: true } );
+		el.addEventListener( 'pointerdown', onDown, { passive: true, capture: true } );
+		el.addEventListener( 'pointerup', onUp, { passive: true, capture: true } );
 
 	}
 
@@ -451,8 +455,8 @@ export function createSplat( ctx, place, onError ) {
 			disposed = true;
 			if ( el ) {
 
-				el.removeEventListener( 'pointerdown', onDown );
-				el.removeEventListener( 'pointerup', onUp );
+				el.removeEventListener( 'pointerdown', onDown, true );
+				el.removeEventListener( 'pointerup', onUp, true );
 
 			}
 			if ( mesh ) {
