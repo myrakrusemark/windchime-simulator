@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Wind Chime Simulator - a 3D wind chime in real weather</title>
-    <meta name="description" content="A real-time 3D wind chime simulation. Tuned aluminium tubes, a wind sail on a cord, and a turbulent wind field driven by your local weather. Watch the wind blow and hear the chimes ring.">
+    <!--
+      Both of these used to sell "enter a location, click Start" as the product,
+      and neither is what the page does now. Live weather is still here, one
+      panel in, and it is no longer the way you get past the front door
+      (CONTRACTS H37).
+    -->
+    <title>Wind Chime Simulator - build a chime and hear it ring</title>
+    <meta name="description" content="A wind chime already swinging when the page opens. One click turns the sound on. Change the tubes, the striker, the sail or where it hangs, then share what you built.">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#2b2118">
 
@@ -161,9 +167,26 @@
 
     <div id="hudOverlay">
         <div class="hud-top">
+            <!-- The wordmark, and nothing under it.
+
+                 It used to carry "A hanging chime with a wind sail on a cord, in
+                 weather that is really blowing." Half of that stopped being true
+                 the moment the location box left the first frame: the weather
+                 chain has no caller until a visitor opens the Place panel and
+                 asks for a town by name, so what is blowing on arrival is the
+                 place's own authored wind, not anybody's weather. A strapline
+                 nobody can act on that also makes a false claim is worse than no
+                 strapline, and the caption under the object already names what
+                 is hanging there, sentence by sentence, as it changes.
+
+                 CONTRACTS 2.5 gives the file to P3 and gives P2 one container.
+                 This deletion is outside it and is taken under H37, which names
+                 P2 as the piece that owns the page's own words about the product
+                 and requires all of them to move in the same commit as the
+                 landing. The <title> and the meta description above moved with
+                 it, and so did the README. -->
             <div class="hud-title">
                 <h1>Wind Chime Simulator</h1>
-                <p>A hanging chime with a wind sail on a cord, in weather that is really blowing.</p>
             </div>
 
             <!-- Top right, always visible from the first frame, and outside
@@ -195,6 +218,34 @@
         <!-- P2's first-frame chrome: the unlock affordance and the idle
              behaviour. Unstyled children land in the middle grid row. -->
         <!-- === WCS:LANDING === -->
+        <!--
+          The one thing on this page that asks for anything, and it asks for as
+          little as a control can.
+
+          Browsers will not start an AudioContext without a gesture, so one click
+          is the floor. What that click used to cost was a 45-character sentence
+          sitting in the middle of the frame telling a stranger to make it. The
+          sentence is still here, in #audioToast, where a screen reader can find
+          it and where main.js still latches on it - assets/css/landing.css takes
+          it off the screen and changes nothing else about it.
+
+          What is left in the picture is this: a state, not an order. It sits at
+          the bottom of #hudOverlay's middle row, above the caption, which is
+          where the bar keeps its own single quiet control.
+
+          There is no click handler on it and there is not supposed to be.
+          main.js listens for pointerdown and keydown on window in the capture
+          phase and unlocks from any gesture anywhere, so the sky, the pills,
+          Share and the Tab-then-Enter route all do the same job. It is a real
+          <button> so a keyboard visitor has somewhere to land, and so that the
+          one thing the page needs is reachable without a pointer at all.
+        -->
+        <div id="wcsLanding" class="wcs-landing">
+            <button type="button" id="wcsSound" class="wcs-sound" aria-label="Turn the sound on">
+                <svg class="wcs-sound-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M9.4 4.05 5.35 7.6H3.1a1.05 1.05 0 0 0-1.05 1.05v2.7A1.05 1.05 0 0 0 3.1 12.4h2.25l4.05 3.55a.62.62 0 0 0 1.03-.47V4.52a.62.62 0 0 0-1.03-.47z"/><path d="M13.13 6.87 18.13 11.87 17.07 12.93 12.07 7.93z"/><path d="M17.07 6.87 18.13 7.93 13.13 12.93 12.07 11.87z"/></svg>
+                <span>Sound</span>
+            </button>
+        </div>
         <!-- === /WCS:LANDING === -->
 
         <!-- === WCS:SLOTS === -->
@@ -290,7 +341,7 @@
 
                         <div class="wcs-group">
                             <h3 class="wcs-group-title">Weather here</h3>
-                            <p class="wcs-note">Every place has its own wind. Move a slider and this chime keeps that weather instead, wherever the link is opened - or fetch what is really happening somewhere.</p>
+                            <p class="wcs-note">Every place has its own wind, and that is what is blowing when you arrive. Move a slider and the chime keeps your weather instead, wherever the link is opened. Name a town and it will go and fetch what is really happening there.</p>
 
                             <!-- The live-weather entry point.
                                  These two ids are the ONLY callers of
@@ -310,10 +361,30 @@
                                  visitor opened and a button labelled for it, the
                                  browser prompt is something they asked for by
                                  name. Nothing on the first frame can reach it. -->
+                            <!-- P2 finished this row (CONTRACTS 6/P2: "relocates
+                                 live weather to an option inside the Wind area
+                                 ... defaulting off"). Two things changed and the
+                                 ids did not, so main.js still finds both of them.
+
+                                 The label is written by assets/js/ui/landing.js
+                                 and it tracks the box. Empty, the button says
+                                 "Use where I am", because with an empty query
+                                 runWeatherChain falls into the branch that calls
+                                 navigator.geolocation (H23) and the browser then
+                                 puts a permission prompt on the screen. A button
+                                 that said "Use live weather" would have produced
+                                 that prompt without ever naming it. With a town
+                                 typed it says "Use live weather" and no
+                                 geolocation is touched at all.
+
+                                 landing.js also swallows Enter while the box is
+                                 empty. Enter in a text field is a reflex rather
+                                 than a decision, and it was the one path to that
+                                 prompt that nobody had asked for. -->
                             <p class="wcs-weather-row">
                                 <label class="wcs-sr-only" for="locationInput">Town, state or country</label>
                                 <input type="text" id="locationInput" class="wcs-text" placeholder="City, State or Country" autocomplete="address-level2" spellcheck="false" maxlength="120">
-                                <button type="button" id="startButton" class="wcs-weather-go">Use live weather</button>
+                                <button type="button" id="startButton" class="wcs-weather-go"><span data-weather-go-label>Use where I am</span></button>
                             </p>
 
                             <p class="wcs-field">

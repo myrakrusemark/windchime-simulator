@@ -1,24 +1,31 @@
 # Wind Chime Simulator
 
-The Wind Chime Simulator is a web-based application that creates a soothing ambient sound experience by simulating the gentle chimes of wind chimes based on real-time weather data from a specified location.
+A wind chime hanging in a browser tab. Open the page and it is already there and already
+swinging: a plate, a set of tuned tubes, a clapper on a cord and a sail for the wind to
+push, solved as constrained particles and voiced by modal synthesis. There is no form to
+fill in and nothing to start.
 
 ![Wind Chime Simulator Screenshot](assets/screen.png)
 
 ## Features
 
-- Real-time weather data integration
-- Customizable chime sounds and scales
-- Adjustable wind speed and turbulence settings
-- Realistic sound generation based on wind conditions
-- Responsive and intuitive user interface
+- A finished chime on the first frame, hanging in a place, with no setup
+- Tubes, striker, sail and hanging point, each changeable while the chime keeps ringing
+- Modal synthesis of struck aluminium, so a wider tube really does come out darker
+- Live weather from api.weather.gov, optional, one panel in
+- Every chime is a link, and the link carries the whole design
 
 ## How to Use
 
-1. Open the Wind Chime Simulator in your web browser.
-2. Enter a location (city, state, or country) in the input field or leave it blank to use your current location.
-3. Click the "Start Wind Chimes" button to begin the simulation.
-4. Adjust the various settings using the sliders in the settings menu to customize your experience.
-5. Sit back, relax, and enjoy the calming sounds of the wind chimes!
+1. Open it. A chime is hanging there, swinging in the wind that place has.
+2. Click anywhere for sound. Browsers refuse to start audio until a gesture arrives, so
+   that one click is the floor and there is nothing under it.
+3. Press a pill along the bottom (Place, Tubes, Striker, Sail, Hang) to open that part.
+   Anything you move takes effect on the chime as you move it.
+4. Press Share. What lands on your clipboard reopens the same chime, in the same place.
+5. For real weather, open Place, type a town and press "Use live weather". Nothing on the
+   first frame reaches the network, and nothing asks the browser where you are unless you
+   ask for a location by name.
 
 ## Technologies Used
 

@@ -1,9 +1,9 @@
 /* ---------------------------------------------------------------------------
    landing.css - the first frame's own chrome.
 
-   P2 owns this file (CONTRACTS 2.2) and this is a down-payment on it, not the
-   piece: exactly one thing is authored here, because exactly one thing in the
-   first frame was blocking.
+   P2 owns this file (CONTRACTS 2.2). It authors two things and nothing else:
+   where the audio-unlock control sits, and where the sentence that used to be
+   that control went.
 
    THE PROBLEM, MEASURED
 
@@ -11,76 +11,191 @@
    of the object. At 1440x900 it was a 339x42 dark slab at [550, 627] - directly
    under the tube tips, which project to y=577, and across the sail. At 390x844
    it was [98, 463, 195x54] while the tube bundle spans roughly y 320-555, so it
-   sat squarely over the middle of the bundle with cords showing above and below
-   it. It was also the highest-contrast element in both frames.
+   sat squarely over the middle of the bundle. P3 moved it out of the object's
+   box as a down-payment on this file, which fixed where it was and left what it
+   was: 45 characters of instruction, "Click or tap anywhere to hear the wind
+   chime", still the highest-contrast type in the frame after the caption.
 
-   Apple Watch Studio's first frame contains no instruction at all. This was the
-   one thing in ours that read as being told what to do, and it was parked on the
-   thing it was telling you about.
+   Apple Watch Studio's first frame contains no instruction at all. It carries
+   one quiet extra control, "Side view", directly under the object and above the
+   caption, and that control names a state rather than issuing an order.
 
    THE FIX
 
-   The toast moved in the markup into #wcsSlots, and here it is taken out of that
-   column's flow and pinned to the top edge of it. So:
+   1. The sentence stops being visible. #audioToast keeps the words, keeps its
+      id, keeps `role="status" aria-live="polite"`, and keeps the `.done` latch
+      main.js writes to it - it is one of the page's two live regions
+      (CONTRACTS 2.5) and a screen reader needs the sentence, because a muted
+      speaker glyph reads as nothing at all. It is taken off the screen and left
+      in the accessibility tree.
 
-     - it is never inside the object's bounding box, at any width;
-     - it cannot move the caption or the pill row by appearing or leaving, which
-       is the rule the whole shell is built on;
-     - it stops being a slab. No fill, no border, no blur - one quiet line in the
-       same ink as the caption, breathing. An affordance, not a notice.
+   2. A small control takes its place, in the bar's own position: bottom of
+      #hudOverlay's middle row, centred, above the caption. It says "Sound" next
+      to a muted speaker. That is a state, not an instruction, and the visitor
+      is free to ignore it and click the sky instead - main.js unlocks from any
+      gesture anywhere, which is why the button carries no handler of its own.
 
-   assets/styles.css authors the original rules and is off limits (CONTRACTS
-   H26), so every one of these overrides it by loading later at equal
+   WHERE IT SITS, AND WHY THOSE NUMBERS
+
+   #hudOverlay is a three-row grid: title, the empty band the object hangs in,
+   the builder shell. The control is placed in row 2, `align-self: end`, so the
+   only geometry it depends on is the grid itself. It cannot move the caption or
+   the pill row by appearing or leaving, which is the rule the whole shell is
+   built on (assets/css/slots.css), and it cannot land on the object, which is
+   two hundred pixels above it at 1440 and a hundred at 390.
+
+   The 12px gap and the 40px height are one number between them: #statusLine is
+   pinned at `bottom: calc(100% + var(--wcs-s3) + 40px)` of the slots column, so
+   12 + 40 puts this control's top edge exactly on the status line's bottom edge.
+   The two can never overlap, whatever order they appear in. Changing either
+   number here means changing that rule too.
+
+   IDLE
+
+   Nothing in this file appears in any `#hudOverlay.idle` selector, deliberately.
+   goIdle only runs once `audioUnlocked` is true, and if the unlock succeeded but
+   the context never reached `running` - iOS Safari's case - this control is the
+   only thing on screen still worth pressing. It must not dissolve 850 ms after
+   the pointer stops. When the sound does arrive it leaves on its own latch.
+
+   assets/styles.css authors the shipped #audioToast rules and is off limits
+   (CONTRACTS H26), so the two rules below override it by loading later at equal
    specificity. Both selectors are `#audioToast`, deliberately - not one point
-   more than it takes to win, so a later piece can still reason about the cascade.
+   more than it takes to win, so a later piece can still reason about the
+   cascade (CONTRACTS H27).
+   --------------------------------------------------------------------------- */
+
+
+/* ---------------------------------------------------------------------------
+   The sentence, kept for the people who need it.
+
+   The standard visually-hidden recipe. `clip-path` rather than `display:none`
+   or `visibility:hidden`, both of which take an element out of the
+   accessibility tree along with the announcement.
    --------------------------------------------------------------------------- */
 
 #audioToast {
 	position: absolute;
-	left: 0;
-	right: 0;
-	top: auto;
-	bottom: calc(100% + var(--wcs-s3));
-	transform: none;
-	margin: 0 auto;
-	width: max-content;
-	max-width: 100%;
-	z-index: var(--wcs-z-slots);
-
+	width: 1px;
+	height: 1px;
+	margin: -1px;
 	padding: 0;
-	border: none;
-	border-radius: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 	background: none;
 	-webkit-backdrop-filter: none;
 	backdrop-filter: none;
+	pointer-events: none;
+}
 
-	text-align: center;
+/* The shipped `.done` rule fades the toast with a transform that also carried
+   its centring. Neither applies now, and an opacity transition on a 1px box is
+   work for nothing. */
+#audioToast.done {
+	opacity: 1;
+	transform: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The control.
+   --------------------------------------------------------------------------- */
+
+.wcs-landing {
+	grid-row: 2;
+	align-self: end;
+	justify-self: center;
+	min-width: 0;
+	margin-bottom: var(--wcs-s3);
+	z-index: var(--wcs-z-slots);
+	/* #hudOverlay is pointer-events:none so an orbit drag begun on the chrome
+	   still reaches the canvas. Only the button turns it back on, never the
+	   container (CONTRACTS H29). */
+	pointer-events: none;
+}
+
+.wcs-sound {
+	pointer-events: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	height: 40px;
+	padding: 0 15px;
+	margin: 0;
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-pill);
+	background: var(--wcs-surface);
+	-webkit-backdrop-filter: var(--wcs-blur);
+	backdrop-filter: var(--wcs-blur);
+	color: var(--wcs-ink-dim);
 	font-family: var(--wcs-font-ui);
 	font-size: var(--wcs-fs-label);
 	font-weight: 500;
 	letter-spacing: 0.02em;
-	color: var(--wcs-ink-dim);
-	text-shadow: var(--wcs-halo);
-	pointer-events: none;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--wcs-t-fast) var(--wcs-ease),
+	            border-color var(--wcs-t-fast) var(--wcs-ease);
 }
 
-/* The shipped .done rule carries the centring transform inside its own
-   transform, so dropping the centring here means dropping it there too or the
-   toast leaps sideways as it fades. */
-#audioToast.done {
+/* Dimmer ink and no fill of its own, so it sits below both the amber Share and
+   the pills in the reading order of the frame. It is 40x94 at 1440, which clears
+   WCAG 2.5.8's 24px minimum with room to spare and is well short of the 44px
+   thumb target the pills use - on purpose. A thumb-sized control here would read
+   as the primary action, and the primary action is the whole viewport. */
+.wcs-sound:hover {
+	color: var(--wcs-ink);
+	border-color: var(--wcs-hairline-strong);
+}
+
+.wcs-sound-glyph {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 auto;
+	fill: currentColor;
+	opacity: 0.9;
+}
+
+/* Where backdrop-filter is missing the control has to carry its own contrast:
+   a bright sky behind it would otherwise eat the label. Same fallback the pill
+   row uses, so the two do not diverge on the browsers that need it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+
+	.wcs-sound {
+		background: var(--wcs-surface-opaque);
+	}
+
+}
+
+
+/* ---------------------------------------------------------------------------
+   Leaving.
+
+   Driven by landing.js off main.js's own `audio.ready()` latch, so the control
+   goes when the sound actually starts and not when the click lands.
+
+   visibility rather than display, and delayed until the fade finishes, so the
+   control is out of the hit-testing and out of the tab order the moment it is
+   invisible. Nothing is laid out against it, so nothing moves when it goes.
+   --------------------------------------------------------------------------- */
+
+.wcs-landing.is-done .wcs-sound {
 	opacity: 0;
-	transform: scale(0.98);
+	visibility: hidden;
+	pointer-events: none;
+	transform: scale(0.97);
+	transition: opacity 420ms var(--wcs-ease),
+	            transform 420ms var(--wcs-ease),
+	            visibility 0s linear 420ms;
 }
 
-/* styles.css narrows the toast to 62vw under 560px, which was right when it was
-   a slab in the middle of the picture and is wrong now that it is a line of copy
-   in the bottom band. */
-@media (max-width: 560px) {
+@media (prefers-reduced-motion: reduce) {
 
-	#audioToast {
-		font-size: var(--wcs-fs-note);
-		white-space: normal;
-		max-width: min(34ch, 100%);
+	.wcs-landing.is-done .wcs-sound {
+		transform: none;
+		transition: opacity 1ms linear, visibility 0s linear 1ms;
 	}
 
 }
