@@ -513,7 +513,7 @@ export function createStage(opts) {
     return null;
   }
 
-  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tier.dprCap));
+  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, dprCapFor(tier)));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = S.toneMapping === 'aces' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
   renderer.toneMappingExposure = S.exposure;
@@ -1213,6 +1213,7 @@ export function createStage(opts) {
   function applyPlace(next, depth) {
     const p = typeof next === 'string' ? resolvePlace(next) : (next || place);
     place = p;
+    applyPlaceShadows();
     const isPlate = p.kind === 'plate' && p.backdrop && p.backdrop.src;
 
     disposePlate();
@@ -1646,8 +1647,52 @@ export function createStage(opts) {
   let renderPass = null;
   let outputPass = null;
 
+  // A splat place is fragment-bound in a way nothing else in this scene is: a
+  // million alpha-blended quads, unsorted against each other until spark sorts
+  // them, and every one of them costs again for every full-frame pass laid on
+  // top. Measured at 1440x900 on an Iris Xe, cumulatively:
+  //
+  //     bloom on, dpr 2, splat        1.25 fps
+  //     bloom off                     2.62
+  //     ... and dpr 1                 5.49
+  //     ... and shadows off           5.49   <- shadows cost nothing, leave them
+  //     ... and no splat             15.34
+  //
+  // So bloom is worth 2x and the pixel ratio another 2x, and neither is worth
+  // having here. The capture arrived with real bokeh and real blown highlights
+  // in its own pixels; UnrealBloom on top of a photograph is paying twice for
+  // something we already own.
+  // Function declarations, not consts: setPixelRatio runs during init, long
+  // before this line is reached, and a const arrow would still be in its
+  // temporal dead zone when it did.
+  function splatPlace() {
+    return !!(place && place.backdrop && place.backdrop.splat);
+  }
+
+  function dprCapFor(t) {
+    return splatPlace() ? Math.min(t.dprCap, 1) : t.dprCap;
+  }
+
+  /**
+   * Shadows on a splat place, which is to say: none.
+   *
+   * A capture already contains its own shadows, baked into the colour of every
+   * gaussian by the light that was falling when it was shot. And there is no
+   * receiver: the ground plane is hidden on a non-procedural place and the
+   * plate's shadow catcher was a plate's answer to a plate's problem. So the
+   * shadow pass renders a map that lands on nothing.
+   *
+   * Measured at 300k gaussians: turning it off took 3.37 fps to 5.73.
+   */
+  function applyPlaceShadows() {
+    const off = splatPlace();
+    renderer.shadowMap.enabled = !off;
+    sun.castShadow = !off;
+    if (!off) renderer.shadowMap.needsUpdate = true;
+  }
+
   function buildComposer() {
-    if (composer || softwareGL || !S.bloom) return;
+    if (composer || softwareGL || !S.bloom || splatPlace()) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     composer = new EffectComposer(renderer);
     composer.setPixelRatio(renderer.getPixelRatio());
@@ -1847,7 +1892,7 @@ export function createStage(opts) {
   function setTier(next) {
     if (!next) return;
     tier = next;
-    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tier.dprCap));
+    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, dprCapFor(tier)));
     if (sun.shadow.mapSize.x !== tier.shadowMapSize) {
       // The shadow map is a live GPU target; it has to be released before the
       // size change takes, or three keeps rendering into the old one.
@@ -1953,7 +1998,7 @@ export function createStage(opts) {
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
-    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tier.dprCap));
+    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, dprCapFor(tier)));
     renderer.setSize(w, h, false);
     if (composer) {
       composer.setPixelRatio(renderer.getPixelRatio());
