@@ -26,6 +26,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // plate.js builds one clip-space quad and one shadow catcher.
 import { resolvePlace, fallbackFor, DEFAULT_PLACE_ID } from './places.js';
 import { createPlate } from './plate.js';
+import { createSplat } from './splat.js';
 // === /WCS:PLACE-IMPORTS ===
 
 // ---------------------------------------------------------------------------
@@ -1236,28 +1237,29 @@ export function createStage(opts) {
       // frame, and giving a plate place a fogged style would need a line there
       // as well. tools/verify-place.mjs fails the day one is given one.
       scene.fog.density = 0;
-      plate = createPlate({
+      // A place that ships a capture draws the capture. The plate path below is
+      // still here and still correct - it is what a place with an image and no
+      // gaussians gets - but the forest has both, and the gaussians are the
+      // whole reason anyone can move through it.
+      const onPlaceError = (tag) => {
+        if (tag && tag !== 'place-asset-failed') { notePlaceError(tag); return; }
+        // The asset 404'd or decoded badly. Land somewhere that works FIRST,
+        // then say so -- in that order, because the listener's job is to make
+        // the design admit where the visitor actually ended up, and a listener
+        // fired before the fallback would read the place that just failed and
+        // conclude nothing had changed. The load is asynchronous, so applyPlace
+        // has long since returned and this re-entry is safe.
+        if ((depth | 0) < 2) applyPlace(fallbackFor(p), (depth | 0) + 1);
+        notePlaceError('place-asset-failed');
+      };
+      plate = (p.backdrop && p.backdrop.splat)
+        ? createSplat({ scene, renderer, container }, p, onPlaceError)
+        : createPlate({
         scene,
         container,
         maxAnisotropy: maxAniso,
         viewHeight: () => (S.ortho ? viewHeight / Math.max(camera.zoom, 1e-3) : viewHeight)
-      }, p, (tag) => {
-        // Not every failure inside the plate is a reason to leave the place.
-        // The limb the chime hangs from is built here too, and a place without
-        // its limb is worse than a place with one but far better than throwing
-        // the photograph away and landing the visitor on a lawn. Report and
-        // stay. Criterion 7 asks for EXACTLY ['place-asset-failed'] on a missing
-        // image, so the two tags have to be told apart here rather than merged.
-        if (tag && tag !== 'place-asset-failed') { notePlaceError(tag); return; }
-        // The image 404'd or decoded badly. Land somewhere that works FIRST,
-        // then say so -- in that order, because the listener's job is to make
-        // the design admit where the visitor actually ended up, and a listener
-        // fired before the fallback would read the place that just failed and
-        // conclude nothing had changed. The image load is asynchronous, so
-        // applyPlace has long since returned and this re-entry is safe.
-        if ((depth | 0) < 2) applyPlace(fallbackFor(p), (depth | 0) + 1);
-        notePlaceError('place-asset-failed');
-      });
+      }, p, onPlaceError);
     } else {
       scene.background = (S.background !== null && S.background !== undefined)
         ? new THREE.Color(S.background) : null;

@@ -208,11 +208,31 @@ export const PLACES = Object.freeze( {
 			tint: 0x1a2119,
 			// Which STYLES row supplies the render idiom - and only the idiom.
 			style: 'storybook',
-			// ARBITRATION 4 authors this field now and loads nothing at runtime.
-			// When the plate-first, gaussians-after upgrade lands, the .sog goes
-			// here and the still is swapped for the live capture once it arrives.
-			// A place with no `splat` is a plate place forever.
-			splat: null
+			// THE CAPTURE ITSELF. A place with a `splat` draws the gaussians and
+			// ignores `src` - the still above is kept as the poster a future
+			// plate-first load can paint while these 11.4 MB are arriving.
+			//
+			// Myra's call, 2026-08-09, and the right one: a photograph cannot be
+			// walked around. Orbit, zoom and pan only mean something when there
+			// is somewhere to orbit to.
+			splat: 'assets/places/forest-path/capture.sog',
+			// Where the capture sits relative to the chime, which hangs at
+			// physics.js HOOK = (0, 2.60, 0) and does not move (Rule A).
+			//
+			// The quaternion is the y-down flip every SOG capture needs. The
+			// y offset drops the path surface onto the world's own ground plane:
+			// in the capture's own frame the path reads at about y = 0.39, so
+			// -0.39 puts it at zero and the chime hangs 2.6 m over it.
+			pose: Object.freeze( {
+				position: Object.freeze( [ -0.85, 2.48, 9.15 ] ),
+				quaternion: Object.freeze( [ 1, 0, 0, 0 ] ),
+				scale: 1
+			} ),
+			// How far hang.u/v slide the capture, in metres either side of
+			// centre. The chime stays nailed to the hook and the forest moves
+			// behind it, which is Rule A implemented as a translation rather
+			// than as a crop.
+			reach: Object.freeze( { x: 3.2, y: 1.4 } )
 		} ),
 
 		// The light. `azDeg` is NOT free: scene.js's applySun reads the STYLE's
@@ -311,47 +331,20 @@ export const PLACES = Object.freeze( {
 		// be 0.27 m to its +x and 0.50 m to its -z to fall across it. That is
 		// where they are, which is why most of them are above the top edge of
 		// the frame and their shade is not.
+		// THE LIMB IS GONE. It was scaffolding for a photograph: a still has
+		// nothing at hook height for a cord to end on, so a branch had to be
+		// modelled and lit to agree with a picture. The capture has a real
+		// canopy, and a modelled limb in front of a photographed one looks
+		// worse than no limb at all. Myra's call, 2026-08-09.
+		//
+		// What is left is what she asked for: the iron eye at the hook, and a
+		// cord rising about two feet out of the top of it, ending where a rope
+		// would disappear into leaves. splat.js builds both.
 		hanger: Object.freeze( {
-			// Axis height. The hook is at physics.js HOOK_Y = 2.60 and the limb's
-			// underside has to meet it, so this is 2.60 + radius.
-			y: 2.650,
 			z: - 0.06,
-			radius: 0.045,
-			taper: 0.42,
-			length: 6.2,
-			tiltDeg: - 4.0,
-			// Bark in this wood is a cool near-black brown; the capture's own
-			// trunks sample around (44,41,34) in the shade and (96,88,74) where
-			// the light reaches them.
-			color: 0x453d31,
-			roughness: 0.96,
-			// The iron eye the cord actually passes through, so the terminus is a
-			// thing and not just a coincidence of two meshes touching.
-			eye: Object.freeze( { radius: 0.030, tube: 0.0055, color: 0x2e2b27 } ),
-			// Two clusters, two jobs. See the note in plate.js.
-			leaves: Object.freeze( [
-				// SHADE. Up-sun and above the frame's top edge, so it is never in
-				// the picture and its whole output is the broken light it throws
-				// down the tubes and across the path.
-				Object.freeze( {
-					count: 12,
-					size: 0.34,
-					color: 0x445c2c,
-					at: Object.freeze( [ 0.32, 0.62, - 0.58 ] ),
-					spread: Object.freeze( [ 1.45, 0.22, 0.70 ] )
-				} ),
-				// SPRAY. On the limb, inside the frame, off to the chime's left so
-				// it never crosses the object. This one is seen and casts almost
-				// nothing; it is there because a bare swept tube across the top of
-				// a photograph reads as a scaffold pole however well it tapers.
-				Object.freeze( {
-					count: 22,
-					size: 0.21,
-					color: 0x445c2c,
-					at: Object.freeze( [ - 0.95, - 0.10, 0.16 ] ),
-					spread: Object.freeze( [ 0.52, 0.22, 0.26 ] )
-				} )
-			] )
+			cordLength: 0.61,
+			cordColor: 0xcfc3ad,
+			eye: Object.freeze( { radius: 0.030, tube: 0.0055, color: 0x2e2b27 } )
 		} ),
 
 		// Fixed, because the capture is one direction only - the author's own
@@ -359,7 +352,12 @@ export const PLACES = Object.freeze( {
 		// target, not a position: an orthographic eye's distance changes nothing
 		// but clipping, which is scene.js's own convention for camPos.
 		camera: Object.freeze( {
-			fixed: true,
+			// NOT fixed any more. The reason it was - "the capture is one
+			// direction only, off axis there is nothing to see" - is true of the
+			// far side and false of the near one, and it was being used to
+			// justify a photograph. The orbit below is bounded so a visitor can
+			// walk around the chime without swinging behind the capture's back.
+			fixed: false,
 			azDeg: 180,
 			elevDeg: 14,
 			eye: Object.freeze( [ 0, 0.24192, 0.97030 ] ),
@@ -378,7 +376,17 @@ export const PLACES = Object.freeze( {
 			viewHeight: 3.20,
 			viewHeightPortrait: 3.30,
 			fov: null,
-			orbit: null
+			// Bounded, and the bounds are the capture's own geometry rather than
+			// taste. tanha shot one direction, so the useful arc is the front
+			// 140 degrees; past that the reconstruction thins out and you are
+			// looking at the inside of a shell. Elevation stops short of
+			// overhead for the same reason - there is no canopy data directly
+			// above the camera path.
+			orbit: Object.freeze( {
+				azDeg: Object.freeze( [ - 70, 70 ] ),
+				elevDeg: Object.freeze( [ 2, 46 ] ),
+				zoom: Object.freeze( [ 0.6, 2.2 ] )
+			} )
 		} ),
 
 		// The ranges are derived, not taste, and they are an AMENDMENT to
