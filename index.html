@@ -34,16 +34,15 @@
       shared by about.html, terms.html and privacy.html and editing it un-styles
       three pages silently (CONTRACTS H26). All new CSS goes in these files.
 
-      The remaining sheets ship WITH the piece that owns them, one line each, so
-      the page never links a file that is not on disk. A 404 here is a failing
-      tools/verify.mjs run, not a warning:
-        <link rel="stylesheet" href="assets/css/places.css">    P4
-        <link rel="stylesheet" href="assets/css/hang.css">      P5
+      Each sheet ships WITH the piece that owns them, one line each, so the page
+      never links a file that is not on disk. A 404 here is a failing
+      tools/verify.mjs run, not a warning.
     -->
     <link rel="stylesheet" type="text/css" href="assets/css/tokens.css">
     <link rel="stylesheet" type="text/css" href="assets/css/slots.css">
     <link rel="stylesheet" type="text/css" href="assets/css/landing.css">
     <link rel="stylesheet" type="text/css" href="assets/css/places.css">
+    <link rel="stylesheet" type="text/css" href="assets/css/hang.css">
     <link rel="stylesheet" type="text/css" href="assets/css/share.css">
 
     <!--
@@ -542,24 +541,33 @@
                     <div class="wcs-panel-body">
 
                         <!-- === WCS:HANG === -->
-                        <!-- P5's hang controls go here, and only here. A gizmo
-                             drawn over the object itself is a node hang.js
-                             creates and appends to #hudOverlay at mount; it does
-                             not need markup in this file. -->
+                        <!-- P5. One line, written by assets/js/ui/hang.js and
+                             empty until it mounts, because the sentence depends
+                             on the place: the forest path can be dragged and the
+                             porch cannot, and a hint that is wrong half the time
+                             is worse than no hint.
+
+                             The gizmo itself is not here. It is drawn over the
+                             picture rather than in the panel, so hang.js creates
+                             it and appends it to #canvasContainer at mount - see
+                             the note at the top of assets/css/hang.css for why
+                             that container and not #hudOverlay. -->
+                        <p class="wcs-hang-hint" id="wcsHangHint"></p>
                         <!-- === /WCS:HANG === -->
 
                         <!-- The note comes BEFORE the sliders, and each slider
                              carries its own reason, because a warning read after
                              the drag is not a warning.
 
-                             These three ship `disabled`, not live. Driven, they
-                             wrote real values into the design and into the share
-                             link and moved nothing on screen: stage.setFraming
-                             does not exist until P4, so hang.u/v/scale had
-                             nowhere to land. A control that cannot act is present
-                             and visibly off with a one-line reason, never live
-                             and inert (CONTRACTS P5 criterion 5). hang.js takes
-                             the attribute off when setFraming exists. -->
+                             These three ship `disabled` in the MARKUP and hang.js
+                             takes the attribute off on a place that can take a
+                             hang. That way round on purpose: driven with no plate
+                             behind them they would write real values into the
+                             design and into the share link and move nothing on
+                             screen, so if hang.js ever fails to mount the
+                             controls fail OFF rather than live-and-inert
+                             (CONTRACTS P5 criterion 5). The reason line below is
+                             rewritten per place by the same file. -->
                         <p class="wcs-note">Where the chime sits in the place, and how big it hangs there. The chime itself never moves: the place moves behind it, which is what keeps the physics and the loudness out of it.</p>
 
                         <p class="wcs-field is-disabled">
@@ -574,7 +582,7 @@
                             <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangScale">Size</label><span class="wcs-field-value" data-value-for="wcsHangScale"></span></span>
                             <input class="wcs-range" type="range" id="wcsHangScale" data-path="hang.scale" data-range="hang.scale" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
-                        <p class="wcs-note" id="wcsHangWhy">Off until the plate places land. The porch is a real world with a real size, so there is nothing yet for the chime to be moved across or scaled against.</p>
+                        <p class="wcs-note" id="wcsHangWhy">Not here: a built world has a real size, so there is nothing behind the chime to slide it across.</p>
 
                     </div>
                 </section>

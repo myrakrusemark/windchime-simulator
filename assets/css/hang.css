@@ -1,0 +1,157 @@
+/* ---------------------------------------------------------------------------
+   hang.css - the hang gizmo, and the cursor that says the picture can be moved.
+
+   Two elements and one cursor. Everything else the Hang slot needs is already
+   in slots.css: the three sliders are ordinary .wcs-field rows and the disabled
+   state they fall back to on the porch is .wcs-field.is-disabled, which is the
+   rule P3 wrote for exactly this control (CONTRACTS P5 criterion 5).
+
+   WHERE THE GIZMO LIVES, AND WHY IT IS NOT IN #hudOverlay
+
+   It is appended to #canvasContainer, not to the HUD. Two reasons, and the
+   second is the one that decided it:
+
+     1. It is part of the picture, not part of the chrome. The box is drawn in
+        PLATE SPACE - it is a rectangle painted on the photograph - so it has to
+        slide with the photograph and sit UNDER the caption and the pill row the
+        same way the forest does. In #hudOverlay it would have floated over
+        them.
+     2. #hudOverlay is a three-row grid with pointer-events: none and an .idle
+        fade that dissolves its children after 850 ms of stillness. A gizmo that
+        is on screen precisely because the visitor is dragging must not be
+        inside the thing that fades when they stop.
+
+   z-index 1 rather than auto: #canvasContainer::after is the vignette, and a
+   generated ::after paints after every real child. Without this the box would
+   be read through a radial gradient that is 28 % black exactly where the box
+   sits.
+   --------------------------------------------------------------------------- */
+
+.wcs-hang-gizmo {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	/* Never in the way of the drag it is describing. */
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity var(--wcs-t-slow) var(--wcs-ease);
+}
+
+.wcs-hang-gizmo.is-on {
+	opacity: 1;
+}
+
+/* The reachable region, in the place's own coordinates.
+
+   This is the control's honesty: hang.u/v are a fraction of the PHOTOGRAPH, and
+   the photograph is what moves, so the box slides while the chime stays nailed
+   to the middle of the frame (CONTRACTS Rule A). Watching the box's edge arrive
+   at the chime is what "stops hard at the range" looks like. */
+.wcs-hang-field {
+	position: absolute;
+	top: 0;
+	left: 0;
+	box-sizing: border-box;
+	border: 1px dashed var(--wcs-hairline-strong);
+	border-radius: var(--wcs-r-sm);
+	/* A wash rather than a fill: the forest has to stay readable through it.
+	   color-mix off an existing token rather than a new rgba(), because
+	   CONTRACTS 2.2 says a piece consumes tokens and does not author colour, and
+	   a 4 %-of-white wash is not a colour anybody needs to be able to retheme
+	   separately from the ink it is made of. */
+	background: color-mix(in srgb, var(--wcs-ink) 4%, transparent);
+	transition: border-color var(--wcs-t-fast) var(--wcs-ease),
+		background-color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+/* Pinned against an edge. The one moment the control has to say something, and
+   it says it in the page's only ring colour rather than in a new one. */
+.wcs-hang-field.is-pinned {
+	border-color: var(--wcs-focus);
+	border-style: solid;
+	background: color-mix(in srgb, var(--wcs-focus) 7%, transparent);
+}
+
+/* Where the chime hangs, in that region. It is at the middle of the frame
+   whenever the ask is reachable, because the chime never moves - so when this
+   mark is NOT in the middle, the design is asking for a spot this window is too
+   wide or this size too big to reach, and seeing that is the point. */
+.wcs-hang-pin {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 22px;
+	height: 22px;
+	margin: -11px 0 0 -11px;
+	border: 1px solid var(--wcs-hairline-strong);
+	border-radius: 50%;
+	/* It has to read over a sunlit tube AND over deep canopy shade, and it is
+	   one pixel wide. The halo is what makes a hairline survive both. */
+	filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--wcs-ink-on-accent) 65%, transparent));
+}
+
+.wcs-hang-field.is-pinned + .wcs-hang-pin {
+	border-color: var(--wcs-focus);
+}
+
+.wcs-hang-field.is-pinned + .wcs-hang-pin::before,
+.wcs-hang-field.is-pinned + .wcs-hang-pin::after {
+	background: var(--wcs-focus);
+}
+
+.wcs-hang-pin::before,
+.wcs-hang-pin::after {
+	content: "";
+	position: absolute;
+	background: var(--wcs-hairline-strong);
+}
+
+.wcs-hang-pin::before {
+	left: 50%;
+	top: 4px;
+	bottom: 4px;
+	width: 1px;
+	margin-left: -0.5px;
+}
+
+.wcs-hang-pin::after {
+	top: 50%;
+	left: 4px;
+	right: 4px;
+	height: 1px;
+	margin-top: -0.5px;
+}
+
+/* The invitation. Only on a place that can actually take it, so the cursor is
+   never a promise the page cannot keep. */
+#glCanvas.wcs-can-hang {
+	cursor: grab;
+}
+
+#glCanvas.wcs-hanging,
+#glCanvas.wcs-can-hang.wcs-hanging {
+	cursor: grabbing;
+}
+
+/* The one line in the panel that says the picture is draggable. It sits above
+   the sliders because a hint read after the drag is not a hint. */
+.wcs-hang-hint {
+	margin: 0 0 var(--wcs-s3);
+	font-size: var(--wcs-fs-note);
+	color: var(--wcs-ink-faint);
+}
+
+.wcs-hang-hint:empty {
+	display: none;
+}
+
+/* A visitor who has asked for less motion gets the box without the fade, and
+   the box still tells them where the edges are. */
+@media (prefers-reduced-motion: reduce) {
+
+	.wcs-hang-gizmo,
+	.wcs-hang-field {
+		transition: none;
+	}
+
+}
