@@ -47,10 +47,39 @@ import { SplatMesh, SparkRenderer, SplatEdit, SplatEditSdf } from './vendor-spar
  */
 const renderers = new WeakMap();
 
-function sparkFor( scene, renderer ) {
+/**
+ * Sort planar under an orthographic camera, radial under a perspective one.
+ *
+ * spark defaults sortRadial to true, which is right for a perspective camera:
+ * rays diverge from an eye point, so distance FROM THAT POINT is the depth
+ * order. An orthographic camera has no eye point. Its rays are parallel and
+ * the correct order is planar depth along the view direction.
+ *
+ * Sorting radially under ortho produces an order that does not match the real
+ * back-to-front, and - this is the part that shows - the size of the mismatch
+ * CHANGES AS THE CAMERA ORBITS. So the order churns for reasons that have
+ * nothing to do with anything actually moving, and the capture swims.
+ *
+ * Found because Myra pointed out that superspl.at's own viewer does not do
+ * this with the same capture. It does not, because it renders perspective,
+ * where spark's default is correct. This scene is orthographic (the storybook
+ * style), which made the default wrong here and nowhere else.
+ */
+function sortRadialFor( camera ) {
+
+	return ! ( camera && camera.isOrthographicCamera );
+
+}
+
+function sparkFor( scene, renderer, camera ) {
 
 	let s = renderers.get( scene );
-	if ( s ) return s;
+	if ( s ) {
+
+		s.sortRadial = sortRadialFor( camera );
+		return s;
+
+	}
 	// enableLod defaults to TRUE, and it is the wrong default for a place.
 	//
 	// LOD swaps WHICH gaussians are drawn as the view changes. On a capture you
@@ -61,7 +90,12 @@ function sparkFor( scene, renderer ) {
 	//
 	// minSortIntervalMs stays 0. The sort is what keeps back-to-front blending
 	// correct and throttling it trades shimmer for smear.
-	s = new SparkRenderer( { renderer, enableLod: false, enableDriveLod: false } );
+	s = new SparkRenderer( {
+		renderer,
+		enableLod: false,
+		enableDriveLod: false,
+		sortRadial: sortRadialFor( camera )
+	} );
 	scene.add( s );
 	renderers.set( scene, s );
 	return s;
@@ -81,7 +115,18 @@ function sparkFor( scene, renderer ) {
  * something rather than stopping in mid-air, and a short cord rising out of the
  * top of it. It ends where a rope would disappear into leaves.
  *
- * HOOK_Y is 2.60, mirrored from physics.js, which is read-only here.
+ * HOOK is (0, 2.60, 0), mirrored from physics.js, which is read-only here.
+ *
+ * THE EYE IS NOT PLACEABLE, AND THAT IS THE POINT.
+ *
+ * The place's hanger spec used to carry `z: -0.06`, which pushed the modelled
+ * LIMB six centimetres behind the chime so a branch would not grow through it.
+ * The limb is gone and the offset outlived it, still being applied - to the one
+ * piece of geometry that has no freedom to move. The bridle's three cords meet
+ * at the hook exactly, so an eye anywhere but the hook is a ring the chime
+ * hangs NEXT to. On screen that read as the whole assembly being off-centre
+ * under its own ring, which is what it was. The eye takes the hook's x and z
+ * and no spec may say otherwise.
  */
 function buildCordHanger( spec ) {
 
@@ -89,8 +134,7 @@ function buildCordHanger( spec ) {
 	g.name = 'wcs-hanger';
 	const geoms = [];
 	const mats = [];
-	const HOOK_Y = 2.60;
-	const z = spec.z || 0;
+	const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 
 	const eyeR = spec.eye && Number.isFinite( spec.eye.radius ) ? spec.eye.radius : 0.028;
 	const eyeT = spec.eye && Number.isFinite( spec.eye.tube ) ? spec.eye.tube : 0.006;
@@ -102,7 +146,10 @@ function buildCordHanger( spec ) {
 	} );
 	mats.push( eyeMat );
 	const eye = new THREE.Mesh( eyeGeo, eyeMat );
-	eye.position.set( 0, HOOK_Y + eyeR * 0.55, z );
+	// Raised by a bit over half the ring's radius, so the hook lands just inside
+	// the ring's lower opening rather than at its centre - which is where a cord
+	// tied through an eye actually bears. Sideways it is the hook, exactly.
+	eye.position.set( HOOK_X, HOOK_Y + eyeR * 0.55, HOOK_Z );
 	eye.castShadow = true;
 	g.add( eye );
 
@@ -117,8 +164,9 @@ function buildCordHanger( spec ) {
 	} );
 	mats.push( cordMat );
 	const cord = new THREE.Mesh( cordGeo, cordMat );
-	// Rising from the TOP of the ring, not from its centre.
-	cord.position.set( 0, HOOK_Y + eyeR * 0.55 + eyeR + len / 2, z );
+	// Rising from the TOP of the ring, not from its centre, and plumb over the
+	// hook - a rope that hangs a chime does not lean.
+	cord.position.set( HOOK_X, HOOK_Y + eyeR * 0.55 + eyeR + len / 2, HOOK_Z );
 	cord.castShadow = true;
 	g.add( cord );
 
@@ -220,7 +268,7 @@ export function createSplat( ctx, place, onError ) {
 			await m.initialized;
 			if ( disposed ) { try { m.dispose && m.dispose(); } catch ( e ) {} return; }
 
-			sparkFor( scene, ctx.renderer );
+			sparkFor( scene, ctx.renderer, typeof ctx.getCamera === 'function' ? ctx.getCamera() : null );
 			m.quaternion.set( ROT[ 0 ], ROT[ 1 ], ROT[ 2 ], ROT[ 3 ] );
 			m.name = 'wcs-splat';
 			// The capture is the world, so it takes no part in the chime's own
