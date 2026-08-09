@@ -30,10 +30,36 @@
       in the accessibility tree.
 
    2. A small control takes its place, in the bar's own position: bottom of
-      #hudOverlay's middle row, centred, above the caption. It says "Sound" next
-      to a muted speaker. That is a state, not an instruction, and the visitor
-      is free to ignore it and click the sky instead - main.js unlocks from any
-      gesture anywhere, which is why the button carries no handler of its own.
+      #hudOverlay's middle row, centred, above the caption. It is an underlined
+      word, "Muted". That is a state, not an instruction, and the visitor is
+      free to ignore it and click the sky instead.
+
+   WHY IT IS NOT A PILL, WHICH IS WHAT IT WAS
+
+   The first version of this control was a capsule with `--wcs-surface` behind
+   it, `--wcs-hairline` around it, `--wcs-r-pill` on its corners and
+   `--wcs-blur` under it - the four tokens .wcs-pill consumes, in the same
+   order, with an icon on the left and a label on the right. Measured live, its
+   computed background, border, radius and backdrop-filter were byte-identical
+   to a slot pill's; only the height (40 vs 44) and the type size (13.12 vs
+   14.08 px) differed. It sat 46 px above the row of Place · Tubes · Striker ·
+   Sail · Hang, dead centre, and its label was "Sound" - a word that names a
+   wind chime's voice. It read as a sixth part of the object.
+
+   The comment that used to sit at the `:hover` rule below claimed "no fill of
+   its own" while the rule twelve lines above it set `background:
+   var(--wcs-surface)`. The code contradicted its own stated intent, and the
+   intent was the correct one.
+
+   BAR.md:38-40 makes "must not look like a step" the governing test for this
+   control, and the bar's own control in this position - "Side view", under the
+   object and above the caption - is a plain underlined text link, which is how
+   it stays distinct from the three pills below it. This is that. No fill, no
+   border, no radius, no backdrop filter, no glyph. It is text, so WCAG 1.4.11's
+   3:1 boundary requirement does not apply to it at all, which is the honest way
+   out of a hairline that measured 1.99:1 against the grass rather than a
+   thicker hairline that would have measured 3:1 against one place and failed
+   against the next.
 
    WHERE IT SITS, AND WHY THOSE NUMBERS
 
@@ -50,13 +76,34 @@
    The two can never overlap, whatever order they appear in. Changing either
    number here means changing that rule too.
 
-   IDLE
+   IDLE - RETIRED, DELIBERATELY, AND HERE IS THE RECORD
 
-   Nothing in this file appears in any `#hudOverlay.idle` selector, deliberately.
-   goIdle only runs once `audioUnlocked` is true, and if the unlock succeeded but
-   the context never reached `running` - iOS Safari's case - this control is the
-   only thing on screen still worth pressing. It must not dissolve 850 ms after
-   the pointer stops. When the sound does arrive it leaves on its own latch.
+   CONTRACTS 6/P2 lists "the idle fade" among P2's deliverables. It ships as no
+   code, which is a decision and not an omission, so it is written down here
+   rather than left for a critic to measure and call a gap.
+
+   The bar keeps everything it offers on screen at once - BAR.md:56, "nothing is
+   disclosed progressively" - and there are five pills, one caption and one
+   Share button on our frame, all of which are the answer to "what can I do
+   here". Dissolving them 850 ms after the pointer stops means a visitor who
+   pauses to look at the chime they just built has to wake the page up before
+   they can touch it again, and their waking click is swallowed doing it (H20).
+   That is a worse frame than the one it is trying to clean up.
+
+   This control specifically must never fade on the idle timer. goIdle only runs
+   once `audioUnlocked` is true, and if the unlock succeeded but the context
+   never reached `running` - iOS Safari's case - this is the only thing on
+   screen still worth pressing. When the sound does arrive it leaves on its own
+   latch instead.
+
+   What survives from the shipped fade is the wordmark, `.hud-title h1`, going
+   to 0.2 - which is right: it is the one thing on the frame that is not an
+   offer. The other four `.idle` selectors in assets/styles.css name
+   `.hud-title p`, `.hud-bottom`, `#hudDock`, `#menuToggle` and `.read-on`, none
+   of which exist any more. They are dead rules that read as live behaviour, and
+   they are in a file every piece is barred from this run because three other
+   pages share it (H26). Whoever is allowed to open assets/styles.css should
+   strike them; nothing in this run can.
 
    assets/styles.css authors the shipped #audioToast rules and is off limits
    (CONTRACTS H26), so the two rules below override it by loading later at equal
@@ -76,6 +123,13 @@
 
 #audioToast {
 	position: absolute;
+	/* The shipped rule pins this at left:50%; top:72% and centres it with a
+	   translate. Both are overridden to 0 so that the box, and anything laid out
+	   inside it, sits in the corner of the overlay rather than on top of the
+	   object and the pill row. That matters because of the child below. */
+	left: 0;
+	top: 0;
+	transform: none;
 	width: 1px;
 	height: 1px;
 	margin: -1px;
@@ -90,9 +144,27 @@
 	pointer-events: none;
 }
 
+/* The recipe has to reach the child, not just the parent.
+   #audioToast is a 1x1 clipped box, but its <span> lays out at its own natural
+   size - measured at 297x18 at 1440 and 274x15 at 390 - and at phone width that
+   rect landed inside the pill row's band, over Tubes, Striker and Sail. Nothing
+   painted, because the parent's overflow:hidden held it back, but the guard was
+   one CSS change away from failing and the failure would have been invisible in
+   code review. Belt (left/top above) and braces (this). */
+#audioToast > * {
+	position: absolute;
+	clip-path: inset(50%);
+}
+
 /* The shipped `.done` rule fades the toast with a transform that also carried
    its centring. Neither applies now, and an opacity transition on a 1px box is
-   work for nothing. */
+   work for nothing.
+
+   opacity stays at 1 rather than 0 because this is a live region, not a
+   picture: `#hudOverlay.idle #audioToast` in the shipped sheet also drives it
+   to 0, and a 0-opacity subtree is a thing screen readers still read but
+   nothing else can. Keeping it at 1 keeps one rule governing whether the
+   sentence exists, which is landing.js rewriting its text - see dismiss(). */
 #audioToast.done {
 	opacity: 1;
 	transform: none;
@@ -116,57 +188,59 @@
 	pointer-events: none;
 }
 
+/* Text. Not a capsule, not a chip, not a pill: the four tokens that would make
+   it one - --wcs-surface, --wcs-hairline, --wcs-r-pill, --wcs-blur - appear
+   nowhere below, and that absence is the whole rule.
+
+   Contrast is carried the way the caption carries it - full white on
+   --wcs-halo-strong - because the thing behind this control is a moving 3D
+   picture and a halo tracks the background where a fill competes with it, which
+   is how the fill got here in the first place.
+
+   It is NOT --wcs-ink-dim, which is what the first pass at this used. Measured
+   off the live 1440 frame: dim ink over --wcs-halo gave 3.05:1 against the
+   field it sits on. That is a WCAG 1.4.3 failure at 13.12px, and a worse defect
+   than the 1.99:1 boundary this control used to fail 1.4.11 on, because 1.4.3
+   is about the thing a visitor actually has to read. White over
+   --wcs-halo-strong measures 4.79:1 here against 5.72:1 for the caption one row
+   down, both taken as the glyph core against the median of the haloed field.
+
+   "Quiet" is then carried by being 13px and unenclosed next to a 16px sentence
+   and five lit capsules, which is where it belongs - not by being hard to read.
+
+   The padding is 6px 10px around 15px of line box, so the hit target is 27x60
+   at 1440 - past WCAG 2.5.8's 24x24 minimum, and deliberately short of the 44px
+   thumb target the pills use. A thumb-sized control here would read as the
+   primary action, and the primary action is the whole viewport. */
 .wcs-sound {
 	pointer-events: auto;
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	height: 40px;
-	padding: 0 15px;
+	display: inline-block;
+	padding: 6px 10px;
 	margin: 0;
-	border: 1px solid var(--wcs-hairline);
-	border-radius: var(--wcs-r-pill);
-	background: var(--wcs-surface);
-	-webkit-backdrop-filter: var(--wcs-blur);
-	backdrop-filter: var(--wcs-blur);
-	color: var(--wcs-ink-dim);
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: var(--wcs-ink);
+	text-shadow: var(--wcs-halo-strong);
 	font-family: var(--wcs-font-ui);
 	font-size: var(--wcs-fs-label);
-	font-weight: 500;
+	font-weight: 400;
+	line-height: 15px;
 	letter-spacing: 0.02em;
 	white-space: nowrap;
+	/* Underlined, and offset far enough that the rule does not sit in the
+	   descender of the d. This is what says "press me" now that nothing else
+	   does. */
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	text-decoration-thickness: 1px;
+	text-decoration-color: var(--wcs-ink-faint);
 	cursor: pointer;
-	transition: color var(--wcs-t-fast) var(--wcs-ease),
-	            border-color var(--wcs-t-fast) var(--wcs-ease);
+	transition: text-decoration-color var(--wcs-t-fast) var(--wcs-ease);
 }
 
-/* Dimmer ink and no fill of its own, so it sits below both the amber Share and
-   the pills in the reading order of the frame. It is 40x94 at 1440, which clears
-   WCAG 2.5.8's 24px minimum with room to spare and is well short of the 44px
-   thumb target the pills use - on purpose. A thumb-sized control here would read
-   as the primary action, and the primary action is the whole viewport. */
 .wcs-sound:hover {
-	color: var(--wcs-ink);
-	border-color: var(--wcs-hairline-strong);
-}
-
-.wcs-sound-glyph {
-	width: 16px;
-	height: 16px;
-	flex: 0 0 auto;
-	fill: currentColor;
-	opacity: 0.9;
-}
-
-/* Where backdrop-filter is missing the control has to carry its own contrast:
-   a bright sky behind it would otherwise eat the label. Same fallback the pill
-   row uses, so the two do not diverge on the browsers that need it. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-
-	.wcs-sound {
-		background: var(--wcs-surface-opaque);
-	}
-
+	text-decoration-color: var(--wcs-ink);
 }
 
 

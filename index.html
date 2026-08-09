@@ -235,22 +235,32 @@
           it and where main.js still latches on it - assets/css/landing.css takes
           it off the screen and changes nothing else about it.
 
-          What is left in the picture is this: a state, not an order. It sits at
-          the bottom of #hudOverlay's middle row, above the caption, which is
-          where the bar keeps its own single quiet control.
+          What is left in the picture is this: a state, not an order, and it is
+          dressed as a text link rather than as a control.
 
-          There is no click handler on it and there is not supposed to be.
-          main.js listens for pointerdown and keydown on window in the capture
-          phase and unlocks from any gesture anywhere, so the sky, the pills,
-          Share and the Tab-then-Enter route all do the same job. It is a real
-          <button> so a keyboard visitor has somewhere to land, and so that the
-          one thing the page needs is reachable without a pointer at all.
+          THE FIRST VERSION OF THIS WAS A SIXTH PILL. It read "Sound" next to a
+          speaker glyph, in a 999px capsule with the pill row's own fill, its own
+          hairline and its own backdrop blur, forty-six pixels above Place ·
+          Tubes · Striker · Sail · Hang - and "Sound" is a word that names a wind
+          chime's voice. Every token was the same one .wcs-pill uses, so it was
+          not merely similar to a slot, it was byte-identical to one. A critic
+          cropping the bottom band counted six parts. BAR.md's test for this
+          control is that it must not look like a step, and the bar's own control
+          in this exact slot - "Side view", directly under the object and above
+          the caption - is a plain underlined text link precisely so that it
+          cannot be mistaken for one of the three pills below it.
+
+          So: no fill, no border, no radius, no blur, no glyph, and the label is
+          the condition rather than the noun. "Muted" is a state a visitor can
+          read and ignore. "Sound" was a part of the chime.
+
+          The accessible name still leads with the state and then says what
+          pressing it does, because a screen reader user is not looking at the
+          picture and a button whose name is a bare adjective is a button that
+          does not say what it is for.
         -->
         <div id="wcsLanding" class="wcs-landing">
-            <button type="button" id="wcsSound" class="wcs-sound" aria-label="Turn the sound on">
-                <svg class="wcs-sound-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M9.4 4.05 5.35 7.6H3.1a1.05 1.05 0 0 0-1.05 1.05v2.7A1.05 1.05 0 0 0 3.1 12.4h2.25l4.05 3.55a.62.62 0 0 0 1.03-.47V4.52a.62.62 0 0 0-1.03-.47z"/><path d="M13.13 6.87 18.13 11.87 17.07 12.93 12.07 7.93z"/><path d="M17.07 6.87 18.13 7.93 13.13 12.93 12.07 11.87z"/></svg>
-                <span>Sound</span>
-            </button>
+            <button type="button" id="wcsSound" class="wcs-sound" aria-label="Muted. Turn the sound on.">Muted</button>
         </div>
         <!-- === /WCS:LANDING === -->
 
