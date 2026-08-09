@@ -566,7 +566,10 @@ for ( let i = 0; i < 200; i ++ ) {
 
 	}
 
-	if ( typeof s !== 'string' || s.length < 20 || s.indexOf( 'undefined' ) !== - 1 || s.indexOf( 'NaN' ) !== - 1 ) {
+	// A caption is assembled from optional clauses, so the failure mode that
+	// matters is a seam: a doubled space, a stranded comma, a missing full stop.
+	if ( typeof s !== 'string' || s.length < 20 || s.indexOf( 'undefined' ) !== - 1 || s.indexOf( 'NaN' ) !== - 1 ||
+		/\s\s|\s,|,,|, ,|^\s|\s\.$/.test( s ) || ! /[a-z0-9]\.$/i.test( s ) ) {
 
 		describeOk = ok( 'describe produced ' + JSON.stringify( s ), false );
 		break;
@@ -593,6 +596,224 @@ ok( 'describe is not total', describeOk );
 line( 'defaults      ' + D.describe( D.DESIGN_DEFAULTS ) );
 line( 'v1_sc-lyd_n-8 ' + D.describe( D.decode( 'v1_sc-lyd_n-8' ) ) );
 line( 'v1_pl-forest-path   ' + D.describe( D.decode( 'v1_pl-forest-path_st-cb78_n-3' ) ) );
+
+// ---------------------------------------------------------------------------
+// 6b. Every control moves the caption (CONTRACTS section 6, P3 criterion 3)
+//
+// One field at a time, swept across its whole legal range from the shipped
+// defaults, and the question asked of each sample is only "is this a different
+// sentence from the default one". That is the criterion, and it is deliberately
+// NOT "is it a different sentence from its neighbour" - the values are bucketed
+// on purpose so that 68 mm and 69 mm read the same. The two columns that matter
+// are therefore the ends of the travel, and the distinct-caption count says how
+// much resolution the field has in between.
+//
+// hang.* and view.quality are listed too, asserted SILENT rather than skipped,
+// so that this table is a complete statement about all twenty-one codec fields
+// and not a selective one. Hang moves the plate and not the chime (Rule A);
+// quality is a renderer tier. A caption naming either would be describing
+// something other than the wind chime.
+// ---------------------------------------------------------------------------
+
+section( '6b. Every control moves the caption' );
+
+const CAPTION_BASE = D.describe( D.DESIGN_DEFAULTS );
+
+function setAt( design, path, value ) {
+
+	const out = structuredClone( design );
+	const keys = path.split( '.' );
+	let cur = out;
+	for ( let i = 0; i < keys.length - 1; i ++ ) cur = cur[ keys[ i ] ];
+	cur[ keys[ keys.length - 1 ] ] = value;
+	return out;
+
+}
+
+/** Words in `s` that are not in `base`, so the table shows what the field said. */
+function added( base, s ) {
+
+	const have = new Set( base.toLowerCase().replace( /[.,]/g, '' ).split( /\s+/ ) );
+	const out = [];
+	for ( const w of s.toLowerCase().replace( /[.,]/g, '' ).split( /\s+/ ) ) {
+
+		if ( ! have.has( w ) && out.indexOf( w ) === - 1 ) out.push( w );
+
+	}
+
+	return out.length ? out.join( ' ' ) : '-';
+
+}
+
+function sweep( key, steps ) {
+
+	const r = D.RANGES[ key ];
+	const out = [];
+	for ( let i = 0; i <= steps; i ++ ) out.push( r[ 0 ] + ( r[ 1 ] - r[ 0 ] ) * ( i / steps ) );
+	return out;
+
+}
+
+// value lists span the FULL legal range of each field, null included where null
+// is legal, because null is the shipped value there and has to be one of the
+// samples the sweep is measured against.
+const COVERAGE = [
+	[ 'place', [ 'porch', 'forest-path' ] ],
+	[ 'tubes.scale', D.SCALE_KEYS.slice() ],
+	[ 'tubes.notes', [ 3, 4, 5, 6, 7, 8 ] ],
+	[ 'tubes.stock', [ ...D.STOCK_NAMES ] ],
+	[ 'clapper.width', sweep( 'clapper.width', 70 ) ],
+	[ 'clapper.mass', sweep( 'clapper.mass', 82 ) ],
+	[ 'clapper.drop', sweep( 'clapper.drop', 74 ) ],
+	[ 'sail.mass', sweep( 'sail.mass', 82 ) ],
+	[ 'sail.height', sweep( 'sail.height', 46 ) ],
+	[ 'voice.attack', sweep( 'voice.attack', 39 ) ],
+	[ 'voice.decay', sweep( 'voice.decay', 190 ) ],
+	[ 'voice.loudness', sweep( 'voice.loudness', 100 ) ],
+	[ 'wind.mph', [ null, ...sweep( 'wind.mph', 60 ) ] ],
+	[ 'wind.dirDeg', [ null, ...Array.from( { length: 360 }, ( _, i ) => i ) ] ],
+	[ 'wind.turbulence', [ null, ...sweep( 'wind.turbulence', 95 ) ] ],
+	[ 'view.sun', [ null, ...sweep( 'view.sun', 72 ) ] ]
+];
+
+const SILENT = [
+	[ 'hang.u', sweep( 'hang.u', 100 ) ],
+	[ 'hang.v', sweep( 'hang.v', 100 ) ],
+	[ 'hang.scale', sweep( 'hang.scale', 120 ) ],
+	[ 'view.quality', [ 'auto', 'high', 'low' ] ]
+];
+
+function pad( s, n ) {
+
+	s = String( s );
+	return s.length >= n ? s : s + ' '.repeat( n - s.length );
+
+}
+
+line( pad( 'field', 17 ) + pad( 'low end', 24 ) + pad( 'high end', 24 ) + pad( 'distinct', 9 ) + 'moves' );
+line( '-'.repeat( 79 ) );
+
+function defaultOf( path ) {
+
+	const keys = path.split( '.' );
+	let cur = D.DESIGN_DEFAULTS;
+	for ( const k of keys ) cur = cur[ k ];
+	return cur;
+
+}
+
+for ( const [ path, values ] of COVERAGE ) {
+
+	const captions = values.map( ( v ) => D.describe( setAt( D.DESIGN_DEFAULTS, path, v ) ) );
+	const distinct = new Set( captions ).size;
+
+	// The two ends of the field's own travel, EXCLUDING the shipped value where
+	// that value is itself an end. place, tubes.scale and the four nullable
+	// fields all default to the first entry of their own list, so testing index 0
+	// against the default caption would be asking whether a field moves when it
+	// has not been moved.
+	const def = defaultOf( path );
+	const lo = values.findIndex( ( v ) => v !== def );
+	let hi = values.length - 1;
+	while ( hi > 0 && values[ hi ] === def ) hi --;
+
+	const bothEnds = lo >= 0 && captions[ lo ] !== CAPTION_BASE && captions[ hi ] !== CAPTION_BASE;
+
+	line( pad( path, 17 ) +
+		pad( added( CAPTION_BASE, captions[ lo < 0 ? 0 : lo ] ), 24 ) +
+		pad( added( CAPTION_BASE, captions[ hi ] ), 24 ) +
+		pad( distinct, 9 ) + ( bothEnds ? 'yes' : 'NO' ) );
+
+	ok( path + ' does not move the caption at both ends of its range', bothEnds );
+	ok( path + ' produces only one caption across its whole range', distinct > 1 );
+
+}
+
+line( '' );
+for ( const [ path, values ] of SILENT ) {
+
+	const distinct = new Set( values.map( ( v ) => D.describe( setAt( D.DESIGN_DEFAULTS, path, v ) ) ) ).size;
+	line( pad( path, 17 ) + pad( '-', 24 ) + pad( '-', 24 ) + pad( distinct, 9 ) + 'silent by design' );
+	ok( path + ' leaked into the caption; it is not a property of the chime', distinct === 1 );
+
+}
+
+line( '' );
+
+// LENGTH, measured rather than guessed. At 390x844 the caption box is 282 px
+// wide at 16 px/21.6 px, which is 40 characters a line and 40 px of headroom
+// per extra line before the pill row would have to move (it never moves: the
+// caption grows upwards into the scene, slots.css:71-75).
+//
+//    74 chars ->  2 lines, top 738   the shipped default
+//   115 chars ->  3 lines, top 718
+//   204 chars ->  5 lines, top 679, still ~100 px clear of the object
+//
+// Three gates, because "short" means different things for the three cases:
+//
+//   1. The default sentence is byte-identical to the one P3 shipped. Every word
+//      added below is a word a visitor asked for by moving something.
+//   2. A realistically customised chime - one control moved in each of the five
+//      pills - stays inside three lines.
+//   3. The pathological case, every one of the sixteen fields driven to a stop,
+//      stays inside five. It cannot be made to fit three: the fixed part of the
+//      sentence plus an overridden wind plus an overridden sun is already 117
+//      characters before a single part has been described. Capping the parts to
+//      fit would mean a control that changes nothing once a neighbouring control
+//      is already off stock, which is the defect this whole section exists to
+//      catch. Long is the honest price of eleven off-stock choices; silent is not.
+const EVERY_LIGHT = D.clampDesign( {
+	place: 'porch',
+	tubes: { scale: 'cMajorPentatonic', notes: 3, stock: 'Theta Twin Flame small' },
+	clapper: { width: 0.030, mass: 0.008, drop: 0.250 },
+	sail: { mass: 0.008, height: 0.070 },
+	voice: { attack: 0.0005, decay: 1.0, loudness: 0 },
+	wind: { mph: 0, dirDeg: 0, turbulence: 0.05 },
+	view: { sun: 2 }
+} );
+
+const EVERY_HEAVY = D.clampDesign( {
+	place: 'forest-path',
+	tubes: { scale: 'cWholeTone', notes: 8, stock: 'Corinthian Bells 78' },
+	clapper: { width: 0.100, mass: 0.090, drop: 0.620 },
+	sail: { mass: 0.090, height: 0.300 },
+	voice: { attack: 0.020, decay: 20, loudness: 1 },
+	wind: { mph: 60, dirDeg: 270, turbulence: 1.0 },
+	view: { sun: 74 }
+} );
+
+ok( 'the default caption is no longer the sentence P3 shipped',
+	CAPTION_BASE === 'Six-tube C major pentatonic, voiced on Theta Flower of Life, on the porch.',
+	CAPTION_BASE );
+
+// One control moved in each of the five pills, which is about as far as a
+// visitor gets before they reach for Share.
+const CUSTOMISED = D.clampDesign( D.mergeDesign( D.DESIGN_DEFAULTS, {
+	place: 'forest-path',
+	tubes: { notes: 8 },
+	clapper: { mass: 0.090 },
+	sail: { height: 0.300 }
+} ) );
+
+// The budgets are characters, not a modelled line count, because the wrap was
+// measured in the shipped page rather than estimated: at 390x844 the caption
+// reported 74 chars -> 2 lines, 115 -> 3, 204 -> 5. A word-wrapped line averages
+// a little under the 40 characters the box holds, so a character ceiling one
+// notch above each measured case is the honest gate.
+for ( const [ name, d, budget, measured ] of [
+	[ 'defaults', D.DESIGN_DEFAULTS, 80, '2 lines, measured' ],
+	[ 'one per pill', CUSTOMISED, 125, '3 lines, measured' ],
+	[ 'everything light', EVERY_LIGHT, 210, '5 lines, measured' ],
+	[ 'everything heavy', EVERY_HEAVY, 210, '5 lines' ]
+] ) {
+
+	const s = D.describe( d );
+	line( pad( name, 17 ) + pad( s.length + '/' + budget + ' chars', 15 ) + measured );
+	line( pad( '', 17 ) + s );
+	ok( 'the "' + name + '" caption is over its ' + budget + '-character budget at 390 px',
+		s.length <= budget, s.length + ' chars' );
+
+}
 
 // ---------------------------------------------------------------------------
 // 8. No drift against the files that actually own these numbers

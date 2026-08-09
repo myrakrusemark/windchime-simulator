@@ -375,20 +375,185 @@ export function placePhrase( id ) {
 
 }
 
+// ---------------------------------------------------------------------------
+// Traits: how a slider becomes a word.
+//
+// THE THRESHOLD RULE, once, for every continuous field: the MIDDLE HALF of the
+// slider's own travel is stock and gets no word; the outer quarters get one.
+// The edges are therefore the field's own quartiles, read straight off RANGES,
+// which section 7 of tools/verify-design.mjs asserts are still PART_LIMITS.
+// Nothing here is a hand-typed number, so widening a limit in physics.js moves
+// these thresholds with it instead of silently mis-describing the new range.
+//
+// Why quartiles and not thirds or halves. Three things had to be true at once:
+//
+//   1. Every shipped default lands in the silent middle. It does: 68 mm of
+//      30..100, 35 g of 8..90, 400 mm of 250..620, 32 g of 8..90, 150 mm of
+//      70..300, 8.0 s of 1..20, 0.50 of 0..1. Nothing is stock AND remarkable,
+//      so the default sentence is the one already on screen, unchanged.
+//   2. Either end of every slider clears its own edge, so every control can
+//      still move the sentence. Quartiles are the widest silent band for which
+//      that holds with these defaults; thirds would swallow the loudness slider
+//      at 0.50 -> 1.00 and halves would make a 70 mm striker "broad".
+//   3. The prompt's own case: 68 mm and 69 mm read the same (both inside
+//      47.5..82.5 mm), 68 mm and 95 mm do not (95 is past the upper quartile).
+//
+// A word appears only when the visitor has pushed a part off stock, which is
+// also why the sentence stays a sentence: at rest it names the tubes and the
+// place, and it grows only as there is something to say.
+// ---------------------------------------------------------------------------
+
+/** The quarter and three-quarter points of a field's own range. */
+function quartiles( key ) {
+
+	const r = RANGES[ key ];
+	const span = r[ 1 ] - r[ 0 ];
+	return [ r[ 0 ] + span * 0.25, r[ 0 ] + span * 0.75 ];
+
+}
+
+/**
+ * The same, on a log scale. Only voice.attack uses it: 0.5..20 ms is heard
+ * logarithmically, and the shipped 2 ms sits at the 8th percentile linearly but
+ * comfortably inside the middle half geometrically (1.26 .. 7.95 ms). Linear
+ * quartiles would call the default attack "bright" and then have nowhere to go
+ * when the visitor asks for brighter.
+ */
+function logQuartiles( key ) {
+
+	const r = RANGES[ key ];
+	const ratio = r[ 1 ] / r[ 0 ];
+	return [ r[ 0 ] * Math.pow( ratio, 0.25 ), r[ 0 ] * Math.pow( ratio, 0.75 ) ];
+
+}
+
+const EDGES = Object.freeze( {
+	clapperWidth: quartiles( 'clapper.width' ),    // 47.5 mm / 82.5 mm of 30..100
+	clapperMass: quartiles( 'clapper.mass' ),      // 28.5 g  / 69.5 g  of 8..90
+	clapperDrop: quartiles( 'clapper.drop' ),      // 342 mm  / 527 mm  of 250..620
+	sailMass: quartiles( 'sail.mass' ),            // 28.5 g  / 69.5 g  of 8..90
+	sailHeight: quartiles( 'sail.height' ),        // 127 mm  / 242 mm  of 70..300
+	attack: logQuartiles( 'voice.attack' ),        // 1.26 ms / 7.95 ms of 0.5..20
+	decay: quartiles( 'voice.decay' ),             // 5.75 s  / 15.25 s of 1..20
+	loudness: quartiles( 'voice.loudness' )        // 0.25    / 0.75
+} );
+
+/** '' in the stock middle, `low` below the first quartile, `high` above the third. */
+function trait( value, edges, low, high ) {
+
+	if ( value < edges[ 0 ] ) return low;
+	if ( value > edges[ 1 ] ) return high;
+	return '';
+
+}
+
+function nonEmpty( list ) {
+
+	const out = [];
+	for ( const w of list ) if ( w ) out.push( w );
+	return out;
+
+}
+
+/** ['a'] -> 'a'; ['a','b'] -> 'a and b'; ['a','b','c'] -> 'a, b and c'. */
+function andList( list ) {
+
+	if ( list.length < 2 ) return list.join( '' );
+	return list.slice( 0, - 1 ).join( ', ' ) + ' and ' + list[ list.length - 1 ];
+
+}
+
+// Wind, when the visitor has taken it off the place's own weather. All three
+// fields are null by default - null means "the place decides" - so at rest the
+// sentence says nothing about the air, which is both shorter and more honest
+// than naming a number nobody chose.
+//
+// Speed bands are Beaufort in mph, rounded: force 1/2 at 4, 3/4 at 13, 5/6 at
+// 25, 7/8 at 39. A wind chime maker and a sailor mean the same thing by "fresh".
+const WIND_SPEED_EDGES = Object.freeze( [ 4, 13, 25, 39 ] );
+const WIND_SPEED_WORDS = Object.freeze( [ 'faint', 'light', 'fresh', 'strong', 'hard' ] );
+
+// Gustiness has no outside authority, so it is plain thirds of its own range.
+const WIND_TURB_EDGES = Object.freeze( ( () => {
+
+	const r = RANGES[ 'wind.turbulence' ];
+	const span = r[ 1 ] - r[ 0 ];
+	return [ r[ 0 ] + span / 3, r[ 0 ] + span * 2 / 3 ];
+
+} )() );
+const WIND_TURB_WORDS = Object.freeze( [ 'steady', 'shifting', 'gusty' ] );
+
+// wind.js reads dirDeg as a FROM-bearing (wind.js:179), so 270 is a westerly.
+const WIND_FROM = Object.freeze( [
+	'northerly', 'north-easterly', 'easterly', 'south-easterly',
+	'southerly', 'south-westerly', 'westerly', 'north-westerly'
+] );
+
+// Sun elevation in degrees, thirds of scene.js's own 2..74. The place lights
+// itself until the visitor says otherwise, so null is silent here too.
+const SUN_EDGES = Object.freeze( ( () => {
+
+	const r = RANGES[ 'view.sun' ];
+	const span = r[ 1 ] - r[ 0 ];
+	return [ r[ 0 ] + span / 3, r[ 0 ] + span * 2 / 3 ];
+
+} )() );
+const SUN_WORDS = Object.freeze( [ 'a low sun', 'a slanting sun', 'a high sun' ] );
+
+function bandOf( value, edges ) {
+
+	let i = 0;
+	while ( i < edges.length && value >= edges[ i ] ) i ++;
+	return i;
+
+}
+
+function windPhrase( w ) {
+
+	if ( w.mph === null && w.dirDeg === null && w.turbulence === null ) return '';
+
+	const adj = [];
+	if ( w.mph !== null ) adj.push( WIND_SPEED_WORDS[ bandOf( w.mph, WIND_SPEED_EDGES ) ] );
+	if ( w.turbulence !== null ) adj.push( WIND_TURB_WORDS[ bandOf( w.turbulence, WIND_TURB_EDGES ) ] );
+
+	// A compass word is already a noun for a wind - "a gusty westerly" - so when
+	// a direction is set it replaces the head rather than adding to it.
+	const head = ( w.dirDeg !== null ) ? WIND_FROM[ Math.round( w.dirDeg / 45 ) % 8 ] : 'wind';
+	return 'a ' + adj.concat( head ).join( ' ' );
+
+}
+
 /**
  * "Six-tube C major pentatonic, voiced on Theta Flower of Life, on the porch."
  *
- * VOICED ON, not ON ... STOCK. The earlier wording read as a description of the
- * picture, and it was not one: physics.js hangs a single section unconditionally
- * (CONTRACTS H9), so swapping the stock moves every tube's cut length inside
- * audio.js and moves not one drawn cylinder. Probed side by side, `?c=v1` and
- * `?c=v1_st-cb78` differ by 43 percent in tube diameter in the snapshot and are
- * byte-identical in the geometry. "On Corinthian Bells 78 stock" claimed the
- * second one looked different. "Voiced on Corinthian Bells 78" says what is
- * true: it is a choice you hear.
+ * One sentence, and the single source of truth for the line under the object
+ * (P3) and the share text (P6). Nobody writes a second one.
  *
- * The stock has to stay IN the sentence - P3 pass criterion 3 requires every
- * control to change the caption - so the fix is the preposition, not a deletion.
+ * WHAT IT IS FOR. A stranger who drags a slider has to be able to see, in the
+ * sentence, that the thing they just touched is part of what they are making.
+ * That is the whole job, and it is why every one of the sixteen fields a panel
+ * exposes can move a word here. It is NOT for reading a setting back: the
+ * values are bucketed hard enough that nobody can reconstruct a slider from the
+ * words, and the middle half of every slider says nothing at all.
+ *
+ * WHAT IT MAY CLAIM. Only what is true of the object on screen and the sound
+ * coming out of it.
+ *
+ * - VOICED ON, not ON ... STOCK. physics.js hangs a single section
+ *   unconditionally (CONTRACTS H9), so swapping the stock moves every tube's cut
+ *   length inside audio.js and moves not one drawn cylinder. Probed side by
+ *   side, `?c=v1` and `?c=v1_st-cb78` differ by 43 percent in tube diameter in
+ *   the snapshot and are byte-identical in the geometry. "On Corinthian Bells 78
+ *   stock" claimed the second one looked different; "voiced on Corinthian Bells
+ *   78" says what is true, that it is a choice you hear. The same test applies
+ *   to every word added since: the striker and the sail are drawn, so they are
+ *   described as parts; attack, ring and loudness are audio.js only, so they sit
+ *   inside the "voiced" clause with the stock and never outside it.
+ * - The tube count and the scale are both drawn and heard, so they lead.
+ * - hang.u/v/scale and view.quality are deliberately absent. Hang is plate
+ *   framing (CONTRACTS Rule A) - it moves the backdrop, not the chime, and a
+ *   sentence claiming otherwise would be the exact lie H9 is about. Quality is a
+ *   renderer tier, not a property of the wind chime a stranger just made.
  *
  * @param {object} design any partial; it is clamped first, so this is total.
  * @param {object} [opts] { placeName } to override the place phrase once P4's
@@ -398,10 +563,48 @@ export function describe( design, opts ) {
 
 	const d = clampDesign( design );
 	const o = obj( opts );
+
 	const count = COUNT_WORDS[ d.tubes.notes ] || String( d.tubes.notes );
 	const scale = SCALE_NAMES[ d.tubes.scale ] || d.tubes.scale;
+
+	// The two parts you can watch swing. They hang on the same cord, the striker
+	// above the sail, so "over" is literal and not a flourish.
+	const strikerAdj = nonEmpty( [
+		trait( d.clapper.width, EDGES.clapperWidth, 'narrow', 'broad' ),
+		trait( d.clapper.mass, EDGES.clapperMass, 'light', 'heavy' )
+	] );
+	const hung = trait( d.clapper.drop, EDGES.clapperDrop, 'high', 'low' );
+	// No comma between the pair: "a broad heavy striker" is how it is said out
+	// loud, and the sentence is meant to be heard rather than parsed.
+	let striker = strikerAdj.length ? 'a ' + strikerAdj.join( ' ' ) + ' striker' : '';
+	if ( hung ) striker = ( striker || 'a striker' ) + ' hung ' + hung;
+
+	const sailAdj = nonEmpty( [
+		trait( d.sail.height, EDGES.sailHeight, 'small', 'big' ),
+		trait( d.sail.mass, EDGES.sailMass, 'light', 'heavy' )
+	] );
+	const sail = sailAdj.length ? 'a ' + sailAdj.join( ' ' ) + ' sail' : '';
+
+	let parts = '';
+	if ( striker && sail ) parts = ', ' + striker + ' over ' + sail;
+	else if ( striker ) parts = ', ' + striker;
+	else if ( sail ) parts = ', ' + sail;
+
+	// Everything audio.js owns, in one clause with the stock.
+	const voiceAdj = nonEmpty( [
+		trait( d.voice.attack, EDGES.attack, 'bright', 'soft' ),
+		trait( d.voice.decay, EDGES.decay, 'short', 'long' ),
+		trait( d.voice.loudness, EDGES.loudness, 'quiet', 'loud' )
+	] );
+	const voiced = voiceAdj.length ? 'voiced ' + andList( voiceAdj ) + ' on ' : 'voiced on ';
+
 	const where = ( typeof o.placeName === 'string' && o.placeName ) ? o.placeName : placePhrase( d.place );
-	return count + '-tube ' + scale + ', voiced on ' + d.tubes.stock + ', on ' + where + '.';
+	let tail = 'on ' + where;
+	const air = windPhrase( d.wind );
+	if ( air ) tail += ' in ' + air;
+	if ( d.view.sun !== null ) tail += ' under ' + SUN_WORDS[ bandOf( d.view.sun, SUN_EDGES ) ];
+
+	return count + '-tube ' + scale + parts + ', ' + voiced + d.tubes.stock + ', ' + tail + '.';
 
 }
 
