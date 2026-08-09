@@ -975,8 +975,28 @@ const designCtx = {
 	syncControlValues,
 	applyTier,
 	tierFor: ( quality ) => TIERS[ tierNameFor( quality ) ],
-	sunRange: () => [ sunLo, sunHi ],
-	defaultSun: () => ( stage && stage.sunElevation ? stage.sunElevation() : params.sunElevDeg ),
+	// Both of these are read LIVE off the stage now, because a place authors its
+	// own light and neither question has a boot-time answer any more.
+	//
+	// sunRange: sunLo/sunHi were sampled once, at boot, from the place the stage
+	// happened to start in. A place that narrows the range (forest-path pins the
+	// sun to a few degrees either side of the elevation its photograph was
+	// composed for) needs the clamp in apply.js to know that.
+	//
+	// defaultSun: "null means the place decides" had nothing able to decide.
+	// This returned stage.sunElevation(), which is the angle the visitor last
+	// dragged to -- so clearing view.sun back to null left the picture where it
+	// was while the URL went back to ?c=v1, and the canonical default share
+	// string stopped reproducing the frame on screen. The place's own authored
+	// elevation is the answer, and stage.place() already carries it.
+	sunRange: () => ( stage && stage.sunRange ? stage.sunRange() : [ sunLo, sunHi ] ),
+	defaultSun: () => {
+
+		const p = stage && stage.place ? stage.place() : null;
+		if ( p && p.sun && Number.isFinite( p.sun.elevDeg ) ) return p.sun.elevDeg;
+		return stage && stage.sunElevation ? stage.sunElevation() : params.sunElevDeg;
+
+	},
 	setWeather: ( mph, dirDeg ) => wind.setWeather( mph, dirDeg ),
 	// P4 adds setPlace to the stage object and P5 adds setFraming (CONTRACTS
 	// section 2.4). Routed through the stage so neither piece has to edit a line

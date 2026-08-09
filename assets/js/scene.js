@@ -686,11 +686,15 @@ export function createStage(opts) {
     // controls.target is not the aim any more -- nothing reads it as an aim once
     // the orbit is off. Two things DO read it, and both want it here:
     //
-    //   cameraDistance()  returns the frustum height for an ortho camera, which
-    //                     is the sole input to audio's distance gain (H14). It
-    //                     does not touch the target at all, so the level cannot
-    //                     step across a place switch as long as both places run
-    //                     the same frustum height -- which places.js enforces.
+    //   cameraDistance()  the sole input to audio's distance gain (H14). It does
+    //                     not read the target at all. It used to read the LIVE
+    //                     frustum height and the comment here used to claim that
+    //                     places.js kept both places on the same one; places.js
+    //                     did not and does not -- it authors 2.85 here and 2.60
+    //                     on the porch, and the level stepped 1.24 dB on every
+    //                     switch. cameraDistance() now reports the STYLE's own
+    //                     height, which is the same number in every place, so
+    //                     the invariant holds by construction.
     //   audio.setListener the strike panner projects (strike - target) onto the
     //                     camera's right vector, so only the target's LATERAL
     //                     position matters. Leaving it on the aim point keeps
@@ -1129,6 +1133,18 @@ export function createStage(opts) {
   // way to survive that is to stop asking it to run).
 
   let plate = null;
+  // WHERE THE VISITOR ASKED THE CHIME TO HANG, held here and not only inside the
+  // plate - because the plate is destroyed and rebuilt on every place switch and
+  // a design that survives a switch has to be able to put the picture back.
+  //
+  // The bug this closes was silent and total: a cold load of ?c=v1_hu-39_hs-75
+  // reported design().hang {u:0.39,...} while plate.limits().crop reported the
+  // untouched place default, and a forest -> porch -> forest round trip did the
+  // same to a hang the visitor had dragged. apply.js only calls setFraming when
+  // a hang FIELD CHANGES, so a place switch that resets the framing underneath
+  // an unchanged design can never repair itself, and the URL and the picture
+  // diverge with nothing to report. Remembering the ask is the whole fix.
+  let wantFraming = null;
   const placeErrors = [];
   let placeErrorSink = null;
 
@@ -1143,30 +1159,48 @@ export function createStage(opts) {
     plate = null;
   }
 
-  // The wind streamers are meadow furniture. windviz allocates them across a
-  // hard-coded volume 16 m across and 4.5 m tall (H16), which over a lawn reads
-  // as air moving and over a photograph reads as wires strung across it: 8 m
-  // streaks crossing the canopy, the path and the chime in one straight line.
-  // On a plate place the chime is the only thing in frame that moves, which is
-  // the amendment this piece makes to REQUIREMENTS.md, so they come off. The
-  // leaves stay - a leaf blowing past a photographed wood is the same leaf -
-  // and so does the telltale, which is part of the object.
+  // windviz is meadow furniture, and ALL THREE of its pieces are (H16). It
+  // allocates across a hard-coded volume 16 m across and 4.5 m tall, which over
+  // a lawn reads as air moving and over a photograph reads as things laid on
+  // top of it. Measured on the shipped frame, one at a time:
   //
-  // windviz builds lazily, so the mesh does not exist at the moment a place
+  //   wcs-streamers  8 m streaks crossing the canopy, the path and the chime in
+  //                  one straight line.
+  //   wcs-leaves     autumn tan and red lozenges, at full luminance, drifting
+  //                  in front of high-summer foliage that measures near black.
+  //                  The first cut kept them on the argument that "a leaf
+  //                  blowing past a photographed wood is the same leaf". It is
+  //                  not: this capture is green end to end and these are
+  //                  deciduous autumn colours at a depth the plate cannot hold.
+  //   wcs-telltale   a maroon blade jutting 130 px out of the top plate, the
+  //                  only saturated red in a green and grey frame. It is a
+  //                  reading of the wind rather than a part of the object, and
+  //                  on a place whose whole claim is "this is a photograph"
+  //                  it is the loudest thing in it.
+  //
+  // On a plate place the chime is the only thing in frame that moves - the
+  // amendment this piece makes to REQUIREMENTS.md - so all three come off.
+  //
+  // windviz builds lazily, so the meshes do not exist at the moment a place
   // goes up. This is polled from keepTopInShot, which is already a per-frame
-  // call in this piece's own region: a cached reference and one boolean once it
-  // is found, and one getObjectByName per second until it is.
-  let streamers = null;
-  let streamerProbe = 0;
+  // call in this piece's own region: cached references and one boolean once
+  // they are found, and one getObjectByName per second until they are.
+  const VIZ_OFF_ON_PLATE = ['wcs-streamers', 'wcs-leaves', 'wcs-telltale'];
+  const vizParts = [];
+  let vizProbe = 0;
   function syncVizForPlace() {
-    if (!streamers) {
-      if (streamerProbe-- > 0) return;
-      streamerProbe = 60;
-      streamers = scene.getObjectByName('wcs-streamers') || null;
-      if (!streamers) return;
+    if (vizParts.length < VIZ_OFF_ON_PLATE.length) {
+      if (vizProbe-- > 0) return;
+      vizProbe = 60;
+      vizParts.length = 0;
+      for (const n of VIZ_OFF_ON_PLATE) {
+        const o = scene.getObjectByName(n);
+        if (o) vizParts.push(o);
+      }
+      if (vizParts.length === 0) return;
     }
     const want = place.kind !== 'plate';
-    if (streamers.visible !== want) streamers.visible = want;
+    for (const o of vizParts) if (o.visible !== want) o.visible = want;
   }
 
   /**
@@ -1207,7 +1241,14 @@ export function createStage(opts) {
         container,
         maxAnisotropy: maxAniso,
         viewHeight: () => (S.ortho ? viewHeight / Math.max(camera.zoom, 1e-3) : viewHeight)
-      }, p, () => {
+      }, p, (tag) => {
+        // Not every failure inside the plate is a reason to leave the place.
+        // The limb the chime hangs from is built here too, and a place without
+        // its limb is worse than a place with one but far better than throwing
+        // the photograph away and landing the visitor on a lawn. Report and
+        // stay. Criterion 7 asks for EXACTLY ['place-asset-failed'] on a missing
+        // image, so the two tags have to be told apart here rather than merged.
+        if (tag && tag !== 'place-asset-failed') { notePlaceError(tag); return; }
         // The image 404'd or decoded badly. Land somewhere that works FIRST,
         // then say so -- in that order, because the listener's job is to make
         // the design admit where the visitor actually ended up, and a listener
@@ -1230,6 +1271,24 @@ export function createStage(opts) {
       if (Number.isFinite(p.sun.color)) sun.color.setHex(p.sun.color, THREE.SRGBColorSpace);
       if (Number.isFinite(p.sun.intensity)) sun.intensity = p.sun.intensity;
     }
+
+    // The FILL, which is the half of ARBITRATION 5's second defect that is not
+    // the dapple. A hemisphere light is the only lever this piece has on how the
+    // chime's metal is coloured: the tube materials belong to the synthesis half
+    // and CONTRACTS 2.1 puts every material definition off limits here. So the
+    // place hands the light its own bounce instead - the canopy's green from
+    // above and the path's warm grey from below, both sampled off the plate -
+    // and the object picks the wood up without one line of buildChime moving.
+    if (p.fill) {
+      if (Number.isFinite(p.fill.sky)) hemi.color.setHex(p.fill.sky, THREE.SRGBColorSpace);
+      if (Number.isFinite(p.fill.ground)) hemi.groundColor.setHex(p.fill.ground, THREE.SRGBColorSpace);
+      if (Number.isFinite(p.fill.intensity)) hemi.intensity = p.fill.intensity;
+    } else {
+      hemi.color.setHex(S.hemiSky, THREE.SRGBColorSpace);
+      hemi.groundColor.setHex(S.hemiGround, THREE.SRGBColorSpace);
+      hemi.intensity = S.hemiIntensity;
+    }
+
     if (p.shadow && p.shadow.halfExtent) {
       sun.shadow.camera.left = -p.shadow.halfExtent[0];
       sun.shadow.camera.right = p.shadow.halfExtent[0];
@@ -1237,6 +1296,12 @@ export function createStage(opts) {
       sun.shadow.camera.bottom = -p.shadow.halfExtent[1];
       sun.shadow.camera.updateProjectionMatrix();
     }
+    // r185 deprecated PCFSoftShadowMap and substitutes PCF, but PCF still scales
+    // its own taps by shadow.radius - so this is the one knob that softens an
+    // edge without changing the shadow map type out from under the other place.
+    // A photograph whose every shadow is a soft-edged band is not a place to put
+    // a 3 mm-per-texel hard edge.
+    sun.shadow.radius = (p.shadow && Number.isFinite(p.shadow.softness)) ? p.shadow.softness : 1;
 
     applyPlaceCamera(p);
     // Through applyFraming rather than straight to applyOrthoFrustum, because a
@@ -1245,7 +1310,14 @@ export function createStage(opts) {
     // to a procedural place, which a bare frustum update would not.
     if (S.ortho) applyFraming(aspectNow() < 1 / 1.05);
     else { camera.aspect = aspectNow(); camera.updateProjectionMatrix(); }
-    if (plate) plate.resize();
+    // The design's hang, put back on top of the place's default. plate.setFraming
+    // clamps to whatever the NEW place allows, so a hang carried in from a place
+    // with wider ranges lands legally rather than off the edge of the image.
+    if (plate && wantFraming) {
+      plate.setFraming(wantFraming.u, wantFraming.v, wantFraming.scale);
+    } else if (plate) {
+      plate.resize();
+    }
 
     // Last, because a PMREM bake is not free and setSunElevation only does one
     // if the angle actually moved by more than half a degree.
@@ -1806,12 +1878,11 @@ export function createStage(opts) {
   // === WCS:PLACE-CAMERA (2 of 2) ===
   // P4. The three rewriters from part 1, taught about a fixed place.
   //
-  // The FRUSTUM HEIGHT is not one of the things a fixed place gets to change.
-  // Both places run the style's 2.6 m landscape and 3.5 m portrait, because
-  // cameraDistance() returns exactly that number for an ortho camera and it is
-  // the sole input to audio's distance gain: give the forest a tighter frame
-  // and the chime gets quieter when the visitor changes place (H14). What a
-  // fixed place changes is where the camera stands, not how much it can see.
+  // A fixed place changes where the camera stands AND how much it can see: a
+  // photograph has one frame that works and the object has to fit in it. The
+  // reason that used to be forbidden was H14 -- audio's distance gain read the
+  // live frustum height, so a place with a different frame was a place with a
+  // different volume. cameraDistance() no longer reads it; see the note there.
 
   function aspectNow() {
     const w = Math.max(1, container.clientWidth || canvas.clientWidth || 1);
@@ -2095,11 +2166,23 @@ export function createStage(opts) {
   }
 
   function cameraDistance() {
+    // === WCS:PLACE-CAMERA (2 of 2, listener) ===
     // For an ortho camera the eye sits 40 m back and its distance is
     // meaningless; what "how big is the subject on screen" actually means here
     // is the frustum height, and that is what the audio panner wants.
-    if (S.ortho) return viewHeight / Math.max(camera.zoom, 1e-3);
+    //
+    // It is the STYLE's frustum height and not the live one, which is H14 made
+    // true by construction rather than by two places happening to agree. Before
+    // this, forest-path framed 3.00 m and porch 2.60, so audio.js's
+    // distGain = clamp(1.6/max(0.8,d), 0.35, 1.0) stepped 0.533 -> 0.615 - a
+    // measured 1.24 dB - the instant a visitor opened the Place panel and picked
+    // the other card, and again every time a phone was rotated. A place is
+    // allowed to frame whatever its picture needs; it is not allowed to change
+    // how loud the chime is by doing so. The visitor's own zoom still moves the
+    // level, because that one IS the subject getting bigger.
+    if (S.ortho) return S.viewHeight / Math.max(camera.zoom, 1e-3);
     return camera.position.distanceTo(controls.target);
+    // === /WCS:PLACE-CAMERA (2 of 2, listener) ===
   }
 
   function info() {
@@ -2180,7 +2263,21 @@ export function createStage(opts) {
     syncRig,
     flashTube,
     setSunElevation,
-    sunRange: () => [SUN_LO, SUN_HI],
+    // === WCS:PLACE-API (sun range) ===
+    // A PLACE may narrow the sun, and forest-path does. CONTRACTS 5.2 says
+    // sun.elevDeg is "authored, fixed. The visitor never sets it" - but the
+    // shipped page has a live slider on it and P6 puts its value in the URL, so
+    // "fixed" was a sentence in a document with nothing enforcing it. One drag
+    // from 68 to 27 lengthens the cast shadow by 1/tan, a factor of 4.9, throws
+    // it out of the bottom of the frame and washes the object out, and every
+    // point of that 48 degree range was one click from being shared. A place
+    // that is a photograph gets to say how much of the sky it can survive.
+    // P3's slider already reads this live and apply.js clamps a decoded su-NN
+    // into it, so the narrowing reaches the control and the URL for free.
+    sunRange: () => (place.sun && Array.isArray(place.sun.range)
+      ? [Math.max(SUN_LO, place.sun.range[0]), Math.min(SUN_HI, place.sun.range[1])]
+      : [SUN_LO, SUN_HI]),
+    // === /WCS:PLACE-API (sun range) ===
     sunElevation: () => currentSunElev,
     palette: S,
     style: S.name,
@@ -2206,6 +2303,14 @@ export function createStage(opts) {
       // to move and the world has a real size, so it is a no-op by construction
       // rather than by a special case -- which is also why porch's hang ranges
       // are degenerate.
+      //
+      // The ask is remembered EVEN WHEN THERE IS NO PLATE TO APPLY IT TO, which
+      // is what makes a hang set on the porch survive a switch to the forest.
+      const w = wantFraming || { u: place.hang.default.u, v: place.hang.default.v, scale: place.hang.default.scale };
+      if (Number.isFinite(u)) w.u = u;
+      if (Number.isFinite(v)) w.v = v;
+      if (Number.isFinite(scale)) w.scale = scale;
+      wantFraming = w;
       if (plate) plate.setFraming(u, v, scale);
     },
     get plate() { return plate; },

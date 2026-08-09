@@ -25,38 +25,121 @@
  * which is the sole input to audio's distance gain.
  *
  *
- * WHY THE TWO PLACES REPORT SLIGHTLY DIFFERENT CAMERA DISTANCES (H14)
+ * THE FRAME, SOLVED RATHER THAN PICKED (and H14 with it)
  *
- * `stage.cameraDistance()` returns the ORTHOGRAPHIC FRUSTUM HEIGHT in metres,
- * and audio.js turns it into `distGain = clamp(1.6 / max(0.8, d), 0.35, 1.0)`.
- * The porch frames 2.60 m; the forest path frames 3.00 m, so the chime is 15 %
- * smaller there and 1.2 dB quieter. That is the model working rather than
- * failing: distance gain exists to say how big the object is on screen, and in
- * the forest it IS smaller. The page already moves further than this when a
- * phone is rotated - the porch's own portrait frame is 3.50 m, which is 2.6 dB.
+ * Four things have to be inside one orthographic frame at once, and only one
+ * set of numbers holds all four. Writing the arithmetic down because the first
+ * cut of this place got it wrong in a way a screenshot showed and a comment did
+ * not.
  *
- * What H14 actually warns about is the UNITS changing, because cameraDistance()
- * returns a frustum height for an orthographic camera and an eye distance for a
- * perspective one. Both places here are orthographic, so both numbers are
- * metres of frame and the comparison is honest.
+ * The camera looks from bearing 180 at 14 degrees down, so a world point P
+ * lands at screen height h = 0.9703*(Py - Ty) - 0.2419*Pz above the middle of
+ * the frame, where Ty is the aim height. The frame is viewHeight tall, so
+ * everything has to sit inside +-viewHeight/2.
  *
- * The 3.00 m frame is not taste either. The chime stands 2.05 m from the ground
- * to the top plate, the frame has to hold the object AND the ground its shadow
- * lands on AND a sliver of cord above it, and the page's own caption and pill
- * row cover the bottom sixth. At 2.60 m the cast shadow lands underneath the
- * caption; at 3.00 m it lands clear of it. Measured, not guessed.
+ *   the hook          (0, 2.60, 0)     h = 0.9703*(2.60 - Ty)
+ *   the limb over it  its own radius above that, plus room to read as a limb
+ *   the object        1.08 m of plate, tubes and sail, centred near y = 1.50
+ *   the shadow's tip  the top plate's shadow at a 68 degree sun reaches
+ *                     z = +0.73 toward the camera, so h = -0.9703*Ty - 0.177
+ *
+ * And a fifth thing, which is not world at all: the page's own caption and pill
+ * row are opaque and cover the bottom 11 % of the frame - measured, 802 to 880
+ * of 900 at 1440x900 - so the usable bottom edge is -0.391*viewHeight, not
+ * -0.5*viewHeight. A cast shadow behind the pill row is a cast shadow no critic
+ * can judge, and criterion 5 asks one to.
+ *
+ * Solving the two together:
+ *
+ *     0.9703*Ty + 0.177          <= 0.391*V     the shadow tip clears the chrome
+ *     0.9703*(2.69 - Ty) + 0.02  <= 0.500*V     the limb's top clears the frame
+ *     ------------------------------------------------------------------
+ *     V >= 3.16
+ *
+ * viewHeight 3.20 with Ty 1.078 is that, with a little slack. Measured on the
+ * built page rather than predicted: the object is 35.4 % of the frame's height
+ * at 1440x900 and 36.4 % at 390x844, and its centre sits 37.1 % and 38.5 % of
+ * the way down. The bar's own watch is 39.8 % and 41.7 %. The frame that came
+ * before this one measured 36.0 % / 32.1 % and 27.9 % / 37.0 % - so this is a
+ * fifth of a point of height given up at desktop, five points gained at phone,
+ * and the object finally owns the middle at both.
+ *
+ * There is no slack in the other direction: a taller frame shrinks the object,
+ * a shorter one loses either the shadow or the thing the chime hangs from. 3.16
+ * is a floor, not a preference.
+ *
+ * H14, and the shipped comment that used to be wrong about it: the two places
+ * frame different amounts of world (3.20 m here, 2.60 on the porch), so the
+ * frustum height CANNOT be what audio's distance gain reads or the chime would
+ * change level the instant a visitor picks the other card. scene.js's
+ * cameraDistance() now reports the STYLE's own frame height, which both places
+ * share by construction, so the level is flat across a place switch and across
+ * a phone being rotated. verify-place.mjs asserts it.
  *
  *
  * HOW THE PLATE'S WORLD SIZE IS USED
  *
  * `backdrop.world` is how many metres of world the image spans AT THE CHIME'S
  * DEPTH: 7.00 m across by 4.90 m tall. The visible frame is the camera's own
- * 3.00 m frustum, so at a 16:10 viewport the page shows 3.0 x 1.6 / 7.0 = 69 %
- * of the plate's width and 3.0 / 4.9 = 61 % of its height. The rest is the
+ * 3.20 m frustum, so at a 16:10 viewport the page shows 3.20 x 1.6 / 7.0 = 73 %
+ * of the plate's width and 3.20 / 4.9 = 65 % of its height. The rest is the
  * margin `hang` pans and zooms inside. Because the mapping is world-locked
  * rather than a CSS-style cover fit, a wider window shows more forest at the
  * same scale instead of magnifying it - the trees never change size relative to
  * the chime, whatever the window does.
+ *
+ *
+ * ARBITRATION 5's AUTHORED CAMERA, AND WHY THIS IS NOT IT
+ *
+ * ARBITRATION.md section 5 fixes a camera Myra flew herself:
+ *
+ *     eye 0.85, 1.02, 0.55    look 0.96, 0.39, -5.92    fov 52
+ *
+ * Resolved, that is a bearing of 181.0 degrees, an eye 1.02 m off the ground,
+ * an aim 6.50 m away and 5.56 degrees below the horizon. It is a beautiful
+ * frame and it was flown, rendered and looked at before this was written -
+ * .gauntlet-bar/arb5-camera.jpg is that exact frame, and the second image
+ * beside it is the same frame with metre-ticked poles standing on the path at
+ * 2, 3 and 4.5 m so the arithmetic below can be read off a picture rather than
+ * taken on trust.
+ *
+ * It cannot hold a wind chime, and the reason is geometry rather than taste.
+ * The chime hangs from a hook at 2.60 m and throws its shadow on the ground at
+ * 0 m, so any frame that contains both spans 2.60 m of world height before the
+ * shadow's own reach is counted. From an eye at 1.02 m looking 5.56 degrees
+ * DOWN, the frame's top edge at the depth that makes the object big enough to
+ * be the subject sits at world y = 2.22 - the hook is 0.38 m above the picture,
+ * which is precisely the cord-into-open-air defect section 5 was written to
+ * stop. Pushing the chime far enough down the path for the hook to come into
+ * shot puts it at 4.5 m, where the poles measure it at 16 % of the frame -
+ * less than half the bar's watch. The two requirements pull opposite ways and
+ * her camera cannot satisfy both.
+ *
+ * Section 5 says what to do about exactly this: "If this camera does not
+ * contain one, find the nearest one that does and say so." So, saying so:
+ *
+ *   BEARING     181.0 authored, 180 shipped. A one-degree change, kept.
+ *   FIELD       fov 52 authored. The plate ships from a 54.65 degree
+ *               perspective frustum whose CENTRE crop is what the runtime
+ *               shows, which is a 33 degree horizontal window on it - the
+ *               capture is seen through a longer lens than she flew, because
+ *               a 52 degree frame at this eye height is mostly near foliage.
+ *   ELEVATION   5.56 degrees down authored, 14 shipped. This is the real
+ *               deviation and it is the one the composite forces: at 5.56 the
+ *               path underneath the object leaves the frame, and with it every
+ *               pixel the cast shadow could land on.
+ *   EYE HEIGHT  1.02 m authored, 2.31 m shipped, which is the height a 14
+ *               degree look from 5.5 m implies. Not a walker's eye; a walker's
+ *               eye holding a camera above their head. The Place card used to
+ *               claim the first and now says the second.
+ *
+ * And the defect underneath the camera question, which no camera in this
+ * capture fixes: THERE IS NO LIMB OVER THE PATH AT 2.6 m. The author's own
+ * note is that only one direction was captured; the canopy that arches over
+ * the path is 6 to 10 m away, where a chime is a smudge, and the near
+ * vegetation is bank growth at the frame's edges. So the place brings its own:
+ * `hanger` below is a real limb at the hook's height, lit by this place's sun,
+ * casting into the same catcher as the chime. The cord ends on geometry.
  *
  *
  * THE ONE HONEST MISMATCH IN forest-path
@@ -93,8 +176,12 @@ export const PLACES = Object.freeze( {
 		id: 'forest-path',
 		name: 'Forest path',
 		kind: 'plate',
-		// One line, in the page's own voice, for the Place panel.
-		blurb: 'A cut through summer woodland, shot down the path at a walker’s eye height.',
+		// One line, in the page's own voice, for the Place panel. It says "above"
+		// because the plate camera stands at 2.31 m and looks 14 degrees down -
+		// see the ARBITRATION 5 note at the top of this file. A card that claims
+		// a walker's eye height while the picture is shot from over their head is
+		// a small lie in the one sentence a stranger reads about the place.
+		blurb: 'A cut through summer woodland, looking down the path from just above head height.',
 
 		backdrop: Object.freeze( {
 			src: 'assets/places/forest-path/plate.webp',
@@ -105,7 +192,16 @@ export const PLACES = Object.freeze( {
 			// Where the default frame's centre sits in the image, 0 = left / top.
 			// This is the design's own default hang, so a cold load shows exactly
 			// the frame the plate was composed for.
-			anchor: Object.freeze( [ 0.50, 0.42 ] ),
+			//
+			// 0.40, not the 0.42 the plate was rendered around: the frame was
+			// raised 0.098 m and widened to 3.20 m so the hook at 2.60 m and the
+			// limb over it come into shot. The plate itself did not have to move -
+			// it spans world y from -1.86 to +3.04 and the frame (-0.57 .. +2.73)
+			// is still inside it, which is why there is no re-render here.
+			// v = (3.038 - Ty) / 4.9 with Ty = 1.078. The camera target and this
+			// number are ONE FACT WRITTEN TWICE and have to move together, so
+			// tools/verify-place.mjs fails the day they drift.
+			anchor: Object.freeze( [ 0.50, 0.40 ] ),
 			// What the page paints while the image is still arriving, and behind
 			// it forever after. Sampled from the plate's own deep shade, so the
 			// first frame is already the right colour rather than a white flash.
@@ -126,27 +222,136 @@ export const PLACES = Object.freeze( {
 		// 7 degree disagreement, well inside the 25 the criterion allows. The
 		// number is recorded here so verify-place.mjs can fail the day the style
 		// moves and nobody notices the shadows stopped agreeing.
+		// Honest about which of these is measured and which is authored, because
+		// the first version of this block was not and a critic was right to say
+		// so. AZIMUTH IS MEASURED: the capture's own shadows run down and to the
+		// left across the path on a bearing of about 35 degrees, and storybook
+		// casts from 28 - a 7 degree disagreement, well inside the 25 the
+		// criterion allows. ELEVATION IS AUTHORED, NOT MEASURED. Nothing in this
+		// capture is a legible single shadow off a known height: it is broken
+		// canopy light end to end, hot patches a hand's width from deep shade,
+		// and the one candidate reference - the stump - has no crisp shadow to
+		// measure. 68 degrees is the number the frame forces (see the frame
+		// arithmetic at the top: a lower sun walks the cast shadow out of the
+		// bottom edge, at 1/tan, so 27 degrees is 4.9 times the reach of 68).
+		// It is written here as a choice rather than dressed up as a measurement.
 		sun: Object.freeze( {
 			elevDeg: 68,
 			azDeg: 28,
 			color: 0xfff4de,
+			intensity: 1.62,
+			// CONTRACTS 5.2 says sun.elevDeg is authored and fixed and the visitor
+			// never sets it, but the shipped page has a live sun slider that P3
+			// bound to the design and P6 puts in the URL - so "fixed" had to be
+			// enforced somewhere or one drag produced a shareable link to a
+			// picture this photograph cannot support. A place authoring its own
+			// range is the seam CONTRACTS 6/P4 hands us: scene.js sunRange()
+			// returns this, P3's slider reads it live, and apply.js clamps a
+			// decoded ?c=..._su-27 into it. Wide enough to see the shading move,
+			// narrow enough that the cast shadow stays in frame at both ends.
+			range: Object.freeze( [ 63, 74 ] )
+		} ),
+
+		// The place's own bounce, sampled off the plate. This is the other half
+		// of ARBITRATION 5's second defect: with a hemisphere light carrying the
+		// scene's authored porch colours, nothing about this wood reached the
+		// metal and the tubes read as an object photographed somewhere else.
+		// `sky` is the canopy-filtered green that falls on everything here from
+		// above; `ground` is the path's own warm grey bounce. Sampled from
+		// plate.webp, not invented: the foliage band means (87,103,66) and the
+		// lit path (150,144,128).
+		fill: Object.freeze( {
+			sky: 0xbcd3a0,
+			ground: 0xa89e8c,
 			intensity: 1.55
 		} ),
 
 		// A plate has no geometry to receive a shadow, so the place brings its
-		// own: an invisible plane at the height of the path (H18). 68 degrees of
-		// elevation is chosen as much for framing as for daylight - the sun is
-		// behind the subject and to its right, so the shadow falls toward the
-		// camera and to the left, and a lower sun throws it out of the bottom of
-		// the frame entirely.
+		// own: an invisible plane at the height of the path (H18).
 		shadow: Object.freeze( {
 			catcher: true,
 			y: 0.0,
-			// Read off the shipped plate rather than picked: at 0.55 the tube
-			// shadows disappeared into the path's own dappling, and a shadow a
-			// critic cannot see on a screenshot is a shadow that is not there.
-			opacity: 0.68,
-			halfExtent: Object.freeze( [ 3.4, 2.8 ] )
+			// 0.32, near CONTRACTS 5.2's authored 0.34 and half what this place
+			// first shipped. At 0.68 the catcher was not darkening the gravel, it
+			// was painting over it: measured, the path's pixel-to-pixel standard
+			// deviation fell from 21.1 to 7.1 inside the footprint and the
+			// darkest pixel reached luminance 5.7 on a plate that reads 78.7
+			// there. A shadow multiplies a surface; it does not replace it.
+			opacity: 0.38,
+			// Multiplier on the shadow map's PCF radius. The plate's own shadows
+			// are soft-edged bands with the gravel fully visible through them,
+			// and a 3 mm-per-texel hard edge next to them is the tell.
+			softness: 7.0,
+			// How far the catcher is allowed to darken a pixel that is ALREADY in
+			// shade in the photograph, 0 = not at all. The capture's path is half
+			// sunlit and half canopy shadow, and a hard sun shadow landing on
+			// ground receiving no direct sun is the second thing a critic sees.
+			// The catcher samples the plate underneath itself and fades out where
+			// the photograph is already dark; this is the floor it fades to.
+			shadeFloor: 0.12,
+			// Plate luminance, 0..1, at which the ground counts as fully sunlit.
+			litAt: 0.52,
+			// Bigger than the porch's, for two reasons: the limb is 5.2 m long and
+			// its shadow has to land inside the frustum, and a wider frustum means
+			// bigger texels, which is free softness.
+			halfExtent: Object.freeze( [ 4.6, 3.6 ] )
+		} ),
+
+		// WHAT THE CHIME HANGS FROM (ARBITRATION 5, defect 1).
+		//
+		// The capture does not contain a limb over the path at hook height and
+		// no camera in it does - the reasoning is at the top of this file. So the
+		// place carries one. It is a real mesh at the hook's own height, lit by
+		// the sun above and casting into the catcher below, which is also what
+		// puts something other than six tubes into the shadow on the path.
+		//
+		// The leaf clusters are not decoration. They sit UP-SUN of the object -
+		// at 68 degrees elevation and a 28 degree bearing a shadow travels
+		// (-0.19, +0.36) per metre of drop, so a leaf 1.4 m above a tube has to
+		// be 0.27 m to its +x and 0.50 m to its -z to fall across it. That is
+		// where they are, which is why most of them are above the top edge of
+		// the frame and their shade is not.
+		hanger: Object.freeze( {
+			// Axis height. The hook is at physics.js HOOK_Y = 2.60 and the limb's
+			// underside has to meet it, so this is 2.60 + radius.
+			y: 2.650,
+			z: - 0.06,
+			radius: 0.045,
+			taper: 0.42,
+			length: 6.2,
+			tiltDeg: - 4.0,
+			// Bark in this wood is a cool near-black brown; the capture's own
+			// trunks sample around (44,41,34) in the shade and (96,88,74) where
+			// the light reaches them.
+			color: 0x453d31,
+			roughness: 0.96,
+			// The iron eye the cord actually passes through, so the terminus is a
+			// thing and not just a coincidence of two meshes touching.
+			eye: Object.freeze( { radius: 0.030, tube: 0.0055, color: 0x2e2b27 } ),
+			// Two clusters, two jobs. See the note in plate.js.
+			leaves: Object.freeze( [
+				// SHADE. Up-sun and above the frame's top edge, so it is never in
+				// the picture and its whole output is the broken light it throws
+				// down the tubes and across the path.
+				Object.freeze( {
+					count: 12,
+					size: 0.34,
+					color: 0x445c2c,
+					at: Object.freeze( [ 0.32, 0.62, - 0.58 ] ),
+					spread: Object.freeze( [ 1.45, 0.22, 0.70 ] )
+				} ),
+				// SPRAY. On the limb, inside the frame, off to the chime's left so
+				// it never crosses the object. This one is seen and casts almost
+				// nothing; it is there because a bare swept tube across the top of
+				// a photograph reads as a scaffold pole however well it tapers.
+				Object.freeze( {
+					count: 22,
+					size: 0.21,
+					color: 0x445c2c,
+					at: Object.freeze( [ - 0.95, - 0.10, 0.16 ] ),
+					spread: Object.freeze( [ 0.52, 0.22, 0.26 ] )
+				} )
+			] )
 		} ),
 
 		// Fixed, because the capture is one direction only - the author's own
@@ -158,35 +363,53 @@ export const PLACES = Object.freeze( {
 			azDeg: 180,
 			elevDeg: 14,
 			eye: Object.freeze( [ 0, 0.24192, 0.97030 ] ),
-			target: Object.freeze( [ 0, 0.98, 0 ] ),
-			viewHeight: 3.00,
-			viewHeightPortrait: 4.00,
+			// Raised 0.30 m from the 0.98 the plate was rendered around, which is
+			// what brings the hook and the limb into the picture. The plate's crop
+			// centre (backdrop.anchor and hang.default.v) moved with it, by the
+			// same 0.30 m expressed as 0.0612 of the plate's 4.9 m height, so the
+			// photograph and the object still agree about where the ground is.
+			target: Object.freeze( [ 0, 1.078, 0 ] ),
+			// Solved, not picked. The arithmetic is at the top of this file: 3.16
+			// is the smallest frame that holds the limb, the object and the tip of
+			// its shadow CLEAR OF THE PAGE'S OWN CHROME, and the smallest frame is
+			// the one that makes the object biggest. 3.20 is that with a little
+			// slack. Portrait gets 0.10 m more because a phone's caption wraps to
+			// three lines and the pill row is taller.
+			viewHeight: 3.20,
+			viewHeightPortrait: 3.30,
 			fov: null,
 			orbit: null
 		} ),
 
-		// The ranges are derived, not taste. The visible crop is 3.0 x aspect
-		// metres of a 7.0 m plate across and 3.0 of a 4.9 m plate down, so its
-		// centre can travel to within half of that of either edge. The widest
-		// aspect they are authored to survive is 16:9, where the crop is 77 % of
-		// the plate's width and u can reach 0.381 - hence 0.39, not the 0.35 a
-		// 16:10 window would allow. Vertically the crop does not depend on the
-		// aspect at all, so 0.32 holds everywhere in landscape.
+		// The ranges are derived, not taste, and they are an AMENDMENT to
+		// CONTRACTS 5.4 rather than a quiet deviation from it. 5.4 authored
+		// u [0.28,0.72], v [0.18,0.58] and scale [0.75,1.45] before the plate
+		// existed; here is the arithmetic that says what is actually reachable,
+		// and P5's criterion 3 has to be read against 1.30 rather than 1.45.
 		//
-		// Wider than 16:9 the margin runs out and the pan pins toward the middle.
-		// plate.js re-derives all of this live against the real viewport, clamps
-		// to whichever is tighter, and reports the result through limits() so the
-		// hang control can show what is actually reachable rather than the
+		// The visible crop is viewHeight x aspect metres of a 7.0 m plate across
+		// and viewHeight of a 4.9 m plate down, so its centre can travel to
+		// within half of that of either edge. At 16:9 the crop is 72 % of the
+		// plate's width and u can reach 0.406; at 16:10, 0.366. 0.41 is the one
+		// that survives both, and it is what verify-place.mjs holds this file to
+		// at every viewport up to 1.8. 0.09 of the plate is 0.63 m of travel,
+		// which is a quarter of the frame's width - the chime slides from the
+		// middle of the path to the bank beside it. Down, the crop is 65 % of the plate's
+		// height whatever the aspect, so v can reach 0.327 - and the frame was
+		// raised to bring the limb into shot, so the default at 0.40 has 0.073 of
+		// plate above it against 0.27 below. The range is asymmetric because the
+		// picture is.
+		//
+		// Wider than about 21:9 the margin runs out and the pan pins toward the
+		// middle. plate.js re-derives all of this live against the real viewport,
+		// clamps to whichever is tighter, and reports the result through limits()
+		// so the hang control can show what is actually reachable rather than the
 		// authored ideal. A narrow window has less room; it never shows an edge.
-		//
-		// Small numbers, large movement: 0.11 of the plate at a crop of 0.69 is
-		// 16 % of the frame's width, which slides the chime most of the way from
-		// the middle of the path to the bank beside it.
 		hang: Object.freeze( {
-			uRange: Object.freeze( [ 0.39, 0.61 ] ),
-			vRange: Object.freeze( [ 0.32, 0.68 ] ),
+			uRange: Object.freeze( [ 0.41, 0.59 ] ),
+			vRange: Object.freeze( [ 0.33, 0.56 ] ),
 			scaleRange: Object.freeze( [ 0.75, 1.30 ] ),
-			default: Object.freeze( { u: 0.50, v: 0.42, scale: 1.00 } )
+			default: Object.freeze( { u: 0.50, v: 0.40, scale: 1.00 } )
 		} ),
 
 		wind: Object.freeze( { mph: 9, dirDeg: 245, turbulence: 0.34 } ),
@@ -242,8 +465,16 @@ export const PLACES = Object.freeze( {
 			elevDeg: 52,
 			azDeg: 28,
 			color: 0xfff4de,
-			intensity: 1.55
+			intensity: 1.55,
+			// null means "whatever the style's own SUN_LO..SUN_HI is". A built
+			// world can take any light; it is the photograph that cannot.
+			range: null
 		} ),
+
+		// null means "the style's own hemisphere colours", which are this scene's
+		// authored porch light. A place only overrides the bounce when it has a
+		// photograph to sample it from.
+		fill: null,
 
 		// The ground plane is the shadow receiver here, and it is already in the
 		// scene. A second catcher on top of it would double every shadow.
@@ -251,8 +482,16 @@ export const PLACES = Object.freeze( {
 			catcher: false,
 			y: 0.0,
 			opacity: 0,
+			softness: 1.0,
+			shadeFloor: 1.0,
+			litAt: 0,
 			halfExtent: Object.freeze( [ 3.4, 2.8 ] )
 		} ),
+
+		// Nothing to add: the porch already ships a beam, a post and an iron hook
+		// and the chime hangs off them. This field exists so a plate place is not
+		// a special case at the call site.
+		hanger: null,
 
 		// Today's numbers, unchanged. This is the only place with a live orbit.
 		camera: Object.freeze( {

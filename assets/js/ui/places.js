@@ -117,6 +117,72 @@ function build( wcs, note ) {
 
 	}
 
+	// -----------------------------------------------------------------------
+	// THE SHARED LINK, PUT BACK ON TOP OF THE PLACE.
+	//
+	// WCS:DESIGN-BOOT decodes ?c= and applies it BEFORE createStage runs, which
+	// is what makes the first frame the shared chime with no network. The cost
+	// is that every field whose only consumer is the stage was applied into a
+	// stage that did not exist yet, and then overwritten by the place going up.
+	// Two of them, both measured on a cold load before this was written:
+	//
+	//   view.sun   ?c=v1_su-30 came back with design().view.sun === 30 and
+	//              stage.sunElevation() === 68. apply.js clamped 30 against a
+	//              range that was still the sky-place [2,20] because no stage had
+	//              answered yet, and then main.js:349 wrote the stage's own angle
+	//              straight back over params (H12, named against this piece).
+	//   hang       ?c=v1_hu-39_hs-75 came back with the design saying 0.39/0.75
+	//              and plate.limits().crop reporting the untouched place default,
+	//              because apply.js only calls setFraming when a hang field
+	//              CHANGES and the first apply had no plate to change.
+	//
+	// This is the first moment all three exist at once - stage, plate and decoded
+	// design - so this is where they are reconciled. applyDesign({}) is not a
+	// no-op: it re-runs the sun clamp against the live place unconditionally.
+	// The hang goes straight to the stage because applyDesign would compare it
+	// against itself and skip.
+	// -----------------------------------------------------------------------
+
+	try {
+
+		if ( typeof api.applyDesign === 'function' ) api.applyDesign( {} );
+
+		const d = typeof api.design === 'function' ? api.design() : null;
+		if ( d && d.hang && stage && typeof stage.setFraming === 'function' ) {
+
+			stage.setFraming( d.hang.u, d.hang.v, d.hang.scale );
+
+		}
+
+		// And the sun written back at the angle the PLACE actually accepted.
+		// design.js clamps view.sun to the structural 2..74 because it may not
+		// import places.js; the place's own range is narrower, so a link asking
+		// for 30 on the forest path renders at 63. Leaving the design on 30 means
+		// design() and the picture disagree and Share hands out a number this
+		// place will never draw. Canonicalising here costs one apply at boot and
+		// makes the URL a description of what is on screen.
+		// The range rather than the live elevation, because the live elevation is
+		// one frame behind: frame() pushes params.sunElevDeg through
+		// setSunElevation, so reading it back on the line after an apply reports
+		// the angle that was up before the apply.
+		if ( d && d.view && d.view.sun !== null && stage && typeof stage.sunRange === 'function' ) {
+
+			const r = stage.sunRange();
+			if ( Array.isArray( r ) && r.length === 2 ) {
+
+				const c = Math.min( Math.max( d.view.sun, r[ 0 ] ), r[ 1 ] );
+				if ( c !== d.view.sun ) api.applyDesign( { view: { sun: c } } );
+
+			}
+
+		}
+
+	} catch ( err ) {
+
+		note( 'places-boot-design-failed', err );
+
+	}
+
 	if ( ! host ) return null;
 
 	// -----------------------------------------------------------------------

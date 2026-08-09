@@ -49,6 +49,25 @@
     "note": "The frustum is off centre vertically: the full plate spans 7.00 x 4.90 m at the target's depth with the camera axis at (0.50, 0.42) of it, so the default frame - 3.00 m tall by 1.6 aspect - is exactly the crop the runtime shows at hang (0.50, 0.42, 1.00). Rendered with camera.setViewOffset on one symmetric frustum, so the plate and the framing cannot drift apart."
   },
 
+  "arbitration5": {
+    "_": "ARBITRATION.md section 5 fixes an authored camera for this place, flown and picked by Myra in the live viewer, and says: use it, and if this camera does not contain a limb the cord can end at, find the nearest one that does AND SAY SO. This block is the saying so. The full reasoning, with the arithmetic, is in the header of assets/js/places.js.",
+    "authored": { "eye": [0.85, 1.02, 0.55], "look": [0.96, 0.39, -5.92], "fovDeg": 52 },
+    "authoredResolved": { "bearingDeg": 181.0, "elevationDeg": -5.56, "eyeHeightM": 1.02, "aimHeightM": 0.39, "distanceM": 6.5015 },
+    "shipped": { "bearingDeg": 180, "elevationDeg": -14, "eyeHeightM": 2.311, "aimHeightM": 0.98, "distanceM": 5.5, "fovYDeg": 54.6533 },
+    "flown": "The authored camera was rendered from this capture before the deviation was decided. .gauntlet-bar/arb5-camera.jpg is that frame; .gauntlet-bar/arb5-camera-poles.jpg is the same frame with metre-ticked poles standing on the path at 2.0, 3.0 and 4.5 m so the numbers below can be read off a picture.",
+    "whyNotUsed": "A frame that holds this chime has to hold its hook at 2.60 m and the ground its shadow lands on at 0 m. From an eye at 1.02 m looking 5.56 degrees down, the frame's top edge at the depth that makes the object big enough to be the subject sits at world y = 2.22 -- the hook is 0.38 m above the picture, which is the cord-into-open-air defect section 5 was written to stop. Moving the chime far enough down the path for the hook to come into shot puts it at 4.5 m, where the poles measure it at 16 percent of the frame, less than half the bar's watch. The two requirements pull opposite ways from a 1 m eye. The shipped camera is the nearest one that holds both: same bearing to a degree, 8.4 degrees more downward pitch, 1.29 m higher.",
+    "noLimbInThisCapture": "Separately, and not fixed by any camera: there is no limb over the path at 2.6 m anywhere in this capture. The author's own note is that only one direction was captured. The canopy that arches over the path is 6 to 10 m away, where a chime is a smudge; the near vegetation is bank growth at the frame's edges. So the place models its own -- places.js `hanger`, built by plate.js, lit by this place's sun and casting into the same shadow catcher as the chime. The cord ends on geometry, not at the top edge of the picture."
+  },
+
+  "runtimeFrame": {
+    "_": "The runtime does NOT show the plate's full frame: it crops it. These are the numbers that decide the crop, and they have to agree with camera.target and anchor above or the photograph's ground and the object's ground part company. tools/verify-place.mjs asserts the agreement.",
+    "cameraTargetY": 1.078,
+    "cropCentreV": 0.40,
+    "viewHeightM": 3.20,
+    "viewHeightPortraitM": 3.30,
+    "note": "The frame was raised 0.098 m and widened from 3.00 m relative to the first cut, which is what brings the hook and the limb into shot while keeping the cast shadow clear of the page's own caption and pill row. The plate did not need re-rendering: it spans world y from -1.86 to +3.04 and the raised frame (-0.57 .. +2.73) is still inside it."
+  },
+
   "world": [7.0, 4.9],
   "anchor": [0.5, 0.42],
   "outputPx": [2560, 1792],
@@ -59,6 +78,8 @@
     "_": "Not chosen: measured off the capture's own tree shadows across the path, which run down and to the left at a bearing of about 35 degrees. scene.js's storybook style casts from 28, which is the 7 degree agreement places.js records.",
     "measuredSunAzDeg": 35,
     "styleSunAzDeg": 28,
-    "placeSunElevDeg": 68
+    "placeSunElevDeg": 68,
+    "elevationIsAuthoredNotMeasured": "Said plainly, because the first version of this block let a reader assume otherwise. The AZIMUTH is measured off the capture's own shadows. The ELEVATION is not measured and cannot be from this capture: it is broken canopy light end to end, hot patches a hand's width from deep shade, with no legible single shadow off a feature of known height. 68 degrees is the number the frame forces -- shadow reach goes as 1/tan(elev), so 27 degrees is 4.9 times the reach of 68 and walks the cast shadow out of the bottom of the picture. places.js pins the visitor's sun slider to 63..74 for the same reason.",
+    "noHardReferenceShadowInPlate": "Criterion 5 asks a critic to check that the chime's shadow agrees with the plate's own light to within 25 degrees. What is actually comparable is DIRECTION and not hardness: there is no hard-edged reference shadow anywhere in this photograph. The comparison that was made is the bearing of the soft shade bands running down and to the left across the path (35 degrees) against the style's cast bearing (28)."
   }
 }

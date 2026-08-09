@@ -436,6 +436,111 @@ for ( const id of ids ) {
 
 }
 
+// ---------------------------------------------------------------------------
+// THE COMPOSITE. Seven numbers in three files describe one picture, and every
+// one of the defects this file was extended for was two of them disagreeing.
+// ---------------------------------------------------------------------------
+
+{
+	const D = P.PLACES[ P.DEFAULT_PLACE_ID ];
+	const render = JSON.parse( read( 'assets/places/forest-path/render.json' ) );
+
+	// 1. The design's default hang IS the default place's default hang. If these
+	//    drift, a cold load of ?c=v1 - the canonical share string - shows a frame
+	//    nobody composed, and design() and the picture disagree with no error.
+	//    design.js may not import places.js, so this assertion is the tie.
+	const dh = designSrc.match( /\n\thang:\s*\{\s*u:\s*([\d.]+),\s*v:\s*([\d.]+),\s*scale:\s*([\d.]+)/ );
+	ok( 'design.js DESIGN_DEFAULTS.hang matches the default place\'s own default',
+		!! dh && Math.abs( + dh[ 1 ] - D.hang.default.u ) < 1e-9
+			&& Math.abs( + dh[ 2 ] - D.hang.default.v ) < 1e-9
+			&& Math.abs( + dh[ 3 ] - D.hang.default.scale ) < 1e-9,
+		dh ? 'design.js has ' + dh.slice( 1, 4 ).join( '/' ) + ', places.js has '
+			+ [ D.hang.default.u, D.hang.default.v, D.hang.default.scale ].join( '/' ) : 'not found' );
+
+	// 2. THE CAMERA TARGET AND THE CROP CENTRE ARE ONE FACT WRITTEN TWICE.
+	//    The plate was rendered with its optical axis at render.json's target and
+	//    anchor, which fixes the world height of the image's top edge. The
+	//    runtime aims at camera.target and crops at hang.default.v. If those two
+	//    stop agreeing, the photograph's ground and the object's ground part
+	//    company - the chime floats or sinks - and nothing errors.
+	const topY = render.camera.target[ 1 ] + render.anchor[ 1 ] * render.world[ 1 ];
+	const wantV = ( topY - D.camera.target[ 1 ] ) / render.world[ 1 ];
+	ok( 'the camera target and the plate crop centre describe the same world point',
+		Math.abs( wantV - D.hang.default.v ) < 0.006,
+		'target y ' + D.camera.target[ 1 ] + ' implies v ' + wantV.toFixed( 4 )
+			+ ', authored ' + D.hang.default.v );
+
+	// 3. THE FRAME HOLDS THE WHOLE COMPOSITE. The arithmetic is written out at
+	//    the top of places.js; this is it, executed. h = cos(el)*(y-Ty) -
+	//    sin(el)*z is the screen height of a world point above the frame's
+	//    middle. The page's own caption and pill row are opaque over the bottom
+	//    11 % of the frame, so a shadow below -0.391*V is a shadow no critic can
+	//    judge and criterion 5 asks one to.
+	const el = D.camera.elevDeg * Math.PI / 180;
+	const Ty = D.camera.target[ 1 ];
+	const HOOK_Y = 2.60;                       // physics.js, read-only to P4
+	const TOP_PLATE_Y = 2.05;                  // the tallest shadow caster on the chime
+	const CHROME = 0.391;                      // measured: chrome covers y 802..880 of 900
+	const h = ( y, z ) => Math.cos( el ) * ( y - Ty ) - Math.sin( el ) * z;
+
+	for ( const [ label, V ] of [ [ 'landscape', D.camera.viewHeight ], [ 'portrait', D.camera.viewHeightPortrait ] ] ) {
+
+		const limbTop = D.hanger.y + D.hanger.radius;
+		ok( 'forest-path ' + label + ': the limb the chime hangs from is inside the frame',
+			h( limbTop, D.hanger.z ) <= V / 2,
+			'limb top at h ' + h( limbTop, D.hanger.z ).toFixed( 3 ) + ', frame top ' + ( V / 2 ).toFixed( 3 ) );
+
+		ok( 'forest-path ' + label + ': the hook is inside the frame with room over it',
+			h( HOOK_Y, 0 ) <= V / 2 - 0.05,
+			'hook at h ' + h( HOOK_Y, 0 ).toFixed( 3 ) );
+
+		// Where the top plate's shadow lands, at the place's own sun.
+		const se = D.sun.elevDeg * Math.PI / 180;
+		const sa = D.sun.azDeg * Math.PI / 180;
+		const reach = TOP_PLATE_Y / Math.tan( se );
+		const tipZ = reach * Math.cos( sa );
+		ok( 'forest-path ' + label + ': the cast shadow lands clear of the page\'s own chrome',
+			h( D.shadow.y, tipZ ) >= - CHROME * V,
+			'shadow tip at h ' + h( D.shadow.y, tipZ ).toFixed( 3 ) + ', usable bottom ' + ( - CHROME * V ).toFixed( 3 ) );
+
+	}
+
+	// 4. The limb's underside meets the hook, or the cord ends in mid-air a few
+	//    centimetres under a branch - which looks worse than no branch at all.
+	ok( 'the limb\'s underside meets physics.js HOOK_Y',
+		Math.abs( ( D.hanger.y - D.hanger.radius ) - HOOK_Y ) < 0.012,
+		'limb underside ' + ( D.hanger.y - D.hanger.radius ).toFixed( 3 ) );
+
+	// 5. A place may narrow the sun but never past what scene.js will accept.
+	// The no-sky branch, which is the one a plate place runs under.
+	const lo = + ( sceneSrc.match( /SUN_LO\s*=\s*S\.sky\s*\?\s*[\d.]+\s*:\s*([\d.]+)/ ) || [] )[ 1 ];
+	const hi = + ( sceneSrc.match( /SUN_HI\s*=\s*S\.sky\s*\?\s*[\d.]+\s*:\s*([\d.]+)/ ) || [] )[ 1 ];
+	ok( 'forest-path pins its sun to a range the photograph can survive',
+		Array.isArray( D.sun.range ) && D.sun.range[ 0 ] >= lo && D.sun.range[ 1 ] <= hi
+			&& D.sun.elevDeg >= D.sun.range[ 0 ] && D.sun.elevDeg <= D.sun.range[ 1 ],
+		JSON.stringify( D.sun.range ) + ' against scene.js [' + lo + ',' + hi + ']' );
+}
+
+// H14, made true by construction rather than by two places happening to agree.
+// audio.js turns cameraDistance() into distGain, so a place that authors its own
+// frustum height must not be able to change how loud the chime is.
+ok( 'cameraDistance() reports the STYLE frustum, not the live one (H14)',
+	/if \(S\.ortho\) return S\.viewHeight \/ Math\.max\(camera\.zoom/.test( sceneSrc ),
+	'scene.js cameraDistance() still reads the per-place viewHeight' );
+
+// The windviz furniture that has no business over a photograph.
+for ( const n of [ 'wcs-streamers', 'wcs-leaves', 'wcs-telltale' ] ) {
+
+	ok( 'scene.js hides ' + n + ' on a plate place',
+		new RegExp( "'" + n + "'" ).test( sceneSrc ) );
+
+}
+
+// The design's hang has to survive a place switch: applyPlace rebuilds the plate
+// from scratch, so it has to put the visitor's framing back on top of it.
+ok( 'applyPlace re-applies the live framing after rebuilding the plate',
+	/wantFraming/.test( sceneSrc ) && /plate\.setFraming\(wantFraming\.u/.test( sceneSrc ) );
+
 // The one thing that would quietly undo Rule A.
 const plateSrc = read( 'assets/js/plate.js' );
 ok( 'plate.js never touches the chime, the rig or the hook',

@@ -49,6 +49,42 @@
  * chain in the way of that. If a plate place is ever given a toned, bloomed
  * style, this shader has to grow a linear conversion - the assert is in
  * tools/verify-place.mjs.
+ *
+ *
+ * THE THING IT HANGS FROM, AND THE LIGHT THAT FALLS THROUGH IT
+ *
+ * ARBITRATION 5 names two defects in the composite, and both of them live in
+ * this file because both of them are the PLACE's business rather than the
+ * chime's.
+ *
+ * 1. A cord that ends at the top edge of a photograph is a cord attached to
+ *    nothing. This capture has no limb over the path at the hook's height and
+ *    no camera in it does - the measurement is in places.js. So `hanger` builds
+ *    one: a tapered limb whose underside meets physics.js's HOOK_Y, an iron eye
+ *    at the hook itself, and leaf clusters on the limb. It is lit by the
+ *    place's own sun and it casts into the same catcher, so the shadow on the
+ *    path stops being six tubes floating on their own.
+ *
+ * 2. Evenly lit geometry sits ON a photograph rather than IN it. The leaves are
+ *    the lever. They are placed UP-SUN of the object, which puts most of them
+ *    above the top edge of the frame and all of their shade across the tubes -
+ *    broken light, from the thing the chime is hanging in, at no cost beyond
+ *    one alpha-tested draw. three's shadow pass honours `map` + `alphaTest`
+ *    (WebGLShadowMap.getDepthMaterial), so the holes between the leaves are
+ *    holes in the shadow map too.
+ *
+ *
+ * WHY THE CATCHER IS NOT A PLAIN ShadowMaterial ANY MORE
+ *
+ * A ShadowMaterial darkens every pixel it covers by the same amount. On a
+ * photograph of a path that is half sunlit and half canopy shadow, that paints
+ * a hard sun shadow across ground receiving no direct sun - and it paints
+ * rather than multiplies, because at any real opacity it swamps the gravel's
+ * own texture. So the catcher samples the plate underneath itself, through the
+ * IDENTICAL crop mapping the backdrop quad uses, and fades its own alpha out
+ * where the photograph is already dark. Where the path is lit the shadow lands
+ * at full strength; where the canopy already shades it, it fades to
+ * `shadow.shadeFloor` of that.
  */
 
 import * as THREE from 'three';
@@ -83,6 +119,316 @@ void main() {
 `;
 
 const clamp = ( v, lo, hi ) => ( v < lo ? lo : ( v > hi ? hi : v ) );
+
+/**
+ * A deterministic little PRNG. The leaf cluster has to be identical on every
+ * load, because a shared URL that reproduces a different scatter of shade is a
+ * shared URL that reproduces a different picture.
+ */
+function rng( seed ) {
+
+	let s = seed >>> 0;
+	return () => {
+
+		s = ( s * 1664525 + 1013904223 ) >>> 0;
+		return s / 4294967296;
+
+	};
+
+}
+
+/**
+ * One leaf, as an alpha mask. Procedural because CONTRACTS 8 forbids adding a
+ * runtime dependency and a second image download for something 128 px square
+ * would be one; a canvas costs nothing and cannot 404.
+ *
+ * RGB is left white and the colour comes from the material, so the same texture
+ * can serve a place that authors a different foliage.
+ */
+function makeLeafTexture() {
+
+	const N = 128;
+	const cv = document.createElement( 'canvas' );
+	cv.width = N;
+	cv.height = N;
+	const g = cv.getContext( '2d' );
+	if ( ! g ) return null;
+	g.clearRect( 0, 0, N, N );
+	g.fillStyle = '#ffffff';
+
+	// A pointed ellipse - two quadratic curves meeting at the tip and the stem -
+	// which is what most broadleaf silhouettes reduce to at this size.
+	g.beginPath();
+	g.moveTo( N * 0.5, N * 0.04 );
+	g.quadraticCurveTo( N * 0.97, N * 0.42, N * 0.5, N * 0.96 );
+	g.quadraticCurveTo( N * 0.03, N * 0.42, N * 0.5, N * 0.04 );
+	g.closePath();
+	g.fill();
+
+	// A midrib bitten out of it. Real foliage lets pinholes of sky through and a
+	// solid blob casts a solid shadow, which is the thing being avoided.
+	g.globalCompositeOperation = 'destination-out';
+	g.lineWidth = N * 0.02;
+	g.strokeStyle = '#000';
+	for ( let i = 0; i < 5; i ++ ) {
+
+		const t = 0.22 + i * 0.15;
+		g.beginPath();
+		g.moveTo( N * 0.5, N * t );
+		g.lineTo( N * ( 0.5 + ( i % 2 ? 0.3 : - 0.3 ) ), N * ( t + 0.14 ) );
+		g.stroke();
+
+	}
+
+	const tex = new THREE.CanvasTexture( cv );
+	tex.colorSpace = THREE.SRGBColorSpace;
+	tex.generateMipmaps = true;
+	tex.minFilter = THREE.LinearMipmapLinearFilter;
+	tex.magFilter = THREE.LinearFilter;
+	return tex;
+
+}
+
+/**
+ * A tube swept along a curve whose radius falls off along its length. three has
+ * TubeGeometry, but its radius is constant, and constant radius is exactly what
+ * makes a branch read as a pipe. Frenet frames come free from the curve, so the
+ * only work here is the taper and the index buffer.
+ *
+ * @param {THREE.Curve} curve
+ * @param {number} r0     radius at t = 0, the thick end
+ * @param {number} taper  radius at t = 1, as a fraction of r0
+ */
+function sweptLimb( curve, r0, taper, segs, radial ) {
+
+	const frames = curve.computeFrenetFrames( segs, false );
+	const pos = new Float32Array( ( segs + 1 ) * ( radial + 1 ) * 3 );
+	const nor = new Float32Array( ( segs + 1 ) * ( radial + 1 ) * 3 );
+	const uv = new Float32Array( ( segs + 1 ) * ( radial + 1 ) * 2 );
+	const idx = [];
+	const P = new THREE.Vector3();
+	const N = new THREE.Vector3();
+
+	for ( let i = 0; i <= segs; i ++ ) {
+
+		const t = i / segs;
+		curve.getPointAt( t, P );
+		// Cubic falloff, so the thinning is slow near the trunk and quick at the
+		// tip - which is how a branch actually tapers.
+		const r = r0 * ( 1 - ( 1 - taper ) * t * t * t );
+		const nrm = frames.normals[ i ];
+		const bin = frames.binormals[ i ];
+
+		for ( let j = 0; j <= radial; j ++ ) {
+
+			const a = j / radial * Math.PI * 2;
+			const sx = Math.cos( a );
+			const sy = Math.sin( a );
+			N.set( nrm.x * sx + bin.x * sy, nrm.y * sx + bin.y * sy, nrm.z * sx + bin.z * sy );
+			const o = ( i * ( radial + 1 ) + j ) * 3;
+			pos[ o ] = P.x + N.x * r; pos[ o + 1 ] = P.y + N.y * r; pos[ o + 2 ] = P.z + N.z * r;
+			nor[ o ] = N.x; nor[ o + 1 ] = N.y; nor[ o + 2 ] = N.z;
+			uv[ ( i * ( radial + 1 ) + j ) * 2 ] = t;
+			uv[ ( i * ( radial + 1 ) + j ) * 2 + 1 ] = j / radial;
+
+		}
+
+	}
+
+	for ( let i = 0; i < segs; i ++ ) {
+
+		for ( let j = 0; j < radial; j ++ ) {
+
+			const a = i * ( radial + 1 ) + j;
+			const b = a + radial + 1;
+			idx.push( a, b, a + 1, b, b + 1, a + 1 );
+
+		}
+
+	}
+
+	const geo = new THREE.BufferGeometry();
+	geo.setAttribute( 'position', new THREE.BufferAttribute( pos, 3 ) );
+	geo.setAttribute( 'normal', new THREE.BufferAttribute( nor, 3 ) );
+	geo.setAttribute( 'uv', new THREE.BufferAttribute( uv, 2 ) );
+	geo.setIndex( idx );
+	return geo;
+
+}
+
+/**
+ * The limb, the eye and the leaves, as three meshes in one group.
+ *
+ * Everything is authored in metres against physics.js's HOOK_Y, so the limb's
+ * underside meets the cord's top wherever the place puts it. Nothing here
+ * touches the chime: Rule A still holds, and this group is scene furniture the
+ * same way the porch's beam is.
+ */
+function buildHanger( spec, leafTex ) {
+
+	const g = new THREE.Group();
+	g.name = 'wcs-hanger';
+	const tilt = ( spec.tiltDeg || 0 ) * Math.PI / 180;
+	const geoms = [];
+	const mats = [];
+
+	const bark = new THREE.MeshStandardMaterial( {
+		color: spec.color,
+		roughness: spec.roughness === undefined ? 0.95 : spec.roughness,
+		metalness: 0
+	} );
+	mats.push( bark );
+
+	// The limb. A straight cylinder of constant radius reads as a scaffold pole -
+	// that was the first cut and a screenshot said so immediately. What makes it
+	// a branch is that it is thick where it comes from the tree, thin where it
+	// runs out, and SAGS in the middle, which is where the weight is hanging.
+	// So it is swept along a curve with a per-ring radius rather than extruded.
+	//
+	// The curve is forced through (0, y, z) - the point directly over the hook -
+	// so the underside meets the cord wherever the place moves it to.
+	const half = spec.length / 2;
+	const zz = spec.z || 0;
+	const curve = new THREE.CatmullRomCurve3( [
+		new THREE.Vector3( half, spec.y + half * Math.tan( - tilt ) + 0.14, zz - 0.34 ),
+		new THREE.Vector3( half * 0.45, spec.y + half * 0.45 * Math.tan( - tilt ) + 0.02, zz - 0.14 ),
+		new THREE.Vector3( 0, spec.y, zz ),
+		new THREE.Vector3( - half * 0.5, spec.y - half * 0.5 * Math.tan( - tilt ) + 0.04, zz + 0.08 ),
+		new THREE.Vector3( - half, spec.y - half * Math.tan( - tilt ) + 0.16, zz + 0.22 )
+	] );
+	const limbGeo = sweptLimb( curve, spec.radius, spec.taper === undefined ? 0.55 : spec.taper, 64, 10 );
+	geoms.push( limbGeo );
+	const limb = new THREE.Mesh( limbGeo, bark );
+	limb.castShadow = true;
+	limb.receiveShadow = true;
+	g.add( limb );
+
+	// Two twigs off it, so the silhouette forks. Both lean away from the camera,
+	// which keeps them out of the object's own space.
+	for ( const t of [
+		{ u: 0.30, len: 0.92, rot: [ 0.55, 0, 0.85 ] },
+		{ u: 0.68, len: 0.70, rot: [ - 0.42, 0, - 0.72 ] }
+	] ) {
+
+		const at = curve.getPointAt( t.u );
+		const tw = new THREE.CylinderGeometry( spec.radius * 0.16, spec.radius * 0.42, t.len, 7 );
+		geoms.push( tw );
+		const m = new THREE.Mesh( tw, bark );
+		m.position.set( at.x, at.y + t.len * 0.36, at.z );
+		m.rotation.set( t.rot[ 0 ], t.rot[ 1 ], t.rot[ 2 ] );
+		m.castShadow = true;
+		g.add( m );
+
+	}
+
+	// The iron eye at the hook. Small, dark, and exactly where physics hangs the
+	// bridle from, so the cord passes through a thing rather than stopping in
+	// mid-air a few centimetres under a branch.
+	if ( spec.eye ) {
+
+		const eyeGeo = new THREE.TorusGeometry( spec.eye.radius, spec.eye.tube, 8, 20 );
+		geoms.push( eyeGeo );
+		const eyeMat = new THREE.MeshStandardMaterial( {
+			color: spec.eye.color, roughness: 0.55, metalness: 0.65
+		} );
+		mats.push( eyeMat );
+		const eye = new THREE.Mesh( eyeGeo, eyeMat );
+		// HOOK_Y. Mirrored from physics.js, which is read-only to this piece.
+		eye.position.set( 0, 2.60 + spec.eye.radius * 0.55, spec.z || 0 );
+		eye.castShadow = true;
+		g.add( eye );
+
+	}
+
+	// The leaves. One merged geometry across every cluster, so the whole canopy
+	// is one draw call and one alpha test however many clusters a place authors.
+	//
+	// Two clusters, doing two different jobs. The SHADE cluster sits up-sun and
+	// above the top edge: it is never seen and its only output is the broken
+	// light it throws down the tubes and across the path. The SPRAY cluster
+	// hangs off the limb inside the frame, where its job is the opposite - it is
+	// seen and casts almost nothing, and it exists because a bare swept tube
+	// crossing the top of a photograph reads as a scaffold pole no matter how
+	// well it is tapered. Foliage on it is what makes it a branch.
+	const clusters = Array.isArray( spec.leaves ) ? spec.leaves : ( spec.leaves ? [ spec.leaves ] : [] );
+	const total = clusters.reduce( ( a, c ) => a + ( c.count | 0 ), 0 );
+	if ( total > 0 && leafTex ) {
+
+		const n = total;
+		const pos = new Float32Array( n * 4 * 3 );
+		const nor = new Float32Array( n * 4 * 3 );
+		const uv = new Float32Array( n * 4 * 2 );
+		const idx = new Uint16Array( n * 6 );
+		const rnd = rng( 0x5eed1eaf );
+		const q = new THREE.Quaternion();
+		const e = new THREE.Euler();
+		const v = new THREE.Vector3();
+		const nv = new THREE.Vector3();
+		const corners = [ [ - 0.5, - 0.5 ], [ 0.5, - 0.5 ], [ 0.5, 0.5 ], [ - 0.5, 0.5 ] ];
+		const uvs = [ [ 0, 0 ], [ 1, 0 ], [ 1, 1 ], [ 0, 1 ] ];
+		let i = 0;
+
+		for ( const L of clusters ) {
+
+			for ( let c = 0; c < ( L.count | 0 ); c ++, i ++ ) {
+
+				const cx = L.at[ 0 ] + ( rnd() - 0.5 ) * 2 * L.spread[ 0 ];
+				const cy = spec.y + L.at[ 1 ] + ( rnd() - 0.5 ) * 2 * L.spread[ 1 ] + Math.sin( tilt ) * - cx;
+				const cz = ( spec.z || 0 ) + L.at[ 2 ] + ( rnd() - 0.5 ) * 2 * L.spread[ 2 ];
+				e.set( rnd() * Math.PI, rnd() * Math.PI * 2, rnd() * Math.PI );
+				q.setFromEuler( e );
+				const s = L.size * ( 0.6 + rnd() * 0.8 );
+				nv.set( 0, 0, 1 ).applyQuaternion( q );
+
+				for ( let k = 0; k < 4; k ++ ) {
+
+					v.set( corners[ k ][ 0 ] * s, corners[ k ][ 1 ] * s, 0 ).applyQuaternion( q );
+					const o = ( i * 4 + k ) * 3;
+					pos[ o ] = cx + v.x; pos[ o + 1 ] = cy + v.y; pos[ o + 2 ] = cz + v.z;
+					nor[ o ] = nv.x; nor[ o + 1 ] = nv.y; nor[ o + 2 ] = nv.z;
+					uv[ ( i * 4 + k ) * 2 ] = uvs[ k ][ 0 ];
+					uv[ ( i * 4 + k ) * 2 + 1 ] = uvs[ k ][ 1 ];
+
+				}
+
+				const b = i * 4;
+				idx.set( [ b, b + 1, b + 2, b, b + 2, b + 3 ], i * 6 );
+
+			}
+
+		}
+
+		const lg = new THREE.BufferGeometry();
+		lg.setAttribute( 'position', new THREE.BufferAttribute( pos, 3 ) );
+		lg.setAttribute( 'normal', new THREE.BufferAttribute( nor, 3 ) );
+		lg.setAttribute( 'uv', new THREE.BufferAttribute( uv, 2 ) );
+		lg.setIndex( new THREE.BufferAttribute( idx, 1 ) );
+		geoms.push( lg );
+
+		const lm = new THREE.MeshStandardMaterial( {
+			map: leafTex,
+			color: clusters[ 0 ].color,
+			// Not `transparent`: a transparent caster is skipped by the shadow
+			// pass, and the shadow is the entire point of these. alphaTest keeps
+			// it in the opaque queue and cuts the holes in the depth map.
+			alphaTest: 0.5,
+			side: THREE.DoubleSide,
+			roughness: 0.92,
+			metalness: 0
+		} );
+		mats.push( lm );
+		const leaves = new THREE.Mesh( lg, lm );
+		leaves.castShadow = true;
+		leaves.name = 'wcs-hanger-leaves';
+		g.add( leaves );
+
+	}
+
+	g.userData.geoms = geoms;
+	g.userData.mats = mats;
+	return g;
+
+}
 
 /**
  * @param {object} ctx  the stage's rendering context:
@@ -165,12 +511,88 @@ export function createPlate( ctx, place, onError ) {
 
 		catcherGeo = new THREE.PlaneGeometry( 24, 24 );
 		catcherMat = new THREE.ShadowMaterial( { opacity: place.shadow.opacity } );
+
+		// The plate's own pixels, reaching the shadow that lands on them.
+		//
+		// The two uniform OBJECTS are shared with the backdrop quad rather than
+		// copied, so the crop can never be one frame out of step between the
+		// picture and the shade sitting on it - setFraming writes uRect once and
+		// both shaders read it.
+		const shadeFloor = Number.isFinite( place.shadow.shadeFloor ) ? place.shadow.shadeFloor : 1;
+		const litAt = Number.isFinite( place.shadow.litAt ) ? place.shadow.litAt : 0;
+		catcherMat.onBeforeCompile = ( shader ) => {
+
+			shader.uniforms.uMap = uniforms.uMap;
+			shader.uniforms.uRect = uniforms.uRect;
+			shader.uniforms.uHasMap = uniforms.uHasMap;
+			shader.uniforms.uShadeFloor = { value: shadeFloor };
+			shader.uniforms.uLitAt = { value: litAt };
+
+			// The clip position, carried across so the fragment can find its own
+			// pixel in the backdrop. Doing it this way rather than through
+			// gl_FragCoord means no resolution uniform to keep in sync and no
+			// device-pixel-ratio trap.
+			shader.vertexShader = shader.vertexShader
+				.replace( '#include <common>', '#include <common>\nvarying vec4 wcsClip;' )
+				.replace( '#include <project_vertex>', '#include <project_vertex>\n\twcsClip = gl_Position;' );
+
+			shader.fragmentShader = shader.fragmentShader
+				.replace( '#include <common>', [
+					'#include <common>',
+					'varying vec4 wcsClip;',
+					'uniform sampler2D uMap;',
+					'uniform vec4 uRect;',
+					'uniform float uHasMap;',
+					'uniform float uShadeFloor;',
+					'uniform float uLitAt;',
+					'float wcsPlateLit() {',
+					'	if ( uHasMap < 0.5 || uLitAt <= 0.0 ) return 1.0;',
+					'	vec2 s = wcsClip.xy / wcsClip.w * 0.5 + 0.5;',
+					'	float tx = uRect.x - uRect.z + 2.0 * uRect.z * s.x;',
+					'	float ty = uRect.y - uRect.w + 2.0 * uRect.w * ( 1.0 - s.y );',
+					'	vec3 c = texture2D( uMap, vec2( tx, 1.0 - ty ) ).rgb;',
+					'	float lum = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );',
+					'	return mix( uShadeFloor, 1.0, smoothstep( 0.0, uLitAt, lum ) );',
+					'}'
+				].join( '\n' ) )
+				.replace(
+					'gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );',
+					'gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) * wcsPlateLit() );'
+				);
+
+		};
+		// Two ShadowMaterials with different injected source must not share a
+		// compiled program.
+		catcherMat.customProgramCacheKey = () => 'wcs-catcher-' + place.id;
+
 		catcher = new THREE.Mesh( catcherGeo, catcherMat );
 		catcher.rotation.x = - Math.PI / 2;
 		catcher.position.y = place.shadow.y || 0;
 		catcher.receiveShadow = true;
 		catcher.name = 'wcs-plate-catcher';
 		scene.add( catcher );
+
+	}
+
+	// -- what it hangs from ---------------------------------------------------
+	let hanger = null;
+	let leafTex = null;
+	if ( place.hanger ) {
+
+		try {
+
+			leafTex = makeLeafTexture();
+			hanger = buildHanger( place.hanger, leafTex );
+			scene.add( hanger );
+
+		} catch ( err ) {
+
+			// A place without its limb is worse than a place with one, but it is
+			// not worse than a black page. Report and carry on.
+			hanger = null;
+			if ( typeof onError === 'function' ) onError( 'place-hanger-failed' );
+
+		}
 
 	}
 
@@ -252,6 +674,7 @@ export function createPlate( ctx, place, onError ) {
 		/** The mesh, for anything that needs to know the plate is there. */
 		mesh,
 		catcher,
+		hanger,
 
 		/**
 		 * CONTRACTS Rule A: this moves the PLATE. The chime is at the origin and
@@ -310,6 +733,19 @@ export function createPlate( ctx, place, onError ) {
 				catcher = null;
 
 			}
+			// H15: dispose() names its handles by hand and nothing traverses, so a
+			// place switch that allocated a limb has to free one. The group carries
+			// its own lists rather than being walked, which is the same bargain the
+			// rest of this file makes.
+			if ( hanger ) {
+
+				scene.remove( hanger );
+				for ( const g of hanger.userData.geoms ) g.dispose();
+				for ( const m of hanger.userData.mats ) m.dispose();
+				hanger = null;
+
+			}
+			if ( leafTex ) { leafTex.dispose(); leafTex = null; }
 
 		}
 

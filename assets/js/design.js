@@ -48,7 +48,14 @@ export const DESIGN_DEFAULTS = {
 	},
 	clapper: { width: 0.068, mass: 0.035, drop: 0.400 },    // m, kg, m
 	sail: { mass: 0.032, height: 0.150 },                   // kg, m
-	hang: { u: 0.50, v: 0.42, scale: 1.00 },                // plate fraction, plate fraction, ratio
+	// AMENDS CONTRACTS section 3, which authored v as 0.42. The default hang has
+	// to be the default PLACE's own hang default or a cold load of ?c=v1 shows a
+	// frame nobody composed: places.js raised forest-path's frame 0.30 m to bring
+	// the limb the chime hangs from into shot, and 0.36 is that same fact. The
+	// authority column in CONTRACTS section 3 already says places.js decides this
+	// number; design.js cannot import it (this file stays pure), so the two are
+	// tied by an assertion in tools/verify-place.mjs instead.
+	hang: { u: 0.50, v: 0.40, scale: 1.00 },                // plate fraction, plate fraction, ratio
 	view: { sun: null, quality: 'auto' },                   // degrees or null, 'auto'|'high'|'low'
 	voice: { attack: 0.002, decay: 8.0, loudness: 0.50 },   // s, s, 0..1
 	wind: { mph: null, dirDeg: null, turbulence: null, source: 'place' }
