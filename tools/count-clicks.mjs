@@ -11,6 +11,12 @@
  * It reports:
  *   gate            is anything covering the frame on first paint, with a button in it
  *   controlsAtRest  how many interactive controls a stranger sees before touching anything
+ *   clicksToNamed   pointer events needed before a complete object is on screen with a
+ *                   name under it. The bar hands you "46mm Silver Aluminum Case with
+ *                   Pride Edition Sport Band" after one click on a splash; the whole
+ *                   claim of this page is that the number is zero. It was the one thing
+ *                   the tool was asked to report and did not, so a criterion written
+ *                   against it could only ever be argued, never measured.
  *   clicksToSound   pointer events needed before the AudioContext is running AND audible
  *   clicksToShare   pointer events needed before the location carries a design
  *   audible         peak sample level observed on the master bus after unlock
@@ -179,8 +185,24 @@ const READ_STATE = `
     cls: (el.className && el.className.toString().slice(0, 60)) || null,
     text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 90),
   }));
+  // The name under the object: one visible sentence that says what has been made.
+  // A caption is what tells a stranger the thing in front of them is finished, and
+  // it is the difference between a complete object and a demo that has not started
+  // yet. Read by role rather than by id where possible, so this measures any page
+  // that puts a live caption under its object and not only ours.
+  const nameEl = document.querySelector('#wcsCaption,[data-object-caption]');
+  let objectName = '';
+  if (nameEl) {
+    const r = nameEl.getBoundingClientRect();
+    const cs = getComputedStyle(nameEl);
+    const shown = cs.visibility !== 'hidden' && cs.display !== 'none' && cs.opacity !== '0'
+      && r.width > 4 && r.height > 4 && r.top < vh && r.bottom > 0;
+    if (shown) objectName = (nameEl.innerText || '').trim().replace(/\\s+/g, ' ');
+  }
+
   return {
     running, peak: p.peak, gestures: p.gestures,
+    objectName,
     url: location.href,
     search: location.search, hash: location.hash,
     controls: interactive.map(el => ({
@@ -242,6 +264,12 @@ async function main() {
 		out.controlsAtRestList = atRest.controls;
 		out.urlAtRest = atRest.url;
 		out.soundingWithoutTouch = atRest.running && atRest.peak > 1e-4;
+		// Zero only if BOTH hold with no gesture spent: nothing is standing between
+		// the visitor and the frame, and the frame names what is in it. A gate with
+		// a caption behind it is still a gate, and a scene with no caption is a
+		// screensaver.
+		out.nameAtRest = atRest.objectName || null;
+		out.clicksToNamedObject = ( ! out.gate && out.nameAtRest ) ? 0 : null;
 
 		// One pointer event in the middle of the frame — the cheapest possible gesture.
 		const click = async ( x, y ) => {
@@ -293,10 +321,12 @@ async function main() {
 	if ( args.json ) console.log( JSON.stringify( out, null, 2 ) );
 	else {
 
-		const line = ( k, v ) => console.log( String( k ).padEnd( 22 ) + v );
+		const line = ( k, v ) => console.log( String( k ).padEnd( 24 ) + v );
 		line( 'url', out.url );
 		line( 'gate on first paint', out.gate ? out.gate.map( ( g ) => `${g.tag}#${g.id || '?'} "${g.text}"` ).join( ' | ' ) : 'none' );
 		line( 'controls at rest', out.controlsAtRest );
+		line( 'clicks to named object', out.clicksToNamedObject ?? 'never' );
+		line( 'name at rest', out.nameAtRest || '(none)' );
 		line( 'sounding untouched', out.soundingWithoutTouch );
 		line( 'clicks to sound', out.clicksToSound ?? 'never' );
 		line( 'audible peak', out.audiblePeak );
