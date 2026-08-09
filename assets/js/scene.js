@@ -2110,10 +2110,24 @@ export function createStage(opts) {
     // seconds of idle, from outside this module, and OrbitControls.update()
     // spins on autoRotate WITHOUT checking `enabled` -- so switching the
     // controls off is not enough on its own (H13).
-    if (cameraFixed) {
+    // A splat place holds autoRotate down for a different reason than a fixed
+    // one, and it needs saying because the two used to be the same clause.
+    //
+    // A fixed place suppresses it because it authored its own frame. A splat
+    // place suppresses it because the drift is not free: every camera move
+    // makes spark re-sort the gaussians by depth, and splats at near-identical
+    // depth swap places between frames, so their blend order flips and the
+    // whole capture boils. Measured with no input at all - the camera moved on
+    // 5 of 5 samples, 28.638,18.95,-21.762 to 28.688,18.95,-21.697 - and that
+    // slow unasked-for orbit is what the shimmer was.
+    //
+    // A photograph could afford a drifting camera. A million sorted quads
+    // cannot, and it was never worth much: it is a screensaver flourish that
+    // costs a full re-sort per frame.
+    if (cameraFixed || splatPlace()) {
       if (controls.autoRotate) controls.autoRotate = false;
       syncVizForPlace();
-      return;
+      if (cameraFixed) return;
     }
     syncVizForPlace();
     // === /WCS:PLACE-CAMERA (2 of 2, cont.) ===
