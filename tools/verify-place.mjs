@@ -105,7 +105,44 @@ for ( const id of ids ) {
 
 	if ( p.kind === 'plate' ) {
 
-		ok( id + ': the camera is fixed', p.camera.fixed === true );
+		// A PLATE'S CAMERA IS FIXED; A SPLAT'S IS NOT, AND THEY SHARE A `kind`.
+		// One photograph taken from one direction has nothing on its far side,
+		// so orbiting a plate walks the object off its own picture. A capture is
+		// a reconstruction and does have a far side, so it may orbit - bounded,
+		// or a visitor swings behind the gaussians and finds the back of the
+		// world. Which branch a place takes is decided by `splat`, exactly as
+		// scene.js decides which module draws it.
+		if ( p.backdrop.splat === null ) {
+
+			ok( id + ': the camera is fixed', p.camera.fixed === true );
+
+		} else {
+
+			const orb = p.camera.orbit;
+			ok( id + ': a capture may orbit, but only inside authored bounds',
+				p.camera.fixed === false && !! orb
+					&& orb.azDeg.length === 2 && orb.azDeg[ 0 ] < orb.azDeg[ 1 ]
+					&& orb.elevDeg.length === 2 && orb.elevDeg[ 0 ] < orb.elevDeg[ 1 ],
+				JSON.stringify( orb ) );
+
+			// The capture is the place. Naming one nobody shipped is a frame
+			// with a chime hanging in empty space, and the fetch fails quietly
+			// into onError - there is no louder failure to wait for.
+			let kb = 0;
+			try { kb = statSync( join( ROOT, p.backdrop.splat ) ).size / 1024; } catch ( e ) {}
+			ok( id + ': the declared capture is on disk under assets/',
+				kb > 0 && p.backdrop.splat.startsWith( 'assets/' ),
+				p.backdrop.splat + ( kb ? ' at ' + Math.round( kb ) + ' kB' : ' is missing' ) );
+
+			// How far hang.u/v may slide the capture. splat.js falls back to
+			// {x:6,y:3} when it is absent, which is a quiet 6 m of travel the
+			// place never agreed to.
+			ok( id + ': the capture authors its own hang reach',
+				!! p.backdrop.reach && p.backdrop.reach.x > 0 && p.backdrop.reach.y > 0,
+				JSON.stringify( p.backdrop.reach ) );
+
+		}
+
 		ok( id + ': the shadow catcher is on', p.shadow.catcher === true );
 		ok( id + ': has a credit with a named author', !! ( p.credit && p.credit.author && p.credit.author.length > 1 ) );
 		ok( id + ': has a credit with a source URL', !! ( p.credit && /^https?:\/\//.test( p.credit.source || '' ) ) );
@@ -113,11 +150,9 @@ for ( const id of ids ) {
 	} else {
 
 		ok( id + ': a procedural place declares no backdrop image', p.backdrop.src === null );
+		ok( id + ': a procedural place declares no capture', p.backdrop.splat === null );
 
 	}
-
-	// ARBITRATION 4 authors the field and loads nothing this run.
-	ok( id + ': no splat is loaded at runtime', p.backdrop.splat === null );
 
 }
 
@@ -379,6 +414,7 @@ for ( const id of ids ) {
 // ---------------------------------------------------------------------------
 
 const sceneSrc = read( 'assets/js/scene.js' );
+const splatSrc = read( 'assets/js/splat.js' );
 
 function styleField( style, field ) {
 
@@ -485,11 +521,6 @@ for ( const id of ids ) {
 
 	for ( const [ label, V ] of [ [ 'landscape', D.camera.viewHeight ], [ 'portrait', D.camera.viewHeightPortrait ] ] ) {
 
-		const limbTop = D.hanger.y + D.hanger.radius;
-		ok( 'forest-path ' + label + ': the limb the chime hangs from is inside the frame',
-			h( limbTop, D.hanger.z ) <= V / 2,
-			'limb top at h ' + h( limbTop, D.hanger.z ).toFixed( 3 ) + ', frame top ' + ( V / 2 ).toFixed( 3 ) );
-
 		ok( 'forest-path ' + label + ': the hook is inside the frame with room over it',
 			h( HOOK_Y, 0 ) <= V / 2 - 0.05,
 			'hook at h ' + h( HOOK_Y, 0 ).toFixed( 3 ) );
@@ -505,11 +536,20 @@ for ( const id of ids ) {
 
 	}
 
-	// 4. The limb's underside meets the hook, or the cord ends in mid-air a few
-	//    centimetres under a branch - which looks worse than no branch at all.
-	ok( 'the limb\'s underside meets physics.js HOOK_Y',
-		Math.abs( ( D.hanger.y - D.hanger.radius ) - HOOK_Y ) < 0.012,
-		'limb underside ' + ( D.hanger.y - D.hanger.radius ).toFixed( 3 ) );
+	// 4. THE EYE IS ON THE HOOK. There is no limb any more - the capture has a
+	//    real canopy and a modelled branch in front of a photographed one looked
+	//    worse than none. What is left is the iron eye, and its whole job is to
+	//    be the point the bridle's three cords meet at. Move it sideways by even
+	//    a few centimetres and the chime hangs visibly BESIDE its own ring, with
+	//    nothing to error on: this is exactly how `z: -0.06` survived the limb it
+	//    was written for and put the ring off-centre on screen. Two assertions,
+	//    because the offset can come back from either end.
+	ok( 'the hanger spec carries no lateral offset for the eye to inherit',
+		D.hanger.z === undefined && D.hanger.x === undefined,
+		'hanger has ' + JSON.stringify( D.hanger ) );
+	ok( 'splat.js pins the eye and its cord to the hook in x and z',
+		( splatSrc.match( /\.position\.set\( HOOK_X, [^)]*, HOOK_Z \)/g ) || [] ).length === 2,
+		'expected the eye and the cord to be placed at HOOK_X/HOOK_Z' );
 
 	// 5. A place may narrow the sun but never past what scene.js will accept.
 	// The no-sky branch, which is the one a plate place runs under.

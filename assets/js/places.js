@@ -340,8 +340,15 @@ export const PLACES = Object.freeze( {
 		// What is left is what she asked for: the iron eye at the hook, and a
 		// cord rising about two feet out of the top of it, ending where a rope
 		// would disappear into leaves. splat.js builds both.
+		//
+		// No `z` here any more. It was -0.06, and it belonged to the limb: six
+		// centimetres of clearance so a modelled branch did not grow through the
+		// chime. Deleting the limb left the number behind, still being applied,
+		// now to the eye alone - and the eye is the one thing that cannot be
+		// moved, because the bridle meets at the hook and nowhere else. The
+		// result was a ring the chime hung beside instead of under. splat.js
+		// pins the eye to the hook and ignores a `z` if one is ever added back.
 		hanger: Object.freeze( {
-			z: - 0.06,
 			cordLength: 0.61,
 			cordColor: 0xcfc3ad,
 			eye: Object.freeze( { radius: 0.030, tube: 0.0055, color: 0x2e2b27 } )
