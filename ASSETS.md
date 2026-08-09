@@ -56,6 +56,21 @@ the built page.
 | `assets/vendor/three.core.min.js` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/vendor/three.module.min.js` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/vendor/addons/**` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
+| `assets/places/forest-path/plate.webp` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
+
+The forest-path plate is a derivative work, not the source file. tanha published a
+998,709-gaussian capture of a woodland path, made with RealityScan and LichtFeld
+Studio and described by its author as "a quick capture of a forst path meant for a
+background replacement, so only one direction is captured". The shipped asset is a
+single 2560x1792 still rendered offline from that capture, from one fixed camera,
+which is exactly and only the use the author describes. CC BY 4.0 permits
+derivatives; the attribution below and in `NOTICE` names the author, links the
+scene and links the licence deed, and the licence is plain BY - not NC, not ND,
+not SA - so it is compatible with this repository's own CC BY 4.0 asset licence.
+The camera, the levelling transform and the grade are recorded in
+`assets/places/forest-path/render.json` so the plate can be rebuilt from the same
+source.
+
 
 three.js ships no LICENSE file inside `assets/vendor/`. Add one there when the
 vendored copy is next refreshed.

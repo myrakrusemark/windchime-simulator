@@ -463,13 +463,15 @@ line( 'encode(DESIGN_DEFAULTS)  = ' + JSON.stringify( D.encode( D.DESIGN_DEFAULT
 
 const VECTORS = [
 	[ 'v1_sc-lyd_n-8', { tubes: { scale: 'cLydian', notes: 8 } } ],
-	[ 'v1_pl-forest-path', { place: 'forest-path' } ],
+	[ 'v1_pl-porch', { place: 'porch' } ],
 	[ 'v1_st-cb65', { tubes: { stock: 'Corinthian Bells 65' } } ],
 	[ 'v1_st-tf-s', { tubes: { stock: 'Theta Twin Flame small' } } ],
-	// porch is the DEFAULT place until P4 lands the plate, so pl is correctly
-	// absent from this one and present on the next.
-	[ 'v1_hu-38_hv-55_hs-130', { place: 'porch', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
-	[ 'v1_pl-forest-path_hu-38_hv-55_hs-130', { place: 'forest-path', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
+	// forest-path is the DEFAULT place now that P4 has landed the plate, so pl is
+	// correctly ABSENT from the second of these and present on the first. These
+	// two swapped over in that commit, which is exactly the drift this file
+	// exists to make loud rather than silent.
+	[ 'v1_pl-porch_hu-38_hv-55_hs-130', { place: 'porch', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
+	[ 'v1_hu-38_hv-55_hs-130', { place: 'forest-path', hang: { u: 0.38, v: 0.55, scale: 1.30 } } ],
 	[ 'v1_su-34', { view: { sun: 34 } } ],
 	[ 'v1_q-l', { view: { quality: 'low' } } ],
 	[ 'v1_at-70', { voice: { attack: 0.0070 } } ],
@@ -497,8 +499,8 @@ ok( 'decay quantum is not tenths of a second', D.decode( 'v1_dk-120' ).voice.dec
 ok( 'clapper width quantum is not millimetres', D.decode( 'v1_cw-82' ).clapper.width === 0.082 );
 
 // Field order is canonical whatever order the object was built in.
-ok( 'field order is not canonical', D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'forest-path' } ) === 'v1_pl-forest-path_n-8_w-24',
-	D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'forest-path' } ) );
+ok( 'field order is not canonical', D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'porch' } ) === 'v1_pl-porch_n-8_w-24',
+	D.encode( { wind: { mph: 24 }, tubes: { notes: 8 }, place: 'porch' } ) );
 
 // An unknown but well-formed place id survives, so a link from a newer build is
 // not mangled by an older one.
@@ -595,7 +597,7 @@ for ( const v of HOSTILE_VALUES ) {
 ok( 'describe is not total', describeOk );
 line( 'defaults      ' + D.describe( D.DESIGN_DEFAULTS ) );
 line( 'v1_sc-lyd_n-8 ' + D.describe( D.decode( 'v1_sc-lyd_n-8' ) ) );
-line( 'v1_pl-forest-path   ' + D.describe( D.decode( 'v1_pl-forest-path_st-cb78_n-3' ) ) );
+line( 'v1_pl-porch         ' + D.describe( D.decode( 'v1_pl-porch_st-cb78_n-3' ) ) );
 
 // ---------------------------------------------------------------------------
 // 6b. Every control moves the caption (CONTRACTS section 6, P3 criterion 3)
@@ -783,7 +785,7 @@ const EVERY_HEAVY = D.clampDesign( {
 } );
 
 ok( 'the default caption is no longer the sentence P3 shipped',
-	CAPTION_BASE === 'Six-tube C major pentatonic, voiced on Theta Flower of Life, on the porch.',
+	CAPTION_BASE === 'Six-tube C major pentatonic, voiced on Theta Flower of Life, on the forest path.',
 	CAPTION_BASE );
 
 // One control moved in each of the five pills, which is about as far as a

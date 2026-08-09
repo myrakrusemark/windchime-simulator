@@ -76,6 +76,13 @@ unit of work, and because the reverb is dramatic enough to prove the organising 
 - Foliage animated in the vertex shader, sampling the same wind field the rig samples. The
   grass, the chime and the audio all have to agree about the gust that just arrived.
 
+  **This clause applies to procedural places only.** A place whose world is a still plate
+  rendered from a photographic capture has no grass to animate, and the rule for one is the
+  opposite of the rule for the other: in a plate place the chime is the only moving thing in
+  frame, and everything behind it is a photograph. Amended 2026-08-08 per
+  `.gauntlet-bar/ARBITRATION.md` §2, in the same commit as the first plate place. Nothing
+  else in this document changes.
+
 ### Acoustics
 
 Convolution reverb using an impulse response appropriate to a stone cloister. Wet and dry

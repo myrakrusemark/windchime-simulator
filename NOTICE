@@ -45,6 +45,18 @@ terms, recorded per file in ASSETS.md.
   https://github.com/mrdoob/three.js
   Vendored under assets/vendor/ so the page needs no build step and no CDN.
 
+  "Forest path" by tanha, under the Creative Commons Attribution 4.0
+  International Licence (CC BY 4.0)
+  https://superspl.at/scene/2be1a75a
+  Licence deed: https://creativecommons.org/licenses/by/4.0/
+  assets/places/forest-path/plate.webp is a derivative of that gaussian splat
+  capture: one still, rendered offline from a single fixed camera. Changes made
+  are the levelling of the capture, the choice of camera, and a contrast and
+  saturation grade, all recorded in assets/places/forest-path/render.json.
+  The credit is also shown to the visitor, in the Place panel on the page
+  itself, because a notice file is not attribution to someone who only ever
+  receives the built page.
+
 Weather data comes from api.weather.gov, a United States government service
 whose output is in the public domain. The simulator is not endorsed by the
 National Weather Service.

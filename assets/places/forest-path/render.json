@@ -1,0 +1,64 @@
+{
+  "_": "How plate.webp was made. Kept beside the asset so the plate can be re-rendered from the same capture with the same camera, which is the only thing that lets the picture change without the place's numbers drifting away from it. Nothing at runtime reads this file.",
+
+  "source": {
+    "title": "Forest path",
+    "author": "tanha",
+    "url": "https://superspl.at/scene/2be1a75a",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "fetched": "2026-08-08",
+    "capture": "RealityScan, then LichtFeld Studio",
+    "gaussians": 998709,
+    "note": "The author's own description: a quick capture of a forest path meant for background replacement, so only one direction is captured. That is why camera.fixed is true."
+  },
+
+  "pipeline": [
+    "npx --yes @playcanvas/splat-transform ~/.cache/windchime-splat/forest-path/lod-meta.json <out>/forest-path.sog",
+    "serve <out> beside a page that imports three, spark and the addons",
+    "node tools/shot.mjs --gpu --url <page> --out plate.png --w 2560 --h 1792 --wait 32000",
+    "magick plate.png -colorspace sRGB -sigmoidal-contrast 2.5x48% -modulate 102,109 -strip -define webp:method=6 -quality 84 plate.webp"
+  ],
+
+  "traps": [
+    "A SplatMesh on its own draws a perfectly black frame with no error and a correct numSplats. new SparkRenderer({ renderer }) has to be added to the scene.",
+    "SOG captures arrive y-down: splatMesh.quaternion is the y-down flip, composed with the levelling below.",
+    "Software GL cannot draw a million gaussians. tools/shot.mjs --gpu swaps swiftshader for ANGLE on EGL.",
+    "spark honours neither camera.near nor camera.far for gaussians, so near-plane clipping is not available as a way to lose the foreground."
+  ],
+
+  "captureTransform": {
+    "_": "Applied to the SplatMesh, in this order: the y-down flip, then this levelling, then the lift. Measured by fitting a plane through the lowest opaque splat in every 0.4 m column within 6 m of the origin, trimming the worst fifth and refitting twice. Residual after correction: 0.04 degrees of pitch, 0.12 of roll.",
+    "pitchDeg": -1.006,
+    "rollDeg": -2.922,
+    "yawDeg": 0,
+    "liftY": 0.0463,
+    "scale": 1.0,
+    "note": "The capture is metric to within eyeballing against a 1 m reference cube on the path. The path surface ends up at world y = 0, which is where places.js puts the shadow catcher."
+  },
+
+  "camera": {
+    "_": "PERSPECTIVE for the plate, ORTHOGRAPHIC at runtime. See the mismatch note at the top of assets/js/places.js. Both share the bearing, the elevation and the aim point, so the object and the photograph agree about which way is which.",
+    "projection": "perspective",
+    "azDeg": 180,
+    "elevDeg": 14,
+    "target": [0, 0.98, 0],
+    "distance": 5.5,
+    "fovYDeg": 54.6533,
+    "aspect": 1.4285714285714286,
+    "note": "The frustum is off centre vertically: the full plate spans 7.00 x 4.90 m at the target's depth with the camera axis at (0.50, 0.42) of it, so the default frame - 3.00 m tall by 1.6 aspect - is exactly the crop the runtime shows at hang (0.50, 0.42, 1.00). Rendered with camera.setViewOffset on one symmetric frustum, so the plate and the framing cannot drift apart."
+  },
+
+  "world": [7.0, 4.9],
+  "anchor": [0.5, 0.42],
+  "outputPx": [2560, 1792],
+  "background": "#1a2119",
+  "exposure": 1.15,
+
+  "light": {
+    "_": "Not chosen: measured off the capture's own tree shadows across the path, which run down and to the left at a bearing of about 35 degrees. scene.js's storybook style casts from 28, which is the 7 degree agreement places.js records.",
+    "measuredSunAzDeg": 35,
+    "styleSunAzDeg": 28,
+    "placeSunElevDeg": 68
+  }
+}

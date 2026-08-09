@@ -20,6 +20,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+// === WCS:PLACE-IMPORTS ===
+// P4. A place owns the world, a style owns the idiom (CONTRACTS Rule B). Both
+// modules are pure of three.js state: places.js is a table and a lookup,
+// plate.js builds one clip-space quad and one shadow catcher.
+import { resolvePlace, fallbackFor, DEFAULT_PLACE_ID } from './places.js';
+import { createPlate } from './plate.js';
+// === /WCS:PLACE-IMPORTS ===
 
 // ---------------------------------------------------------------------------
 // Constants shared with the rest of the rig. These mirror physics.js; they are
@@ -474,9 +481,20 @@ export function createStage(opts) {
   const params = opts.params;
   let tier = opts.tier;
 
+  // === WCS:PLACE-BOOT ===
+  // P4. Which place is up decides the world; the style row it names decides the
+  // idiom. `opts.place` is the added argument CONTRACTS 2.4 grants; main.js does
+  // not pass one, so the stage boots in the default place and ui/places.js
+  // corrects it from the decoded design before startLoop() - one switch, before
+  // the first frame, on the minority of links that ask for the other place.
+  let place = resolvePlace(opts.place === undefined ? DEFAULT_PLACE_ID : opts.place);
+  // === /WCS:PLACE-BOOT ===
+
   // The art direction. Everything below reads S rather than a literal, so the
   // whole look is one table lookup away from being a different picture.
-  const S = STYLES[opts.style] || STYLES[params.style] || STYLES.storybook;
+  // A place names its idiom; the legacy ?style= override still wins, because a
+  // link that predates places has to keep resolving to the picture it promised.
+  const S = STYLES[opts.style] || STYLES[params.style] || STYLES[place.backdrop.style] || STYLES.storybook;
 
   // -- renderer ------------------------------------------------------------
   let renderer;
@@ -603,6 +621,86 @@ export function createStage(opts) {
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.12; // slow enough to feel like drifting air
   controls.update();
+
+  // === WCS:PLACE-CAMERA (1 of 2) ===
+  // P4. Whether the visitor may move the camera is the PLACE's business, not the
+  // style's: a procedural world can be walked around, and a capture shot in one
+  // direction cannot (the author's own note - off axis there is nothing there).
+  //
+  // Three separate things rewrite this camera every frame and every resize, and
+  // all three have to be told (H13):
+  //   autoRotate     armed by main.js after 12 s idle, and it does NOT check
+  //                  controls.enabled, so switching the controls off is not
+  //                  enough. Held down in applyPlaceCamera and again per frame.
+  //   applyFraming   resets target and distance on every orientation change.
+  //   keepTopInShot  eases the target upward on every single render.
+  // Part 2 of this region, down by the framing helpers, is where the last two
+  // learn about it.
+  let cameraFixed = false;
+
+  function applyPlaceCamera(p) {
+    const c = p.camera;
+    const wasFixed = cameraFixed;
+    cameraFixed = !!(c && c.fixed);
+    if (!cameraFixed) {
+      controls.enabled = true;
+      // Coming back from a fixed place, the eye is still standing where that
+      // place put it -- the porch seen from the forest's bearing, which is a
+      // view of the porch nobody composed. Only on the way BACK, so a visitor
+      // who has orbited, opened the Place panel and closed it again does not
+      // find their view snapped home.
+      if (wasFixed) {
+        controls.target.set(S.camTarget[0], S.camTarget[1], S.camTarget[2]);
+        _vA.set(S.camPos[0] - S.camTarget[0], S.camPos[1] - S.camTarget[1], S.camPos[2] - S.camTarget[2]);
+        if (S.ortho) {
+          camera.zoom = 1;
+          _vA.normalize().multiplyScalar(40);
+        }
+        camera.position.copy(controls.target).add(_vA);
+      }
+      if (c && c.orbit) {
+        controls.minPolarAngle = (90 - c.orbit.elevDeg[1]) * DEG;
+        controls.maxPolarAngle = (90 - c.orbit.elevDeg[0]) * DEG;
+        if (S.ortho) {
+          controls.minZoom = c.orbit.zoom[0];
+          controls.maxZoom = c.orbit.zoom[1];
+        } else {
+          controls.minDistance = c.orbit.zoom[0] * 3.0;
+          controls.maxDistance = c.orbit.zoom[1] * 3.0;
+        }
+      }
+      return;
+    }
+
+    // Fixed. Aim from the place's own bearing and elevation. For an ortho eye
+    // the vector is direction only -- distance changes nothing but clipping --
+    // which is the same convention S.camPos already uses.
+    const tgt = c.target || [0, 1.45, 0];
+    const el = (c.elevDeg === null || c.elevDeg === undefined ? 16 : c.elevDeg) * DEG;
+    const az = (c.azDeg === null || c.azDeg === undefined ? 180 : c.azDeg) * DEG;
+    _vA.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+    camera.position.set(tgt[0], tgt[1], tgt[2]).addScaledVector(_vA, S.ortho ? 40 : 5.5);
+    camera.lookAt(tgt[0], tgt[1], tgt[2]);
+    if (S.ortho) camera.zoom = 1;
+
+    // controls.target is not the aim any more -- nothing reads it as an aim once
+    // the orbit is off. Two things DO read it, and both want it here:
+    //
+    //   cameraDistance()  returns the frustum height for an ortho camera, which
+    //                     is the sole input to audio's distance gain (H14). It
+    //                     does not touch the target at all, so the level cannot
+    //                     step across a place switch as long as both places run
+    //                     the same frustum height -- which places.js enforces.
+    //   audio.setListener the strike panner projects (strike - target) onto the
+    //                     camera's right vector, so only the target's LATERAL
+    //                     position matters. Leaving it on the aim point keeps
+    //                     the panning identical to the porch's.
+    controls.target.set(tgt[0], tgt[1], tgt[2]);
+    controls.enabled = false;
+    controls.autoRotate = false;
+    controls.update();
+  }
+  // === /WCS:PLACE-CAMERA (1 of 2) ===
 
   renderer.setSize(startW, startH, false);
 
@@ -1015,6 +1113,157 @@ export function createStage(opts) {
   }
 
   buildGroundCover();
+
+  // === WCS:PLACE-BACKDROP ===
+  // P4. Everything above this line built the porch: a sky (or a flat background
+  // colour), fog, a 120 m ground plane, a beam, a post, bushes and tufts. A
+  // plate place is the third branch of that: the built world switches off and a
+  // photograph switches on. It is a switch and not a rebuild, because a rebuild
+  // is a second stage and a second stage is a second AudioContext away from
+  // being a silent page (H3, H15).
+  //
+  // What is deliberately NOT here: nothing is disposed on a switch. The porch's
+  // fifteen handles stay allocated and hidden, so twenty switches allocate one
+  // plate texture and free it again and the heap comes back to where it started
+  // (H15 says dispose() names its handles by hand and nothing traverses -- the
+  // way to survive that is to stop asking it to run).
+
+  let plate = null;
+  const placeErrors = [];
+  let placeErrorSink = null;
+
+  function notePlaceError(tag) {
+    if (typeof placeErrorSink === 'function') placeErrorSink(tag);
+    else if (placeErrors.indexOf(tag) === -1) placeErrors.push(tag);
+  }
+
+  function disposePlate() {
+    if (!plate) return;
+    plate.dispose();
+    plate = null;
+  }
+
+  // The wind streamers are meadow furniture. windviz allocates them across a
+  // hard-coded volume 16 m across and 4.5 m tall (H16), which over a lawn reads
+  // as air moving and over a photograph reads as wires strung across it: 8 m
+  // streaks crossing the canopy, the path and the chime in one straight line.
+  // On a plate place the chime is the only thing in frame that moves, which is
+  // the amendment this piece makes to REQUIREMENTS.md, so they come off. The
+  // leaves stay - a leaf blowing past a photographed wood is the same leaf -
+  // and so does the telltale, which is part of the object.
+  //
+  // windviz builds lazily, so the mesh does not exist at the moment a place
+  // goes up. This is polled from keepTopInShot, which is already a per-frame
+  // call in this piece's own region: a cached reference and one boolean once it
+  // is found, and one getObjectByName per second until it is.
+  let streamers = null;
+  let streamerProbe = 0;
+  function syncVizForPlace() {
+    if (!streamers) {
+      if (streamerProbe-- > 0) return;
+      streamerProbe = 60;
+      streamers = scene.getObjectByName('wcs-streamers') || null;
+      if (!streamers) return;
+    }
+    const want = place.kind !== 'plate';
+    if (streamers.visible !== want) streamers.visible = want;
+  }
+
+  /**
+   * Put a place up. Total: an id this build does not know resolves to the
+   * default, and a plate whose image will not load falls through to the
+   * place's own fallback -- which is porch, which needs no asset and therefore
+   * cannot fail the same way.
+   */
+  function applyPlace(next, depth) {
+    const p = typeof next === 'string' ? resolvePlace(next) : (next || place);
+    place = p;
+    const isPlate = p.kind === 'plate' && p.backdrop && p.backdrop.src;
+
+    disposePlate();
+
+    // The built world. Hidden, never removed.
+    ground.visible = !isPlate;
+    porch.visible = !isPlate;
+    cover.visible = !isPlate;
+    if (sky) sky.visible = !isPlate;
+
+    if (isPlate) {
+      // Criterion 4: no ground plane, no Sky mesh, no background colour and no
+      // fog may be visible on a plate place. The quad covers every pixel, but
+      // the clear colour still shows for the frames before the image lands and
+      // in any driver corner where it does not, so it is the plate's own tint
+      // rather than the style's off-white.
+      scene.background = new THREE.Color(p.backdrop.tint);
+      // FogExp2 is applied to every mesh unconditionally (H17). Both places ship
+      // under storybook, whose fogCalm and fogBlown are both 0.0, so there is no
+      // fog on the chime in either. This zero is the statement of intent rather
+      // than the enforcement: render() rewrites the density from the wind every
+      // frame, and giving a plate place a fogged style would need a line there
+      // as well. tools/verify-place.mjs fails the day one is given one.
+      scene.fog.density = 0;
+      plate = createPlate({
+        scene,
+        container,
+        maxAnisotropy: maxAniso,
+        viewHeight: () => (S.ortho ? viewHeight / Math.max(camera.zoom, 1e-3) : viewHeight)
+      }, p, () => {
+        // The image 404'd or decoded badly. Land somewhere that works FIRST,
+        // then say so -- in that order, because the listener's job is to make
+        // the design admit where the visitor actually ended up, and a listener
+        // fired before the fallback would read the place that just failed and
+        // conclude nothing had changed. The image load is asynchronous, so
+        // applyPlace has long since returned and this re-entry is safe.
+        if ((depth | 0) < 2) applyPlace(fallbackFor(p), (depth | 0) + 1);
+        notePlaceError('place-asset-failed');
+      });
+    } else {
+      scene.background = (S.background !== null && S.background !== undefined)
+        ? new THREE.Color(S.background) : null;
+      scene.fog.density = FOG_CALM;
+    }
+
+    // The light. A place owns where its sun is and how hard it burns; applySun
+    // owns the direction, and for a style with no sky it returns before
+    // touching colour or intensity, so these two assignments stick.
+    if (p.sun) {
+      if (Number.isFinite(p.sun.color)) sun.color.setHex(p.sun.color, THREE.SRGBColorSpace);
+      if (Number.isFinite(p.sun.intensity)) sun.intensity = p.sun.intensity;
+    }
+    if (p.shadow && p.shadow.halfExtent) {
+      sun.shadow.camera.left = -p.shadow.halfExtent[0];
+      sun.shadow.camera.right = p.shadow.halfExtent[0];
+      sun.shadow.camera.top = p.shadow.halfExtent[1];
+      sun.shadow.camera.bottom = -p.shadow.halfExtent[1];
+      sun.shadow.camera.updateProjectionMatrix();
+    }
+
+    applyPlaceCamera(p);
+    // Through applyFraming rather than straight to applyOrthoFrustum, because a
+    // place authors its own frustum height and applyFraming is the one function
+    // that owns that variable. It also re-seats the orbit target on the way back
+    // to a procedural place, which a bare frustum update would not.
+    if (S.ortho) applyFraming(aspectNow() < 1 / 1.05);
+    else { camera.aspect = aspectNow(); camera.updateProjectionMatrix(); }
+    if (plate) plate.resize();
+
+    // Last, because a PMREM bake is not free and setSunElevation only does one
+    // if the angle actually moved by more than half a degree.
+    //
+    // It has to land in `params` as well as in the stage: frame() pushes
+    // params.sunElevDeg back through setSunElevation on EVERY frame, so an
+    // elevation set here and not there survives exactly one frame. Writing the
+    // one field is also the correct handoff -- apply.js reads it straight back
+    // out through defaultSun() whenever design.view.sun is null, which is what
+    // "the place decides" means. A visitor who HAS moved the sun slider keeps
+    // their angle: apply.js re-applies view.sun after setPlace returns, which
+    // is the documented cost of leaving that slider live on a plate place.
+    if (p.sun && Number.isFinite(p.sun.elevDeg)) {
+      setSunElevation(p.sun.elevDeg);
+      params.sunElevDeg = currentSunElev;
+    }
+  }
+  // === /WCS:PLACE-BACKDROP ===
 
   // -- chime ----------------------------------------------------------------
   const chime = new THREE.Group();
@@ -1554,17 +1803,45 @@ export function createStage(opts) {
   // target above this as the view tightens; see keepTopInShot.
   let baseTargetY = S.camTarget[1];
 
+  // === WCS:PLACE-CAMERA (2 of 2) ===
+  // P4. The three rewriters from part 1, taught about a fixed place.
+  //
+  // The FRUSTUM HEIGHT is not one of the things a fixed place gets to change.
+  // Both places run the style's 2.6 m landscape and 3.5 m portrait, because
+  // cameraDistance() returns exactly that number for an ortho camera and it is
+  // the sole input to audio's distance gain: give the forest a tighter frame
+  // and the chime gets quieter when the visitor changes place (H14). What a
+  // fixed place changes is where the camera stands, not how much it can see.
+
+  function aspectNow() {
+    const w = Math.max(1, container.clientWidth || canvas.clientWidth || 1);
+    const h = Math.max(1, container.clientHeight || canvas.clientHeight || 1);
+    return w / h;
+  }
+
   function applyFraming(portrait) {
     if (S.ortho) {
       // Re-frame by changing how much world the frustum covers. The eye does
       // not move, so this cannot walk the camera into the porch.
-      viewHeight = portrait ? S.viewHeightPortrait : S.viewHeight;
+      const cam = place.camera || {};
+      viewHeight = portrait
+        ? (cam.viewHeightPortrait || S.viewHeightPortrait)
+        : (cam.viewHeight || S.viewHeight);
+      if (cameraFixed) {
+        // No re-aim: the place authored where this camera stands and a portrait
+        // window is not a reason to move it. Only the frustum grows, which is
+        // the same thing the plate's crop is solved from, so the picture stays
+        // world-locked and the chime keeps its size against the trees.
+        applyOrthoFrustum();
+        return;
+      }
       baseTargetY = portrait ? S.camTarget[1] + 0.10 : S.camTarget[1];
       controls.target.set(S.camTarget[0], baseTargetY, S.camTarget[2]);
       applyOrthoFrustum();
       controls.update();
       return;
     }
+    if (cameraFixed) return;
     _vA.subVectors(camera.position, controls.target);
     const len = _vA.length() || BASE_DIST;
     const want = portrait ? S.baseDistPortrait : BASE_DIST;
@@ -1575,16 +1852,18 @@ export function createStage(opts) {
   }
 
   function applyOrthoFrustum() {
-    const w = Math.max(1, container.clientWidth || canvas.clientWidth || 1);
-    const h = Math.max(1, container.clientHeight || canvas.clientHeight || 1);
     const hh = viewHeight / 2;
-    const hw = hh * (w / h);
+    const hw = hh * aspectNow();
     camera.left = -hw;
     camera.right = hw;
     camera.top = hh;
     camera.bottom = -hh;
     camera.updateProjectionMatrix();
+    // The plate's crop is solved from the frustum and the viewport, so the two
+    // are recomputed together or they disagree for a frame on every resize.
+    if (plate) plate.resize();
   }
+  // === /WCS:PLACE-CAMERA (2 of 2) ===
 
   function resize() {
     const w = Math.max(1, container.clientWidth || canvas.clientWidth || 0);
@@ -1706,6 +1985,20 @@ export function createStage(opts) {
   }
 
   function keepTopInShot(dt) {
+    // === WCS:PLACE-CAMERA (2 of 2, cont.) ===
+    // A fixed place authored its own frame and this function's whole job is to
+    // drift away from an authored frame. It also has to hold autoRotate down
+    // here rather than only in applyPlaceCamera: main.js arms it after twelve
+    // seconds of idle, from outside this module, and OrbitControls.update()
+    // spins on autoRotate WITHOUT checking `enabled` -- so switching the
+    // controls off is not enough on its own (H13).
+    if (cameraFixed) {
+      if (controls.autoRotate) controls.autoRotate = false;
+      syncVizForPlace();
+      return;
+    }
+    syncVizForPlace();
+    // === /WCS:PLACE-CAMERA (2 of 2, cont.) ===
     const want = Math.max(baseTargetY, KEEP_TOP_Y - frameHalfHeight());
     // Eased rather than snapped, so a zoom does not also jolt the view.
     const k = dt > 0 ? Math.min(1, dt * 7) : 1;
@@ -1858,9 +2151,21 @@ export function createStage(opts) {
     proxyMat.dispose();
     roughMap.dispose();
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    // dispose() names fifteen handles by hand and nothing traverses (H15), so
+    // the plate has to be threaded in here or its texture outlives the stage on
+    // a context loss. It is the sixteenth.
+    disposePlate();
 
     renderer.dispose();
   }
+
+  // === WCS:PLACE-API ===
+  // P4. The place goes up here, at the end, because applyPlace reaches forward
+  // to setSunElevation, applyOrthoFrustum and `viewHeight` -- all of which are
+  // declared between it and this line. The first frame is therefore already the
+  // right place, with no post-boot switch and no flash of the wrong world.
+  applyPlace(place, 0);
+  // === /WCS:PLACE-API ===
 
   const stage = {
     scene,
@@ -1889,6 +2194,33 @@ export function createStage(opts) {
     cameraDistance,
     info,
     dispose,
+
+    // === WCS:PLACE-API (members) ===
+    // P4's three additions, and nothing else on this object changes shape.
+    setPlace(id) {
+      applyPlace(id, 0);
+      return place.id;
+    },
+    setFraming(u, v, scale) {
+      // Rule A. This moves the PLATE. On a procedural place there is no plate
+      // to move and the world has a real size, so it is a no-op by construction
+      // rather than by a special case -- which is also why porch's hang ranges
+      // are degenerate.
+      if (plate) plate.setFraming(u, v, scale);
+    },
+    get plate() { return plate; },
+    place: () => place,
+    /**
+     * Register the sink for place failures and drain anything that already
+     * happened. The image load can fail before ui/places.js has mounted, and an
+     * error nobody was listening for is exactly the one criterion 7 asks for.
+     */
+    onPlaceError(fn) {
+      placeErrorSink = typeof fn === 'function' ? fn : null;
+      if (!placeErrorSink) return;
+      while (placeErrors.length) placeErrorSink(placeErrors.shift());
+    },
+    // === /WCS:PLACE-API (members) ===
   };
 
   return stage;

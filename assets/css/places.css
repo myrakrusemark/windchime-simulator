@@ -1,0 +1,114 @@
+/* places.css - the Place panel's picker.
+ *
+ * Every value here is a tokens.css custom property. There is not one colour
+ * literal in this file and there must never be one: a place that authors its
+ * own light has nowhere to attach otherwise (H31), and the two hovers and three
+ * text halos that drifted apart in the old stylesheet are what that costs.
+ *
+ * A place is a card and not a chip, unlike every other enumerated control on
+ * this page. It is the only choice here that replaces the whole world, it
+ * carries a line of prose, and it carries somebody's name - a CC BY capture has
+ * to be credited to the person who receives the built page, not only in a
+ * markdown table they will never open. */
+
+.wcs-place-choice {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: var(--wcs-s2);
+	margin-top: var(--wcs-s2);
+}
+
+.wcs-place {
+	pointer-events: auto;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 3px;
+	/* --wcs-tap is the minimum a thumb can hit; a card is taller than that
+	   anyway, but the floor is what stops a short blurb collapsing it. */
+	min-height: var(--wcs-tap);
+	padding: var(--wcs-s3) var(--wcs-s3) calc(var(--wcs-s3) - 2px);
+	border: 1px solid var(--wcs-hairline);
+	border-radius: var(--wcs-r-md);
+	background: var(--wcs-raise);
+	color: var(--wcs-ink-dim);
+	font-family: var(--wcs-font-ui);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--wcs-t-fast) var(--wcs-ease),
+	            border-color var(--wcs-t-fast) var(--wcs-ease),
+	            color var(--wcs-t-fast) var(--wcs-ease);
+}
+
+.wcs-place:hover {
+	background: var(--wcs-raise-hi);
+	border-color: var(--wcs-hairline-strong);
+	color: var(--wcs-ink);
+}
+
+.wcs-place[aria-checked="true"] {
+	background: var(--wcs-accent);
+	border-color: var(--wcs-accent);
+	color: var(--wcs-ink-on-accent);
+}
+
+.wcs-place[aria-checked="true"]:hover {
+	background: var(--wcs-accent-hi);
+	border-color: var(--wcs-accent-hi);
+}
+
+.wcs-place-name {
+	font-size: var(--wcs-fs-label);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.wcs-place-blurb {
+	font-size: var(--wcs-fs-note);
+	font-weight: 400;
+	line-height: 1.35;
+	/* Inherits the card's ink so the selected card's prose flips with it rather
+	   than staying pale on amber. */
+	opacity: 0.86;
+}
+
+.wcs-place-credit {
+	font-size: var(--wcs-fs-note);
+	font-weight: 400;
+	opacity: 0.66;
+}
+
+/* The attribution outside the group, where a real link is allowed to live. A
+   link nested inside a <button> is a keyboard trap, not a style problem. */
+.wcs-credit a {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.wcs-credit a:hover {
+	color: var(--wcs-ink);
+}
+
+/* One focus ring on the page, and this is it. The old stylesheet had exactly
+   one focus style across sixteen controls; every new control carries it. */
+.wcs-place:focus-visible {
+	outline: 2px solid var(--wcs-focus);
+	outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+
+	.wcs-place-choice {
+		grid-template-columns: 1fr;
+	}
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.wcs-place {
+		transition: none;
+	}
+
+}

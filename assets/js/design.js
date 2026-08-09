@@ -32,19 +32,15 @@ export const CODEC_VERSION = 1;
 export const DESIGN_DEFAULTS = {
 	v: 1,                              // int, codec version
 
-	// TEMPORARY, AND P4 FLIPS IT BACK IN THE COMMIT THAT SHIPS THE PLATE.
+	// FLIPPED BY P4, IN THE COMMIT THAT SHIPS THE PLATE, exactly as the line it
+	// replaces asked for.
 	//
-	// CONTRACTS section 5.4 makes 'forest-path' the default place and section 3's
-	// table says so too. But places.js does not exist yet, so the only scene this
-	// build can draw is the procedural porch - the beam, the post and the two
-	// bushes - and describe() is the only sentence on the page. Left at
-	// 'forest-path' it read "hung on the forest path" over a green lawn.
-	//
-	// A caption that lies is worse than no caption, because it is the one thing a
-	// stranger reads. Until the plate lands, the default names the place that is
-	// actually on screen. Three critics called this independently; the fix they
-	// all prescribed is this line.
-	place: 'porch',                    // string, a key of PLACES; P4 -> 'forest-path'
+	// It was held at 'porch' while places.js did not exist, because the only
+	// scene the build could draw was the procedural porch and describe() is the
+	// one sentence a stranger reads - "hung on the forest path" over a green lawn
+	// is a caption that lies. assets/places/forest-path/plate.webp is now on
+	// disk, places.js resolves the id, and the caption is true again.
+	place: 'forest-path',              // string, a key of places.js PLACES
 	tubes: {
 		scale: 'cMajorPentatonic',      // string, a key of physics.js SCALES
 		notes: 6,                       // int

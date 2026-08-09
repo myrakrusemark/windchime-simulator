@@ -43,6 +43,7 @@
     <link rel="stylesheet" type="text/css" href="assets/css/tokens.css">
     <link rel="stylesheet" type="text/css" href="assets/css/slots.css">
     <link rel="stylesheet" type="text/css" href="assets/css/landing.css">
+    <link rel="stylesheet" type="text/css" href="assets/css/places.css">
     <link rel="stylesheet" type="text/css" href="assets/css/share.css">
 
     <!--
@@ -344,14 +345,17 @@
                     <div class="wcs-panel-body">
 
                         <!-- === WCS:PLACE-PANEL === -->
-                        <!-- P4's place picker goes here, and only here. Until it
-                             lands there is exactly one place, and the panel says
-                             so in one line rather than opening a picker-shaped
-                             hole. A pill named for a part has to be honest about
-                             what the part can currently do. -->
+                        <!-- P4. The cards are built by assets/js/ui/places.js
+                             from the PLACES table, not authored here: the table
+                             is the one source of truth for what a place is, and
+                             a second copy in markup is a second thing to keep in
+                             step. The container and the credit line are static
+                             because they are the parts that are not per-place. -->
                         <div class="wcs-group">
-                            <h3 class="wcs-group-title">Where it hangs</h3>
-                            <p class="wcs-note">The porch, on a sawn beam. It is the only place built so far - the forest path arrives with the next piece, and the link already carries which one you picked.</p>
+                            <h3 class="wcs-group-title" id="wcsPlaceLabel">Where it hangs</h3>
+                            <div class="wcs-place-choice" id="wcsPlaceChoice" role="radiogroup" aria-labelledby="wcsPlaceLabel"></div>
+                            <p class="wcs-note">The forest path is a photograph, so the chime is the only thing in it that moves and the view is fixed - the capture was shot in one direction only. The porch is built, and you can drag to walk around it.</p>
+                            <p class="wcs-note wcs-credit">Forest path captured by <a href="https://superspl.at/scene/2be1a75a" rel="noopener noreferrer" target="_blank">tanha</a>, used under <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener noreferrer" target="_blank">CC BY 4.0</a>.</p>
                         </div>
                         <!-- === /WCS:PLACE-PANEL === -->
 

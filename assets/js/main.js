@@ -29,6 +29,7 @@ import * as weather from './weather.js';
 import { applyDesign, currentDesign, emitFrame, foldIntoParams, onDesign, onFrame, setBaseDesign } from './apply.js';
 import { RANGES, designFromLocation } from './design.js';
 import { mountLanding } from './ui/landing.js';
+import { mountPlaces } from './ui/places.js';
 import { mountShare } from './ui/share.js';
 import { mountSlots } from './ui/slots.js';
 // === /WCS:DESIGN-IMPORTS ===
@@ -1007,6 +1008,7 @@ Object.defineProperty( window.__wcs, 'stage', { get: () => stage, configurable: 
 // One line per piece, alphabetical by function name. A mount must not throw and
 // must not await; wrap your own body in try/catch and call noteError on failure.
 mountLanding( window.__wcs, noteError );
+mountPlaces( window.__wcs, noteError );
 mountShare( window.__wcs, noteError );
 mountSlots( window.__wcs, noteError );
 // === /WCS:UI-MOUNT ===
