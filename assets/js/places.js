@@ -405,9 +405,21 @@ export const PLACES = Object.freeze( {
 		// clamps to whichever is tighter, and reports the result through limits()
 		// so the hang control can show what is actually reachable rather than the
 		// authored ideal. A narrow window has less room; it never shows an edge.
+		//
+		// TOP OF v PULLED IN FROM 0.327 TO 0.36 - a range is judged by the picture
+		// at its corners, not by how much margin the crop arithmetic allows. At
+		// 0.33 the crop has 0.35 % of the plate left above it and the chime hangs
+		// in the middle of the heavily defocused near canopy: it stays perfectly
+		// sharp, it occludes the foreground, there is no midground behind the
+		// tubes, and the wordmark lands on a blown-out grey blur. It is a frame
+		// nobody would share, and the drag stopping cleanly at it does not help.
+		// 0.36 is the highest hang that still puts sharp midground and the path's
+		// opening behind the object; it costs 0.03 of 0.23 of travel. This is a
+		// P4 table edited by P5, because P5's reach is what exposed it - declared
+		// here and in the commit rather than left as drift.
 		hang: Object.freeze( {
 			uRange: Object.freeze( [ 0.41, 0.59 ] ),
-			vRange: Object.freeze( [ 0.33, 0.56 ] ),
+			vRange: Object.freeze( [ 0.36, 0.56 ] ),
 			scaleRange: Object.freeze( [ 0.75, 1.30 ] ),
 			default: Object.freeze( { u: 0.50, v: 0.40, scale: 1.00 } )
 		} ),

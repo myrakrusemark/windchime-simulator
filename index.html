@@ -555,9 +555,16 @@
                         <p class="wcs-hang-hint" id="wcsHangHint"></p>
                         <!-- === /WCS:HANG === -->
 
-                        <!-- The note comes BEFORE the sliders, and each slider
-                             carries its own reason, because a warning read after
-                             the drag is not a warning.
+                        <!-- The reason line is the FIRST thing in the body and
+                             the only prose in it. A second paragraph used to sit
+                             here explaining that the chime never moves and the
+                             place moves behind it - 39 words about the build,
+                             addressed to a visitor who has already noticed the
+                             chime does not move. On a phone those words were
+                             what pushed the Size slider out of a body that is
+                             `max-height: min(26vh, 222px)`: 297 px of content in
+                             240 px, with the third control below the fold and no
+                             sign it was there.
 
                              These three ship `disabled` in the MARKUP and hang.js
                              takes the attribute off on a place that can take a
@@ -567,16 +574,26 @@
                              screen, so if hang.js ever fails to mount the
                              controls fail OFF rather than live-and-inert
                              (CONTRACTS P5 criterion 5). The reason line below is
-                             rewritten per place by the same file. -->
-                        <p class="wcs-note">Where the chime sits in the place, and how big it hangs there. The chime itself never moves: the place moves behind it, which is what keeps the physics and the loudness out of it.</p>
+                             rewritten per place by the same file.
+
+                             NO data-fmt ON u AND v, ON PURPOSE. Their travel is
+                             the place's reach - 0.41 to 0.59 across - so "Across
+                             the place 59%" printed a plate coordinate next to a
+                             thumb that was 100 % of the way along. Every readout
+                             contradicted the control it was printed on. The
+                             label and the thumb are the whole message; a
+                             percentage that is not the thumb's percentage is
+                             worse than none. Size keeps its percentage, because
+                             a size IS a magnitude and 130% means half again as
+                             big rather than "130 % of the way along". -->
 
                         <p class="wcs-field is-disabled">
                             <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangU">Across the place</label><span class="wcs-field-value" data-value-for="wcsHangU"></span></span>
-                            <input class="wcs-range" type="range" id="wcsHangU" data-path="hang.u" data-range="hang.u" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
+                            <input class="wcs-range" type="range" id="wcsHangU" data-path="hang.u" data-range="hang.u" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
                         <p class="wcs-field is-disabled">
                             <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangV">Down from the top</label><span class="wcs-field-value" data-value-for="wcsHangV"></span></span>
-                            <input class="wcs-range" type="range" id="wcsHangV" data-path="hang.v" data-range="hang.v" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
+                            <input class="wcs-range" type="range" id="wcsHangV" data-path="hang.v" data-range="hang.v" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
                         <p class="wcs-field is-disabled">
                             <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangScale">Size</label><span class="wcs-field-value" data-value-for="wcsHangScale"></span></span>

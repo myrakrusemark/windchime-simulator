@@ -860,6 +860,15 @@ function build( wcs, note ) {
 		if ( ! openSlot ) return;
 		const panel = panels.get( openSlot );
 		if ( ! panel ) return;
+		// A piece whose control lives OVER the picture claims the press before
+		// this listener runs and names the panel it belongs to. P5 is the one
+		// case: the Hang panel's own first line is "Take hold of the chime and
+		// drag it", and obeying it dismissed the instruction, the readouts and
+		// the Size slider before the pointer had moved. Two listeners on the same
+		// node in the same phase cannot suppress one another without
+		// stopImmediatePropagation, which would take main.js's canvas handler
+		// with it - so the claim is a flag on the event instead.
+		if ( e.wcsKeepPanel === openSlot ) return;
 		const t = e.target;
 		if ( ! ( t instanceof Node ) ) return;
 		if ( panel.contains( t ) ) return;
