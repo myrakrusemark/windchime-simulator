@@ -994,10 +994,22 @@ function build( wcs, note ) {
 
 	}
 
-	/** The hold outline: whenever the chime is under the pointer or in hand. */
+	/**
+	 * The hold outline: in hand, or under the pointer WHILE THE PANEL IS OPEN.
+	 *
+	 * The panel clause is the whole point and it was missing. The reasoning
+	 * three comments up applies to this mark exactly as much as to the reach:
+	 * the first frame contains the object and nothing else. Without it, moving
+	 * the pointer across the chime on the landing frame - which is the one
+	 * gesture every visitor makes, because the chime is what they came to look
+	 * at - drew a dashed rectangle over it, offering a grab nobody had asked
+	 * for.
+	 */
 	function wantHold() {
 
-		return enabled && ( holding || dragId !== -1 );
+		if ( ! enabled ) return false;
+		if ( dragId !== -1 ) return true;
+		return holding && !! ( panel && panel.hidden === false );
 
 	}
 
