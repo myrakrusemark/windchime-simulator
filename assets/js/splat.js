@@ -51,7 +51,17 @@ function sparkFor( scene, renderer ) {
 
 	let s = renderers.get( scene );
 	if ( s ) return s;
-	s = new SparkRenderer( { renderer } );
+	// enableLod defaults to TRUE, and it is the wrong default for a place.
+	//
+	// LOD swaps WHICH gaussians are drawn as the view changes. On a capture you
+	// fly through at speed that is exactly right; on a fixed-ish view of a
+	// forest it means splats appearing and vanishing as the camera creeps,
+	// which reads as popping rather than as detail arriving. At 300k there is
+	// nothing to save: the whole capture fits in one level.
+	//
+	// minSortIntervalMs stays 0. The sort is what keeps back-to-front blending
+	// correct and throttling it trades shimmer for smear.
+	s = new SparkRenderer( { renderer, enableLod: false, enableDriveLod: false } );
 	scene.add( s );
 	renderers.set( scene, s );
 	return s;
