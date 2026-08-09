@@ -13,4 +13,4 @@
  * vendored for the bloom chain, so it costs no additional addon.
  */
 
-export { SplatMesh, SparkRenderer } from '../vendor/spark.module.js';
+export { SplatMesh, SparkRenderer, SplatEdit, SplatEditSdf } from '../vendor/spark.module.js';

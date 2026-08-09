@@ -36,7 +36,7 @@
  */
 
 import * as THREE from 'three';
-import { SplatMesh, SparkRenderer } from './vendor-spark.js';
+import { SplatMesh, SparkRenderer, SplatEdit, SplatEditSdf } from './vendor-spark.js';
 
 /**
  * One SparkRenderer per scene, not per place. Spark draws every SplatMesh in
@@ -179,7 +179,10 @@ export function createSplat( ctx, place, onError ) {
 		// u/v run 0..1 with 0.5 as centred; convert to a signed offset in metres.
 		const dx = ( 0.5 - u ) * 2 * reach.x;
 		const dy = ( v - 0.5 ) * 2 * reach.y;
-		mesh.position.set( POS[ 0 ] + dx, POS[ 1 ] + dy, POS[ 2 ] );
+		// A picked hang point wins over the authored pose: the visitor said
+		// where, and the sliders go back to being a nudge around it.
+		const base = pickOffset || { x: POS[ 0 ], y: POS[ 1 ], z: POS[ 2 ] };
+		mesh.position.set( base.x + dx, base.y + dy, base.z );
 		// Scaling the capture is what makes the chime look bigger against it,
 		// with the chime and therefore stage.cameraDistance() untouched - which
 		// is what keeps a bigger chime from also being a louder one (H14).
@@ -227,9 +230,184 @@ export function createSplat( ctx, place, onError ) {
 
 	} )();
 
-	return {
+	// ------------------------------------------------------------------
+	// Picking a gaussian to hang from.
+	//
+	// The two hang sliders were the plate's answer, and they are abstract in a
+	// way the gesture is not: nobody thinks "I would like u = 0.38", they think
+	// "there, that branch". SplatMesh implements the standard THREE.Raycaster
+	// contract, so the pick is an ordinary raycast, and moving the CAPTURE so
+	// the picked point arrives at the hook is Rule A again - the chime still
+	// never moves.
+	//
+	// The white mark is a SplatEdit carrying one spherical SDF. It recolours
+	// the gaussians inside it rather than drawing anything on top, so what
+	// lights up is the actual thing that was picked.
+	// ------------------------------------------------------------------
+
+	const HOOK = new THREE.Vector3( 0, 2.60, 0 );
+	const raycaster = new THREE.Raycaster();
+	let edit = null;
+	let sdf = null;
+	let pickOffset = null;   // world translation that puts the pick at the hook
+
+	function ensureMark() {
+
+		if ( edit || ! mesh ) return;
+		sdf = new SplatEditSdf( {
+			type: 'sphere',
+			radius: 0.16,
+			color: new THREE.Color( 1, 1, 1 ),
+			opacity: 1
+		} );
+		edit = new SplatEdit( { rgbaBlendMode: 'mix', softEdge: 0.35, sdfs: [ sdf ] } );
+		// Parented to the mesh, so the mark travels with the capture when the
+		// capture slides. In mesh-local space it is a fixed point on a branch.
+		mesh.add( edit );
+		edit.add( sdf );
+
+	}
+
+	// Click to pick, drag to orbit. The distinction is the whole reason this is
+	// wired here rather than as a mode: a visitor who wants to look around must
+	// not have to remember which one they are in. A press that travels more than
+	// a few pixels, or lasts longer than a moment, is a camera move and is left
+	// entirely alone.
+	const el = ctx.container;
+	let downAt = null;
+	let downT = 0;
+
+	function onDown( e ) {
+
+		if ( e.button !== undefined && e.button !== 0 ) { downAt = null; return; }
+		downAt = { x: e.clientX, y: e.clientY };
+		downT = performance.now();
+
+	}
+
+	function onUp( e ) {
+
+		if ( ! downAt || ! mesh ) { downAt = null; return; }
+		const dx = e.clientX - downAt.x, dy = e.clientY - downAt.y;
+		const moved = Math.sqrt( dx * dx + dy * dy );
+		const held = performance.now() - downT;
+		downAt = null;
+		if ( moved > 5 || held > 500 ) return;      // that was a camera move
+		if ( ! pickArmed() ) return;
+
+		const r = el.getBoundingClientRect();
+		const ndcX = ( ( e.clientX - r.left ) / r.width ) * 2 - 1;
+		const ndcY = - ( ( e.clientY - r.top ) / r.height ) * 2 + 1;
+		const cam = typeof ctx.getCamera === 'function' ? ctx.getCamera() : null;
+		const hit = handle.pick( ndcX, ndcY, cam );
+		if ( hit && typeof onPick === 'function' ) onPick( hit );
+
+	}
+
+	/**
+	 * Only while the Hang panel is open. The landing frame is the one place on
+	 * this page that asks nothing of the visitor, and a click there already
+	 * means "start the sound" - it may not also silently move the forest.
+	 */
+	function pickArmed() {
+
+		return !! document.querySelector( '.wcs-panel[data-slot="hang"]:not([hidden])' );
+
+	}
+
+	let onPick = null;
+
+	if ( el ) {
+
+		el.addEventListener( 'pointerdown', onDown, { passive: true } );
+		el.addEventListener( 'pointerup', onUp, { passive: true } );
+
+	}
+
+	const handle = {
 
 		kind: 'splat',
+
+		/** Called with {point, distance} whenever a pick lands. */
+		onPick( fn ) { onPick = fn; },
+
+		/**
+		 * @param {number} ndcX -1..1
+		 * @param {number} ndcY -1..1
+		 * @param {THREE.Camera} camera
+		 * @returns {{point:number[], distance:number}|null}
+		 */
+		pick( ndcX, ndcY, camera ) {
+
+			if ( ! mesh || ! camera ) return null;
+			try {
+
+				mesh.raycastable = true;
+				raycaster.setFromCamera( { x: ndcX, y: ndcY }, camera );
+				const hits = [];
+				mesh.raycast( raycaster, hits );
+				if ( ! hits.length ) return null;
+				hits.sort( ( a, b ) => a.distance - b.distance );
+				const hit = hits[ 0 ];
+
+				ensureMark();
+				if ( sdf ) {
+
+					// The hit is in world space; the SDF lives under the mesh.
+					sdf.position.copy( mesh.worldToLocal( hit.point.clone() ) );
+					sdf.updateMatrixWorld( true );
+
+				}
+
+				// Move the capture so the picked gaussian arrives at the hook -
+				// but not further than the place says it may travel.
+				//
+				// The first version of this had no clamp and the first pick
+				// landed on a gaussian 37 m out, which is inside the capture's
+				// tree bound and nowhere near anything a person would call a
+				// branch. Bringing it to the hook dragged the whole forest with
+				// it and left an empty frame. A capture has outliers; a pick
+				// has to survive hitting one.
+				const want = HOOK.clone().sub( hit.point ).add( mesh.position );
+				const home = new THREE.Vector3( POS[ 0 ], POS[ 1 ], POS[ 2 ] );
+				const travel = want.clone().sub( home );
+				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 4.0;
+				if ( travel.length() > maxTravel ) {
+
+					note( 'splat-pick-out-of-reach', new Error(
+						`picked point is ${travel.length().toFixed( 1 )} m from the authored pose, cap is ${maxTravel}` ) );
+					if ( sdf && edit && mesh ) { mesh.remove( edit ); edit = null; sdf = null; }
+					return null;
+
+				}
+
+				pickOffset = want;
+				applyPose();
+				return { point: hit.point.toArray(), distance: hit.distance };
+
+			} catch ( err ) {
+
+				note( 'splat-pick-failed', err );
+				return null;
+
+			}
+
+		},
+
+		/** Forget the picked point and go back to the authored pose. */
+		clearPick() {
+
+			pickOffset = null;
+			if ( edit && mesh ) { mesh.remove( edit ); edit = null; sdf = null; }
+			applyPose();
+
+		},
+
+		picked() {
+
+			return !! pickOffset;
+
+		},
 
 		setFraming( nu, nv, ns ) {
 
@@ -271,6 +449,12 @@ export function createSplat( ctx, place, onError ) {
 		dispose() {
 
 			disposed = true;
+			if ( el ) {
+
+				el.removeEventListener( 'pointerdown', onDown );
+				el.removeEventListener( 'pointerup', onUp );
+
+			}
 			if ( mesh ) {
 
 				scene.remove( mesh );
@@ -291,5 +475,8 @@ export function createSplat( ctx, place, onError ) {
 		}
 
 	};
+
+	return handle;
+
 
 }

@@ -1254,7 +1254,7 @@ export function createStage(opts) {
         notePlaceError('place-asset-failed');
       };
       plate = (p.backdrop && p.backdrop.splat)
-        ? createSplat({ scene, renderer, container }, p, onPlaceError)
+        ? createSplat({ scene, renderer, container, getCamera: () => camera }, p, onPlaceError)
         : createPlate({
         scene,
         container,
