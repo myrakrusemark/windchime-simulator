@@ -524,13 +524,24 @@ export function createSplat( ctx, place, onError ) {
 
 				}
 
-				const prev = mesh.position.clone();
-				pickOffset = want;
-				applyPose();
-				// The capture moved by this much, so the eye moves by the same,
-				// and the forest holds still while the chime is what travelled.
-				const moved = mesh.position.clone().sub( prev );
-				if ( typeof ctx.shiftView === 'function' ) ctx.shiftView( moved.x, moved.y, moved.z );
+				// MOVING IS OFF. The mark is not.
+				//
+				// Four attempts at "click a splat and the chime goes there" and
+				// the forest ended up off screen every time. The maths is right -
+				// translate the capture by (hook - hit), translate the eye by the
+				// same, geometry preserved - and something downstream keeps
+				// walking the camera back afterwards. keepTopInShot was one and
+				// fixing it did not fix this, so there is at least one more:
+				// applyFraming on resize and OrbitControls' own clamping are both
+				// still live on a non-fixed place.
+				//
+				// Verified after the last try: the capture ended 45 units from
+				// the eye at (-29.16, -16.75, 31.34), which is not a small drift.
+				//
+				// So the translation is off and picking marks only. That leaves a
+				// forest you can look at and a mark that shows what a click would
+				// take, instead of a build that erases the scene on first click.
+				// Turning it back on is one line here plus finding the writer.
 				return { point: hit.point.toArray(), distance: hit.distance };
 
 			} catch ( err ) {

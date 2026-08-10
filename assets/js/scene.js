@@ -2141,7 +2141,12 @@ export function createStage(opts) {
     if (cameraFixed || splatPlace()) {
       if (controls.autoRotate) controls.autoRotate = false;
       syncVizForPlace();
-      if (cameraFixed) return;
+      // Return for a splat place too. Falling through meant keepTopInShot
+      // eased controls.target back to its own computed value every frame,
+      // which undid the shift a pick had just made - the camera walked back to
+      // the chime while the capture stayed where the pick put it, and the
+      // forest was gone. That is what "the entire forest disappears" is.
+      return;
     }
     syncVizForPlace();
     // === /WCS:PLACE-CAMERA (2 of 2, cont.) ===
