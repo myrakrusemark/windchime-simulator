@@ -2199,6 +2199,13 @@ export function createStage(opts) {
 
     keepTopInShot(dt);
 
+    // The place's own moving parts, if it has any. A capture place hangs the
+    // chime on a rope and the rope is in the wind like everything else here;
+    // a plate has nothing to move and does not implement this.
+    if (plate && typeof plate.frame === 'function') {
+      plate.frame(dt, windFlow.x, windFlow.y, windSpeedMs);
+    }
+
     renderer.info.reset();
     controls.update();
     if (composer) composer.render();

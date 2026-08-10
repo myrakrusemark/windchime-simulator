@@ -547,9 +547,21 @@ for ( const id of ids ) {
 	ok( 'the hanger spec carries no lateral offset for the eye to inherit',
 		D.hanger.z === undefined && D.hanger.x === undefined,
 		'hanger has ' + JSON.stringify( D.hanger ) );
-	ok( 'splat.js pins the eye and its cord to the hook in x and z',
-		( splatSrc.match( /\.position\.set\( HOOK_X, [^)]*, HOOK_Z \)/g ) || [] ).length === 2,
-		'expected the eye and the cord to be placed at HOOK_X/HOOK_Z' );
+	//    The cord half of this used to be the second `.position.set( HOOK_X, ...,
+	//    HOOK_Z )` in the file, back when it was one rigid cylinder that could
+	//    only ever stand plumb. It is a wind-bellied Bezier now, so "is it on the
+	//    hook axis" is no longer a question about one position: the ENDS have to
+	//    be on it and the middle has to be the only thing that leaves. Pinning
+	//    the formula is a stronger statement than pinning the old call was - it
+	//    catches a bow leaking into the endpoint terms, which is the modern way
+	//    to hang the chime beside its own ring.
+	ok( 'splat.js pins the eye to the hook in x and z',
+		( splatSrc.match( /\.position\.set\( HOOK_X, [^)]*, HOOK_Z \)/g ) || [] ).length === 1,
+		'expected the eye to be placed at HOOK_X/HOOK_Z' );
+	ok( 'splat.js keeps both ends of the rope on the hook axis, bowing only the middle',
+		/HOOK_X \* \( w0 \+ w2 \) \+ \( HOOK_X \+ bowX \) \* w1/.test( splatSrc ) &&
+		/HOOK_Z \* \( w0 \+ w2 \) \+ \( HOOK_Z \+ bowZ \) \* w1/.test( splatSrc ),
+		'expected the rope endpoints at HOOK_X/HOOK_Z with the bow on the control point only' );
 
 	// 5. A place may narrow the sun but never past what scene.js will accept.
 	// The no-sky branch, which is the one a plate place runs under.

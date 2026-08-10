@@ -236,6 +236,29 @@ export function createSplat( ctx, place, onError ) {
 	const _dir = new THREE.Vector3();
 	const _up = new THREE.Vector3( 0, 1, 0 );
 
+	// How far downwind the middle of the rope is, in metres, and the phase of the
+	// slow breathing on top of it.
+	let bowX = 0, bowZ = 0;
+	let swayPhase = 0;
+
+	/** A point on the rope at 0..1 from the eye, written into `out`. */
+	function ropePoint( t, foot, span, out ) {
+
+		// Quadratic Bezier through a control point pushed downwind, which is the
+		// same shape scene.js bends the chime's own cords with. Both ends are
+		// pinned - the eye by the welded hook, the top by the branch - so a rope
+		// in moving air can only belly, and the belly is what a Bezier is for.
+		const it = 1 - t;
+		const w0 = it * it, w1 = 2 * it * t, w2 = t * t;
+		const midY = foot + span * 0.5;
+		out.set(
+			HOOK_X * ( w0 + w2 ) + ( HOOK_X + bowX ) * w1,
+			foot * w0 + midY * w1 + ( foot + span ) * w2,
+			HOOK_Z * ( w0 + w2 ) + ( HOOK_Z + bowZ ) * w1
+		);
+
+	}
+
 	/**
 	 * Lay the rope from the top of the eye to whatever the chime hangs from.
 	 *
@@ -259,10 +282,10 @@ export function createSplat( ctx, place, onError ) {
 		}
 
 		const n = segs.length;
+		ropePoint( 0, foot, span, _a );
 		for ( let i = 0; i < n; i ++ ) {
 
-			_a.set( HOOK_X, foot + span * ( i / n ), HOOK_Z );
-			_b.set( HOOK_X, foot + span * ( ( i + 1 ) / n ), HOOK_Z );
+			ropePoint( ( i + 1 ) / n, foot, span, _b );
 			const seg = segs[ i ];
 			seg.visible = true;
 			seg.position.copy( _a );
@@ -275,6 +298,8 @@ export function createSplat( ctx, place, onError ) {
 				seg.quaternion.setFromUnitVectors( _up, _dir );
 
 			}
+
+			_a.copy( _b );
 
 		}
 
@@ -850,6 +875,53 @@ export function createSplat( ctx, place, onError ) {
 		 * rope lifts the wood so the branch ends up further above a hook that
 		 * has not moved.
 		 */
+		/**
+		 * The rope, blown about, once per rendered frame.
+		 *
+		 * WHY THE ROPE AND NOT THE CHIME. A rope holding a chime in moving air
+		 * swings the whole assembly, and this one cannot: physics.js welds the
+		 * hook at (0, 2.60, 0) and that is the fact every grab proxy, the bridle
+		 * derived at module load and windviz's world extents are built on. So
+		 * the honest half of the motion is the half that IS free - both ends of
+		 * the rope are pinned, the eye by the hook and the top by the branch, so
+		 * it bellies downwind instead of leaning. That is what a rope with a
+		 * little slack does, and it is the same quadratic Bezier scene.js already
+		 * bends the chime's own cords with.
+		 *
+		 * The lean saturates the way that one does - speed / (speed + 18) is 0 in
+		 * calm and 0.45 at 15 m/s - so a gale bellies the rope hard without ever
+		 * folding it in half. Scaled by the rope's own length, because a two-inch
+		 * cord has nothing to belly and a three-metre one has plenty.
+		 *
+		 * The phase is INTEGRATED from the speed rather than multiplied into a
+		 * clock. Multiplying an ever-growing clock by a changing rate jumps every
+		 * time the wind moves, which is the bug wind.js's header warns about and
+		 * scene.js's own swayPhase avoids the same way.
+		 *
+		 * @param {number} dt      seconds since the last frame
+		 * @param {number} flowX   unit vector the air blows toward, world x
+		 * @param {number} flowZ   ...and world z
+		 * @param {number} speedMs wind speed in metres per second
+		 */
+		frame( dt, flowX, flowZ, speedMs ) {
+
+			if ( ! hanger || ! ( cordLen > 0 ) ) return;
+			const v = Number.isFinite( speedMs ) ? Math.max( 0, speedMs ) : 0;
+			const step = Number.isFinite( dt ) ? Math.min( 0.25, Math.max( 0, dt ) ) : 0;
+			swayPhase += v * 0.55 * step;
+			if ( swayPhase > Math.PI * 2048 ) swayPhase -= Math.PI * 2048;
+			const span = ( HOOK_Y + cordLen ) - hanger.userData.footY;
+			const lean = v / ( v + 18.0 );
+			// 0.72 + 0.28 sin, so the belly breathes between about three quarters
+			// and full rather than snapping to nothing on the back of each cycle -
+			// a rope in a steady wind stays out, it does not flap to plumb.
+			const amp = span * lean * 0.30 * ( 0.72 + 0.28 * Math.sin( swayPhase ) );
+			bowX = ( Number.isFinite( flowX ) ? flowX : 0 ) * amp;
+			bowZ = ( Number.isFinite( flowZ ) ? flowZ : 0 ) * amp;
+			shapeCord();
+
+		},
+
 		setCord( metres ) {
 
 			if ( ! Number.isFinite( metres ) ) return;
