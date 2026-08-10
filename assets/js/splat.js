@@ -325,16 +325,57 @@ export function createSplat( ctx, place, onError ) {
 	let sdf = null;
 	let pickOffset = null;   // world translation that puts the pick at the hook
 
+	// THE MARK, AND THE ONE-WORD BUG THAT ERASED THE FOREST.
+	//
+	// rgbaBlendMode was 'mix', which is not a blend mode spark has. SplatEdit's
+	// constructor takes the string without looking at it, and the throw comes
+	// later and somewhere else: rgbaBlendModeToNumber runs inside the per-frame
+	// edit encode, so `Unknown blend mode: mix` was raised on EVERY FRAME from
+	// the moment the first hover built the mark - and it aborted the frame
+	// update that hands spark its splat data, so the entire capture stopped
+	// drawing. That is the whole of "the forest disappears". It was never the
+	// pick's arithmetic, never keepTopInShot, never applyFraming: hovering one
+	// gaussian erased 99,871 of them, and clicking erased them because a click
+	// builds the same mark.
+	//
+	// Measured in the open page: 1860 console errors, all this one, and the
+	// forest came back the instant the edit was removed from the mesh. The three
+	// spark accepts are 'multiply', 'set_rgb' and 'add_rgba'.
+	//
+	// WHY add_rgba AND NOT set_rgb, WHICH IS THE ONE THAT MEANS "PAINT IT WHITE"
+	//
+	// Because an SDF catches a gaussian by its CENTRE, and this capture's
+	// centres are metres apart while the ellipsoids drawn from them are metres
+	// long. A sphere small enough to mean "that spot" contains few centres or
+	// none, and set_rgb keeps each one's alpha - so recolouring two faint smears
+	// changes almost nothing in the pixels they cover. Walked up against two
+	// fixed hovers, one in dense canopy and one in thin understorey: set_rgb at
+	// 0.16 and 0.40 was invisible in both, 0.55 read in the dense one and was
+	// still invisible in the thin one, and 3.00 whited out the whole canopy -
+	// which is what proved the mark had been working all along and only ever
+	// been too small to find.
+	//
+	// add_rgba raises alpha as well as colour, so one caught gaussian is worth
+	// seeing. That makes it strong enough to overdo: at full opacity and 0.45 it
+	// threw a flare a third of the frame across over the dense hover. Opacity
+	// 0.6 is where both hovers land - a clear glow on canopy, a faint one on
+	// thin air, which is honest, because thin air is not a branch to hang from.
+	//
+	// softEdge is a distance in metres either side of the SDF surface over which
+	// the effect ramps, so it has to sit well under the radius or the mark is
+	// all ramp: at radius 0.16 the old softEdge 0.35 meant the centre of the
+	// sphere never reached full strength either.
 	function ensureMark() {
 
 		if ( edit || ! mesh ) return;
+		const MARK_R = 0.45;
 		sdf = new SplatEditSdf( {
 			type: 'sphere',
-			radius: 0.16,
+			radius: MARK_R,
 			color: new THREE.Color( 1, 1, 1 ),
-			opacity: 1
+			opacity: 0.6
 		} );
-		edit = new SplatEdit( { rgbaBlendMode: 'mix', softEdge: 0.35, sdfs: [ sdf ] } );
+		edit = new SplatEdit( { rgbaBlendMode: 'add_rgba', softEdge: MARK_R * 0.31, sdfs: [ sdf ] } );
 		// Parented to the mesh, so the mark travels with the capture when the
 		// capture slides. In mesh-local space it is a fixed point on a branch.
 		mesh.add( edit );
