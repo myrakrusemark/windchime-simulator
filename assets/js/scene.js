@@ -1194,21 +1194,50 @@ export function createStage(opts) {
   // goes up. This is polled from keepTopInShot, which is already a per-frame
   // call in this piece's own region: cached references and one boolean once
   // they are found, and one getObjectByName per second until they are.
-  const VIZ_OFF_ON_PLATE = ['wcs-streamers', 'wcs-leaves', 'wcs-telltale'];
+  const VIZ_ON_BUILT_WORLD = ['wcs-streamers', 'wcs-leaves', 'wcs-telltale'];
   const vizParts = [];
   let vizProbe = 0;
   function syncVizForPlace() {
-    if (vizParts.length < VIZ_OFF_ON_PLATE.length) {
+    // A CACHED MESH THAT HAS LOST ITS PARENT IS ONE WINDVIZ REBUILT UNDER US,
+    // and this check is the whole reason the rule below ever reaches the screen.
+    //
+    // windviz.setTier disposes all three meshes and builds three new ones with
+    // the same names. scene.remove leaves the old ones parentless; the new ones
+    // are what gets drawn. This function cached the old three, found
+    // vizParts.length already at 3 so never probed again, and spent every frame
+    // afterwards writing `visible` to objects nobody renders. Silently, and
+    // with every input to the decision correct.
+    //
+    // It is not a rare path. main.js drops the tier adaptively on a scene that
+    // misses frame budget, and the heaviest scene here is the very one the wind
+    // lines are supposed to be off in - so the forest downgraded itself and
+    // turned its own streamers back on.
+    let stale = false;
+    for (const o of vizParts) if (!o.parent) { stale = true; break; }
+    if (stale) { vizParts.length = 0; vizProbe = 0; }
+    if (vizParts.length < VIZ_ON_BUILT_WORLD.length) {
+      // The countdown is for meshes that do not exist YET - windviz builds
+      // lazily - so a rebuild does not have to wait it out: the branch above
+      // zeroes it and this probes on the same frame.
       if (vizProbe-- > 0) return;
       vizProbe = 60;
       vizParts.length = 0;
-      for (const n of VIZ_OFF_ON_PLATE) {
+      for (const n of VIZ_ON_BUILT_WORLD) {
         const o = scene.getObjectByName(n);
         if (o) vizParts.push(o);
       }
       if (vizParts.length === 0) return;
     }
-    const want = place.kind !== 'plate';
+    // THE BUILT WORLD ONLY, which today means the porch and says so.
+    //
+    // This read `place.kind !== 'plate'`, which picked out the same one place
+    // by describing everything it is not. The rule Myra asked for is the
+    // positive one - the wind lines belong to the world this page models, not
+    // to a photograph of somewhere else - and it is the phrasing that stays
+    // true when a third place arrives. A capture has no ground plane these
+    // streamers can be laid over and no way to know where its air goes, so
+    // guessing a path through someone's photograph is the failure this avoids.
+    const want = place.kind === 'procedural';
     for (const o of vizParts) if (o.visible !== want) o.visible = want;
   }
 
