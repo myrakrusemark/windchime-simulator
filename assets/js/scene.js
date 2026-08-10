@@ -1254,21 +1254,16 @@ export function createStage(opts) {
         notePlaceError('place-asset-failed');
       };
       plate = (p.backdrop && p.backdrop.splat)
-        ? createSplat({
-          scene, renderer, container,
-          getCamera: () => camera,
-          // Move the eye with the world. A pick translates the capture so the
-          // chosen gaussian lands at the hook; on its own that hurls the whole
-          // forest across the frame and out of it. Shifting the camera and its
-          // target by the SAME vector holds the forest still on screen and
-          // makes the CHIME the thing that travelled, which is what was asked
-          // for. The chime itself never moves, so the physics is untouched.
-          shiftView: (dx, dy, dz) => {
-            camera.position.x += dx; camera.position.y += dy; camera.position.z += dz;
-            controls.target.x += dx; controls.target.y += dy; controls.target.z += dz;
-            controls.update();
-          }
-        }, p, onPlaceError)
+        // No camera hook, deliberately. A shiftView() used to live here so a
+        // pick could move the eye and its target by the same vector the capture
+        // moved by, holding the forest still on screen. It was written to fix a
+        // disappearing forest that turned out to be an invalid SplatEdit blend
+        // mode (see splat.js), and it made things worse on its own account: an
+        // eye moved off the chime is an eye applyFraming re-aims on the next
+        // resize and OrbitControls re-clamps on the next drag. A pick brings
+        // the picked gaussian to the hook, the hook is already the middle of
+        // this frame, and nothing here has to move for that to be in shot.
+        ? createSplat({ scene, renderer, container, getCamera: () => camera }, p, onPlaceError)
         : createPlate({
         scene,
         container,

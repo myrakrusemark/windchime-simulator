@@ -416,6 +416,21 @@ export function createSplat( ctx, place, onError ) {
 		// hidden and a release-time check says "not armed" for every single
 		// click. Measured: picked went false the moment the sliders came out.
 		downArmed = pickArmed();
+		// And claim the press, so the panel is still open for the NEXT one.
+		//
+		// Arming at press made one pick work and left the panel shut behind it,
+		// which is a gesture you get exactly one of - hover stopped marking, and
+		// a second click did nothing, because pickArmed() reads the panel. The
+		// same flag hang.js uses for its chime drag says "this press belongs to
+		// the open panel"; slots.js's light dismiss honours it and closes
+		// nothing. While Hang is open the picture IS the panel's control, so a
+		// press on it is not a press outside. Done, Escape and the pill still
+		// close, which is every exit a visitor reaches for.
+		//
+		// This listener is on window and slots.js's is on document, both in the
+		// capture phase, so window sees the event first and the flag is already
+		// set by the time the dismiss looks at it.
+		if ( downArmed ) e.wcsKeepPanel = 'hang';
 
 	}
 
@@ -541,7 +556,17 @@ export function createSplat( ctx, place, onError ) {
 				// branch. Bringing it to the hook dragged the whole forest with
 				// it and left an empty frame. A capture has outliers; a pick
 				// has to survive hitting one.
-				const want = HOOK.clone().sub( hit.point ).add( mesh.position );
+				//
+				// Off the BASE, not off mesh.position. mesh.position is the base
+				// plus the u/v nudge, and applyPose adds that nudge again on the
+				// way out - so writing a whole live position into pickOffset
+				// counted it twice, and on this place, where v defaults to 0.4,
+				// that is 0.28 m of unasked-for lift per pick. Composing on the
+				// base means two picks in a row land where the second one was
+				// aimed rather than 0.56 m above it.
+				const t = HOOK.clone().sub( hit.point );
+				const from = pickOffset || { x: POS[ 0 ], y: POS[ 1 ], z: POS[ 2 ] };
+				const want = new THREE.Vector3( from.x + t.x, from.y + t.y, from.z + t.z );
 				const home = new THREE.Vector3( POS[ 0 ], POS[ 1 ], POS[ 2 ] );
 				const travel = want.clone().sub( home );
 				// Every gaussian is a real point in the capture and any of them is
@@ -565,24 +590,32 @@ export function createSplat( ctx, place, onError ) {
 
 				}
 
-				// MOVING IS OFF. The mark is not.
+				// The capture moves. The camera does not, and must not.
 				//
-				// Four attempts at "click a splat and the chime goes there" and
-				// the forest ended up off screen every time. The maths is right -
-				// translate the capture by (hook - hit), translate the eye by the
-				// same, geometry preserved - and something downstream keeps
-				// walking the camera back afterwards. keepTopInShot was one and
-				// fixing it did not fix this, so there is at least one more:
-				// applyFraming on resize and OrbitControls' own clamping are both
-				// still live on a non-fixed place.
+				// Four earlier attempts also shifted the eye and its target by
+				// the same vector, on the reasoning that holding the forest
+				// still on screen would read as the CHIME travelling. Two things
+				// were wrong with that. The forest was not disappearing because
+				// of the translation at all - see the blend-mode note above, the
+				// hover mark was killing the whole capture - and moving the eye
+				// is what put it in reach of the writers that undo it. A camera
+				// left where the pick put it is a camera applyFraming re-aims on
+				// the next resize and OrbitControls re-clamps on the next drag,
+				// and either one leaves the eye somewhere the capture is not.
 				//
-				// Verified after the last try: the capture ended 45 units from
-				// the eye at (-29.16, -16.75, 31.34), which is not a small drift.
+				// Translating only the capture needs none of them. The picked
+				// gaussian lands ON the hook, which sits at the middle of the
+				// frame the camera is already looking at, so a successful pick
+				// puts the thing that was clicked at the centre of the shot by
+				// construction. "The forest stays visible" is not a thing to
+				// maintain afterwards; it is what the operation does.
 				//
-				// So the translation is off and picking marks only. That leaves a
-				// forest you can look at and a mark that shows what a click would
-				// take, instead of a build that erases the scene on first click.
-				// Turning it back on is one line here plus finding the writer.
+				// The 45 units the last attempt measured is not drift either.
+				// The eye stands 40 units back from the target because an ortho
+				// eye is a direction, and the capture sits 9.15 m beyond it: 45
+				// is where a correctly placed capture IS.
+				pickOffset = { x: want.x, y: want.y, z: want.z };
+				applyPose();
 				return { point: hit.point.toArray(), distance: hit.distance };
 
 			} catch ( err ) {
