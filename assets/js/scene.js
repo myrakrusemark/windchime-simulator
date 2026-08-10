@@ -1530,8 +1530,23 @@ export function createStage(opts) {
     const attr = new THREE.BufferAttribute(cordPositions, 3);
     attr.setUsage(THREE.DynamicDrawUsage);
     cordGeo.setAttribute('position', attr);
+    // OPAQUE, and that is what puts the cords behind the leaves.
+    //
+    // They were transparent at 0.85 to soften a one-pixel line, and on a built
+    // world that cost nothing. On a capture it cost the whole illusion: three.js
+    // draws every opaque object first and every transparent one after, so the
+    // tubes and the plate wrote depth, the gaussians blended over them and the
+    // object sat convincingly IN the wood - while the cords, alone in the
+    // transparent pass with the splats, were sorted against the capture as one
+    // lump and drawn over the top of it. A chime tucked behind a branch, hung on
+    // strings painted across the front of it.
+    //
+    // Opaque puts them back with the rest of the object, in the pass that writes
+    // depth, and the splats occlude them exactly as they occlude the tubes. The
+    // softening goes; at this line width it was worth about one shade and it is
+    // not worth being the only part of the chime the forest cannot cover.
     const cordMat = new THREE.LineBasicMaterial({
-      color: S.cord, transparent: true, opacity: 0.85, fog: true,
+      color: S.cord, transparent: false, fog: true,
     });
     cordLine = new THREE.LineSegments(cordGeo, cordMat);
     cordLine.frustumCulled = false;   // positions are rewritten every frame
