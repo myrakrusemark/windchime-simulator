@@ -75,7 +75,11 @@ export const DESIGN_DEFAULTS = {
 	// hundred thousand sorted quads. One number cannot serve both, because the
 	// device that needs the tier dropped is not always the device that needs the
 	// forest thinned.
-	view: { sun: null, quality: 'auto', splats: 1.00 },     // degrees or null, 'auto'|'high'|'low', 0..1
+	// 0.10 of the author's 998,709, which is 99,871 - the exact density this
+	// shipped with when the capture WAS a 10 per cent export and the slider did
+	// not exist. The default frame is unchanged; what changed is that the other
+	// 25 per cent is now a drag away instead of a re-export away.
+	view: { sun: null, quality: 'auto', splats: 0.10 },     // degrees or null, 'auto'|'high'|'low', 0..RANGES max
 	voice: { attack: 0.002, decay: 8.0, loudness: 0.50 },   // s, s, 0..1
 	wind: { mph: null, dirDeg: null, turbulence: null, source: 'place' }
 };
@@ -114,11 +118,19 @@ export const RANGES = Object.freeze( {
 	// line to nowhere.
 	'hang.cord': [ 0, 3.0 ],
 	'view.sun': [ 2, 74 ],              // scene.js SUN_LO/SUN_HI across both styles
-	// Floor at 0.05 rather than 0. Zero is not a quality setting, it is deleting
+	// A FRACTION OF THE AUTHOR'S CAPTURE, NOT OF THE FILE, which is why the top
+	// is 0.35 and not 1. tanha's scene is 998,709 gaussians and the one that
+	// ships is the 35 per cent export, because the whole one renders nothing and
+	// takes the browser's compositor with it (places.js carries the measurements).
+	// Reporting that as "100 per cent" would be the honest-looking lie: it would
+	// mean 100 per cent of a build decision. 0.35 says what a visitor is actually
+	// getting, and 0.10 is 99,871 whatever we ship next.
+	//
+	// Floor at 0.02 rather than 0. Zero is not a quality setting, it is deleting
 	// the place, and a slider a visitor can drag into "there is no forest" reads
-	// as a bug however honestly it was labelled. Five percent of this capture is
-	// still 4,993 gaussians and still legibly a wood.
-	'view.splats': [ 0.05, 1.00 ],
+	// as a bug however honestly it was labelled. 2 per cent is 19,974 and still
+	// legibly a wood.
+	'view.splats': [ 0.02, 0.35 ],
 	'voice.attack': [ 0.0005, 0.020 ],
 	'voice.decay': [ 1.0, 20.0 ],       // DECAY_NOMINAL = 8 is unity
 	'voice.loudness': [ 0, 1 ],

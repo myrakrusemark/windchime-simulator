@@ -216,6 +216,24 @@ export const PLACES = Object.freeze( {
 			// walked around. Orbit, zoom and pan only mean something when there
 			// is somewhere to orbit to.
 			splat: 'assets/places/forest-path/capture.sog',
+			// WHAT THE AUTHOR ACTUALLY CAPTURED, which is not what ships.
+			//
+			// tanha's scene is 998,709 gaussians. The Quality panel's environment
+			// slider is a fraction OF THIS NUMBER rather than of the file, so its
+			// percentages mean something about the capture instead of something
+			// about a build decision - 10 per cent is 99,871 whatever we ship.
+			//
+			// The file is the 35 per cent export because the whole one does not
+			// render. Measured: 299,613 draws at 60 fps and 349,548 draws clean,
+			// and 998,709 submits two million triangles at a steady 60 fps with
+			// no errors and puts NOTHING on screen - then takes Chrome's
+			// compositor with it, corrupting the tab bar and the address bar. Not
+			// the sort (radial and planar both), not the harmonics (the 30 per
+			// cent export carries the same three bands), not the thinning (a cold
+			// load at full density fails the same way). Whatever the ceiling is,
+			// it is below a million on this driver, and a place that can crash a
+			// visitor's browser is not a place. So the slider stops at 35.
+			fullGaussians: 998709,
 			// Where the capture sits relative to the chime, which hangs at
 			// physics.js HOOK = (0, 2.60, 0) and does not move (Rule A).
 			//

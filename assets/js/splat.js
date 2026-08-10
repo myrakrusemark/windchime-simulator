@@ -268,7 +268,17 @@ export function createSplat( ctx, place, onError ) {
 	function applyDetail() {
 
 		if ( ! mesh || ! mesh.packedSplats || ! fullSplats ) return;
-		const want = Math.max( 1, Math.round( fullSplats * detail ) );
+		// OF THE AUTHOR'S CAPTURE, NOT OF THE FILE. back.fullGaussians is what
+		// tanha actually reconstructed; the .sog on disk is an export of some
+		// fraction of it. Counting against the file would make the slider's
+		// percentages a statement about our build rather than about the wood -
+		// "100 per cent" would have meant 100 per cent of a tenth for as long as
+		// the tenth was what shipped, and would silently change meaning the day
+		// a denser export landed. Clamped to what the file holds, so a place that
+		// authors a number bigger than its own asset asks for splats that are not
+		// there and gets all of the ones that are.
+		const full = Number.isFinite( back.fullGaussians ) ? back.fullGaussians : fullSplats;
+		const want = Math.min( fullSplats, Math.max( 1, Math.round( full * detail ) ) );
 		if ( mesh.packedSplats.numSplats === want ) return;
 		mesh.packedSplats.numSplats = want;
 		mesh.packedSplats.needsUpdate = true;

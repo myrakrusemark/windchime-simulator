@@ -57,19 +57,40 @@ the built page.
 | `assets/vendor/three.module.min.js` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/vendor/addons/**` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/places/forest-path/plate.webp` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
+| `assets/places/forest-path/capture.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
+| `assets/places/forest-path/capture-10.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
+| `assets/places/forest-path/capture-30.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
+| `assets/places/forest-path/capture-flat.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
 
-The forest-path plate is a derivative work, not the source file. tanha published a
-998,709-gaussian capture of a woodland path, made with RealityScan and LichtFeld
-Studio and described by its author as "a quick capture of a forst path meant for a
-background replacement, so only one direction is captured". The shipped asset is a
-single 2560x1792 still rendered offline from that capture, from one fixed camera,
-which is exactly and only the use the author describes. CC BY 4.0 permits
-derivatives; the attribution below and in `NOTICE` names the author, links the
-scene and links the licence deed, and the licence is plain BY - not NC, not ND,
-not SA - so it is compatible with this repository's own CC BY 4.0 asset licence.
-The camera, the levelling transform and the grade are recorded in
-`assets/places/forest-path/render.json` so the plate can be rebuilt from the same
-source.
+The four .sog files had no row here until 2026-08-10 and had been shipping since
+the place stopped being a photograph. The rule at the top of this file says an
+asset with no row does not ship, so that was this document being wrong rather than
+the assets being wrong - recorded plainly, because a licence ledger that quietly
+lags the tree is worth less than no ledger at all.
+
+tanha published a 998,709-gaussian capture of a woodland path, made with
+RealityScan and LichtFeld Studio and described by its author as "a quick capture
+of a forst path meant for a background replacement, so only one direction is
+captured".
+
+`capture.sog` is a 35 per cent decimation of that capture - 349,548 gaussians -
+re-encoded to SOG with `@playcanvas/splat-transform` and otherwise unaltered. 35
+rather than all of it because the full million renders nothing and takes the
+browser's compositor with it; the measurements are in `places.js` beside
+`fullGaussians`. The Quality panel's environment slider is a fraction of the
+author's 998,709 rather than of this file, so its percentages describe the wood
+and not our build. The three siblings are other density exports of the same scene
+kept for comparison behind `?splat=10 / 30 / flat`. `plate.webp` is a derivative
+work: a single 2560x1792 still rendered offline from the capture from one fixed
+camera, which is the use the author describes.
+
+CC BY 4.0 permits derivatives and redistribution alike; the attribution below and
+in `NOTICE` names the author, links the scene and links the licence deed, and the
+licence is plain BY - not NC, not ND, not SA - so it is compatible with this
+repository's own CC BY 4.0 asset licence. The camera, the levelling transform, the
+grade and the splat-transform invocations are recorded in
+`assets/places/forest-path/render.json` so every file above can be rebuilt from the
+same source.
 
 
 three.js ships no LICENSE file inside `assets/vendor/`. Add one there when the
