@@ -201,6 +201,9 @@ export function foldIntoParams( design, params ) {
 	// CHANGE, and a cold load is not a change - it is the starting value, and
 	// without this the first sight of the forest was always the full 99,871.
 	params.splatDetail = d.view.splats;
+	// Same reason: the hanger is built the moment the place goes up, which is
+	// before anything has had a chance to apply a design.
+	params.hangCord = d.hang.cord;
 
 	if ( d.view.sun !== null ) params.sunElevDeg = d.view.sun;
 	if ( d.wind.mph !== null ) params.windSpeedMph = d.wind.mph;
@@ -349,6 +352,17 @@ export function applyDesign( partial, ctx ) {
 	if ( d.hang.u !== before.hang.u || d.hang.v !== before.hang.v || d.hang.scale !== before.hang.scale ) {
 
 		call( c, 'setFraming', note, d.hang.u, d.hang.v, d.hang.scale );
+
+	}
+
+	// 7b. The cord. Rule A again and not a weakening of it: the rig still hangs
+	//     at physics.js HOOK forever, and a longer rope drops the CAPTURE so the
+	//     branch it was hung from ends up further above the chime. Its own step
+	//     rather than a fourth argument to setFraming, because framing is a crop
+	//     and this is a distance in the world.
+	if ( d.hang.cord !== before.hang.cord ) {
+
+		call( c, 'setCord', note, d.hang.cord );
 
 	}
 

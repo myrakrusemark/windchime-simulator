@@ -55,7 +55,14 @@ export const DESIGN_DEFAULTS = {
 	// authority column in CONTRACTS section 3 already says places.js decides this
 	// number; design.js cannot import it (this file stays pure), so the two are
 	// tied by an assertion in tools/verify-place.mjs instead.
-	hang: { u: 0.50, v: 0.40, scale: 1.00 },                // plate fraction, plate fraction, ratio
+	// cord is the rope between the chime's eye and the thing it hangs from, in
+	// metres, and it belongs in `hang` because it is the same fact hang.u/v is:
+	// where the chime sits relative to the place. Rule A applies to it exactly
+	// as it does to them - the hook stays welded at 2.60 and the CAPTURE moves
+	// down by the cord's length, so a longer rope lowers the chime through the
+	// wood without the rig moving a millimetre. 0.61 is the two feet the drawn
+	// cord already was, kept so a cold ?c=v1 looks like it did.
+	hang: { u: 0.50, v: 0.40, scale: 1.00, cord: 0.61 },    // plate fraction, plate fraction, ratio, m
 	// splats is the fraction of the capture's gaussians that get drawn. It is a
 	// SECOND quality dial and not a refinement of the first: `quality` is the
 	// renderer tier for the chime - shadows, post-processing, the things scene.js
@@ -95,6 +102,12 @@ export const RANGES = Object.freeze( {
 	'hang.u': [ 0, 1 ],                 // the structural superset; a place narrows it further
 	'hang.v': [ 0, 1 ],
 	'hang.scale': [ 0.6, 1.8 ],
+	// Zero really is zero: the eye rests against the branch and no rope is drawn,
+	// which is a legitimate way to hang a chime off a hook. The top end is a
+	// looking number rather than a derived one - past about three metres the
+	// rope leaves the frame before the branch does, so a longer one is a longer
+	// line to nowhere.
+	'hang.cord': [ 0, 3.0 ],
 	'view.sun': [ 2, 74 ],              // scene.js SUN_LO/SUN_HI across both styles
 	// Floor at 0.05 rather than 0. Zero is not a quality setting, it is deleting
 	// the place, and a slider a visitor can drag into "there is no forest" reads
@@ -288,7 +301,8 @@ export function clampDesign( partial ) {
 		hang: {
 			u: snap( hang.u, 'hang.u', 100, D.hang.u ),
 			v: snap( hang.v, 'hang.v', 100, D.hang.v ),
-			scale: snap( hang.scale, 'hang.scale', 100, D.hang.scale )
+			scale: snap( hang.scale, 'hang.scale', 100, D.hang.scale ),
+			cord: snap( hang.cord, 'hang.cord', 100, D.hang.cord )
 		},
 		view: {
 			sun: snapOrNull( view.sun, 'view.sun', 1 ),
@@ -654,6 +668,7 @@ const FIELDS = Object.freeze( [
 	{ key: 'hu', path: [ 'hang', 'u' ], kind: 'num', q: 100 },
 	{ key: 'hv', path: [ 'hang', 'v' ], kind: 'num', q: 100 },
 	{ key: 'hs', path: [ 'hang', 'scale' ], kind: 'num', q: 100 },
+	{ key: 'hc', path: [ 'hang', 'cord' ], kind: 'num', q: 100 },
 	{ key: 'su', path: [ 'view', 'sun' ], kind: 'num', q: 1 },
 	{ key: 'q', path: [ 'view', 'quality' ], kind: 'alias', to: QUALITY_ALIAS, from: QUALITY_BY_ALIAS },
 	{ key: 'sp', path: [ 'view', 'splats' ], kind: 'num', q: 100 },

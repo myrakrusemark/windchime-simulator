@@ -128,13 +128,26 @@ function sparkFor( scene, renderer, camera ) {
  * under its own ring, which is what it was. The eye takes the hook's x and z
  * and no spec may say otherwise.
  */
+const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
+
+/**
+ * How many pieces the rope is cut into.
+ *
+ * One cylinder was enough while the cord was a rigid stub that could only ever
+ * be vertical. It cannot bend, and a rope that hangs a chime in moving air is
+ * mostly bend, so the rope is a chain of short segments the caller re-aims every
+ * frame. Twelve is where the silhouette stopped reading as a hinge at three
+ * metres; below eight the joints show, above sixteen nothing changes and there
+ * are more matrices to update.
+ */
+const CORD_SEGMENTS = 12;
+
 function buildCordHanger( spec ) {
 
 	const g = new THREE.Group();
 	g.name = 'wcs-hanger';
 	const geoms = [];
 	const mats = [];
-	const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 
 	const eyeR = spec.eye && Number.isFinite( spec.eye.radius ) ? spec.eye.radius : 0.028;
 	const eyeT = spec.eye && Number.isFinite( spec.eye.tube ) ? spec.eye.tube : 0.006;
@@ -153,25 +166,40 @@ function buildCordHanger( spec ) {
 	eye.castShadow = true;
 	g.add( eye );
 
-	// About two feet, which is what Myra asked for and also about as far as a
-	// rope reads before the eye wants to know what is holding it.
-	const len = Number.isFinite( spec.cordLength ) ? spec.cordLength : 0.61;
-	const cordGeo = new THREE.CylinderGeometry( 0.0035, 0.0035, len, 6 );
+	// ONE unit-length geometry, shared by every segment, scaled on y per frame.
+	//
+	// The alternative is a CylinderGeometry per length, disposed and rebuilt
+	// whenever the rope changes - which is an allocation on every frame of a
+	// slider drag and again on every frame of the sway. A unit cylinder with its
+	// origin at the BOTTOM (translated up by a half) is positioned at a segment's
+	// lower end, aimed at the upper one and scaled to the gap, which is three
+	// writes and no garbage.
+	const cordGeo = new THREE.CylinderGeometry( 0.0035, 0.0035, 1, 6 );
+	cordGeo.translate( 0, 0.5, 0 );
 	geoms.push( cordGeo );
 	const cordMat = new THREE.MeshStandardMaterial( {
 		color: spec.cordColor === undefined ? 0xcfc3ad : spec.cordColor,
 		roughness: 0.9, metalness: 0
 	} );
 	mats.push( cordMat );
-	const cord = new THREE.Mesh( cordGeo, cordMat );
-	// Rising from the TOP of the ring, not from its centre, and plumb over the
-	// hook - a rope that hangs a chime does not lean.
-	cord.position.set( HOOK_X, HOOK_Y + eyeR * 0.55 + eyeR + len / 2, HOOK_Z );
-	cord.castShadow = true;
-	g.add( cord );
+
+	const segments = [];
+	for ( let i = 0; i < CORD_SEGMENTS; i ++ ) {
+
+		const seg = new THREE.Mesh( cordGeo, cordMat );
+		seg.castShadow = true;
+		// matrixAutoUpdate stays on: the per-frame writer sets position and
+		// quaternion, which is exactly what three's own update consumes.
+		g.add( seg );
+		segments.push( seg );
+
+	}
 
 	g.userData.geoms = geoms;
 	g.userData.mats = mats;
+	g.userData.segments = segments;
+	// Where the rope leaves the eye. Everything above this is rope.
+	g.userData.footY = HOOK_Y + eyeR * 0.55 + eyeR;
 	return g;
 
 }
@@ -195,9 +223,64 @@ export function createSplat( ctx, place, onError ) {
 	let arrived = false;
 	let detail = 1;          // fraction of the capture's gaussians to draw
 	let fullSplats = 0;      // how many arrived, before any thinning
+	let cordLen = 0.61;      // metres of rope between the eye and the branch
 
 	const hanger = place.hanger === null ? null : buildCordHanger( place.hanger || {} );
 	if ( hanger ) scene.add( hanger );
+
+	// Scratch for the per-frame rope writer. Module-level would be shared between
+	// two live places during a switch; per-place is one allocation at mount and
+	// none afterwards, which is the point.
+	const _a = new THREE.Vector3();
+	const _b = new THREE.Vector3();
+	const _dir = new THREE.Vector3();
+	const _up = new THREE.Vector3( 0, 1, 0 );
+
+	/**
+	 * Lay the rope from the top of the eye to whatever the chime hangs from.
+	 *
+	 * The top end is HOOK_Y + cordLen, which is the same point resolve() aims a
+	 * pick at - the rope and the pick agree by construction rather than by two
+	 * numbers being kept in step. Below about 43 mm there is no rope at all,
+	 * because the eye's own ring has already eaten that much: the segments go
+	 * invisible rather than being drawn at a negative length.
+	 */
+	function shapeCord() {
+
+		if ( ! hanger ) return;
+		const segs = hanger.userData.segments;
+		const foot = hanger.userData.footY;
+		const span = ( HOOK_Y + cordLen ) - foot;
+		if ( ! ( span > 1e-4 ) ) {
+
+			for ( const s of segs ) s.visible = false;
+			return;
+
+		}
+
+		const n = segs.length;
+		for ( let i = 0; i < n; i ++ ) {
+
+			_a.set( HOOK_X, foot + span * ( i / n ), HOOK_Z );
+			_b.set( HOOK_X, foot + span * ( ( i + 1 ) / n ), HOOK_Z );
+			const seg = segs[ i ];
+			seg.visible = true;
+			seg.position.copy( _a );
+			_dir.subVectors( _b, _a );
+			const len = _dir.length();
+			seg.scale.set( 1, len, 1 );
+			if ( len > 1e-9 ) {
+
+				_dir.divideScalar( len );
+				seg.quaternion.setFromUnitVectors( _up, _dir );
+
+			}
+
+		}
+
+	}
+
+	shapeCord();
 
 	// The capture's own placement, authored with the place. A SOG capture
 	// arrives y-down, which is the single most common way to get a forest that
@@ -271,6 +354,15 @@ export function createSplat( ctx, place, onError ) {
 		// A picked hang point wins over the authored pose: the visitor said
 		// where, and the sliders go back to being a nudge around it.
 		const base = pickOffset || { x: POS[ 0 ], y: POS[ 1 ], z: POS[ 2 ] };
+		// NO CORD TERM HERE, and that is deliberate. The rope's length is baked
+		// into pickOffset at the moment of the pick and adjusted by setCord when
+		// it changes, rather than added on top of the authored pose every frame.
+		//
+		// The difference is what a cold load looks like. Adding it here lifted
+		// the capture 0.61 m on a page nobody had picked anything on, which put
+		// the canopy band out of the top of a 3.2 m frame and shipped ?c=v1 as a
+		// black rectangle. A rope only means something once there is a branch at
+		// the other end of it: with no pick, Cord draws rope and moves nothing.
 		mesh.position.set( base.x + dx, base.y + dy, base.z );
 		// Scaling the capture is what makes the chime look bigger against it,
 		// with the chime and therefore stage.cameraDistance() untouched - which
@@ -499,7 +591,11 @@ export function createSplat( ctx, place, onError ) {
 		if ( ! hits.length ) return null;
 		hits.sort( ( a, b ) => a.distance - b.distance );
 		const hit = hits[ 0 ];
-		const t = HOOK.clone().sub( hit.point );
+		// To the TOP OF THE ROPE, not to the hook. The visitor clicked the thing
+		// the chime is to hang FROM, and it hangs `cordLen` below it - so the
+		// picked gaussian has to arrive one rope-length above the welded hook.
+		// At cordLen 0 this is the hook exactly, which is the old behaviour.
+		const t = HOOK.clone().setY( HOOK.y + cordLen ).sub( hit.point );
 		const reach = Number.isFinite( back.pickReach ) ? back.pickReach : 35.0;
 		return { hit, t, reach, outOfReach: t.length() > reach };
 
@@ -745,6 +841,28 @@ export function createSplat( ctx, place, onError ) {
 			if ( ! Number.isFinite( fraction ) ) return;
 			detail = Math.min( 1, Math.max( 0, fraction ) );
 			applyDetail();
+
+		},
+
+		/**
+		 * @param {number} metres of rope between the chime's eye and the thing
+		 * it hangs from. Moves the CAPTURE, never the chime (Rule A): a longer
+		 * rope lifts the wood so the branch ends up further above a hook that
+		 * has not moved.
+		 */
+		setCord( metres ) {
+
+			if ( ! Number.isFinite( metres ) ) return;
+			const next = Math.max( 0, metres );
+			// Carry a live pick with the change. pickOffset holds the base that
+			// puts the picked gaussian `cordLen` above the hook, so lengthening
+			// the rope by d has to lift that base by d or the rope grows past a
+			// branch that stayed where it was. Nothing to carry when the visitor
+			// has not picked anything - see applyPose.
+			if ( pickOffset ) pickOffset.y += next - cordLen;
+			cordLen = next;
+			shapeCord();
+			applyPose();
 
 		},
 

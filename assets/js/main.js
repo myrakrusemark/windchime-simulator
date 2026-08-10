@@ -1019,6 +1019,13 @@ const designCtx = {
 
 		if ( stage && stage.setSplatDetail ) stage.setSplatDetail( fraction );
 
+	},
+	// How long the rope between the chime's eye and the branch is. Same routing,
+	// same guard.
+	setCord: ( metres ) => {
+
+		if ( stage && stage.setCord ) stage.setCord( metres );
+
 	}
 };
 

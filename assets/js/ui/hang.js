@@ -212,7 +212,8 @@ function build( wcs, note ) {
 	const sliders = {
 		u: document.getElementById( 'wcsHangU' ),
 		v: document.getElementById( 'wcsHangV' ),
-		scale: document.getElementById( 'wcsHangScale' )
+		scale: document.getElementById( 'wcsHangScale' ),
+		cord: document.getElementById( 'wcsHangCord' )
 	};
 	// Only `scale` is required. u and v were deleted when clicking a splat
 	// replaced them, and this guard - written when all three were mandatory -
@@ -709,7 +710,14 @@ function build( wcs, note ) {
 		const on = !! ( pl && ( pl.kind === 'plate' || pl.kind === 'splat' ) && B && spanOf( B ) > 1e-9 );
 		enabled = on;
 
-		for ( const key of [ 'u', 'v', 'scale' ] ) {
+		// `cord` is in the enable loop but NOT in the setRange call below, because
+		// its travel is not a property of the place. u/v/scale are solved from
+		// the place's own reach and crop; a rope is a rope, and its 0 to 3 m comes
+		// from RANGES through the markup's data-range like every other slider on
+		// the page. It shares the enable test because it shares the premise: a
+		// built world hangs the chime off its own beam and there is no capture to
+		// lower it through.
+		for ( const key of [ 'u', 'v', 'scale', 'cord' ] ) {
 
 			const el = sliders[ key ];
 			// u and v no longer exist: clicking a splat replaced them. Without
@@ -731,7 +739,7 @@ function build( wcs, note ) {
 
 			}
 
-			if ( on ) setRange( el, B[ key ] );
+			if ( on && B[ key ] ) setRange( el, B[ key ] );
 
 		}
 

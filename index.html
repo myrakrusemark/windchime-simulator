@@ -614,6 +614,18 @@
                             <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangScale">Size</label><span class="wcs-field-value" data-value-for="wcsHangScale"></span></span>
                             <input class="wcs-range" type="range" id="wcsHangScale" data-path="hang.scale" data-range="hang.scale" data-fmt="pct" step="0.01" disabled aria-describedby="wcsHangWhy">
                         </p>
+                        <!-- Cord is the other half of the pointing gesture. Click
+                             picks WHICH branch; this picks how far below it the
+                             chime rides. Rule A the whole way: the hook stays
+                             welded and the capture drops by the cord's length, so
+                             a longer rope lowers the chime through the wood
+                             without the rig moving. In centimetres because a rope
+                             is a length you could cut with scissors, not a
+                             percentage of anything. -->
+                        <p class="wcs-field is-disabled">
+                            <span class="wcs-field-top"><label class="wcs-field-name" for="wcsHangCord">Cord</label><span class="wcs-field-value" data-value-for="wcsHangCord"></span></span>
+                            <input class="wcs-range" type="range" id="wcsHangCord" data-path="hang.cord" data-range="hang.cord" data-fmt="cm" step="0.01" disabled aria-describedby="wcsHangWhy">
+                        </p>
                         <p class="wcs-note" id="wcsHangWhy">Not here: a built world has a real size, so there is nothing behind the chime to slide it across.</p>
 
                     </div>

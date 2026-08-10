@@ -1153,6 +1153,7 @@ export function createStage(opts) {
   // the first sight of the forest is at full cost on a machine that asked for
   // less.
   let wantDetail = Number.isFinite(params.splatDetail) ? params.splatDetail : 1;
+  let wantCord = Number.isFinite(params.hangCord) ? params.hangCord : 0.61;
   const placeErrors = [];
   let placeErrorSink = null;
 
@@ -1337,10 +1338,11 @@ export function createStage(opts) {
     } else if (plate) {
       plate.resize();
     }
-    // And the detail the design asked for, on the same terms. A plate has no
-    // setDetail, so this is a no-op there by construction rather than by a test
-    // on p.kind.
+    // And the detail and the cord the design asked for, on the same terms. A
+    // plate implements neither, so both are no-ops there by construction rather
+    // than by a test on p.kind.
     if (plate && typeof plate.setDetail === 'function') plate.setDetail(wantDetail);
+    if (plate && typeof plate.setCord === 'function') plate.setCord(wantCord);
 
     // Last, because a PMREM bake is not free and setSunElevation only does one
     // if the angle actually moved by more than half a degree.
@@ -2409,6 +2411,11 @@ export function createStage(opts) {
     setSplatDetail(fraction) {
       if (Number.isFinite(fraction)) wantDetail = Math.min(1, Math.max(0, fraction));
       if (plate && typeof plate.setDetail === 'function') plate.setDetail(wantDetail);
+    },
+    /** Metres of rope between the chime's eye and what it hangs from. */
+    setCord(metres) {
+      if (Number.isFinite(metres)) wantCord = Math.max(0, metres);
+      if (plate && typeof plate.setCord === 'function') plate.setCord(wantCord);
     },
     get plate() { return plate; },
     place: () => place,
