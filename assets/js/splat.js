@@ -193,6 +193,8 @@ export function createSplat( ctx, place, onError ) {
 	let disposed = false;
 	let mesh = null;
 	let arrived = false;
+	let detail = 1;          // fraction of the capture's gaussians to draw
+	let fullSplats = 0;      // how many arrived, before any thinning
 
 	const hanger = place.hanger === null ? null : buildCordHanger( place.hanger || {} );
 	if ( hanger ) scene.add( hanger );
@@ -230,6 +232,35 @@ export function createSplat( ctx, place, onError ) {
 	// The span is authored per place so a visitor cannot push the forest off the
 	// side of its own capture.
 	const reach = back.reach || { x: 6, y: 3 };
+
+	/**
+	 * Draw a fraction of the capture.
+	 *
+	 * spark takes the count off packedSplats.numSplats and the draw is a prefix
+	 * of the packed array, so thinning is one integer and no reupload - which is
+	 * what makes this cheap enough to sit under a slider. Measured in the open
+	 * page: 99,871 down to 34,954 and back, no rebuild, no hitch.
+	 *
+	 * A PREFIX, and that is the one thing to know about it. It works here because
+	 * this capture's packed order is not spatially sorted - dropping the tail at
+	 * 35 percent thinned the whole wood evenly rather than deleting a corner of
+	 * it, checked by eye against the full render. A capture that arrived Morton
+	 * ordered would lose a region instead, and the fix then is to shuffle the
+	 * packed array once on load rather than to change anything here. Nothing
+	 * downstream cares about the order: spark re-sorts by depth every frame and
+	 * LOD is off.
+	 */
+	function applyDetail() {
+
+		if ( ! mesh || ! mesh.packedSplats || ! fullSplats ) return;
+		const want = Math.max( 1, Math.round( fullSplats * detail ) );
+		if ( mesh.packedSplats.numSplats === want ) return;
+		mesh.packedSplats.numSplats = want;
+		mesh.packedSplats.needsUpdate = true;
+		mesh.needsUpdate = true;
+		mesh.generatorDirty = true;
+
+	}
 
 	function applyPose() {
 
@@ -292,7 +323,13 @@ export function createSplat( ctx, place, onError ) {
 			m.castShadow = false;
 			m.receiveShadow = false;
 			mesh = m;
+			// Before applyDetail, and read off the mesh rather than off the
+			// packed array's length: maxSplats is rounded up to a texture-tidy
+			// figure (100,352 against 99,871 here) and thinning against that
+			// would draw 481 splats of whatever the padding holds.
+			fullSplats = m.numSplats;
 			applyPose();
+			applyDetail();
 			scene.add( m );
 			arrived = true;
 
@@ -695,6 +732,19 @@ export function createSplat( ctx, place, onError ) {
 		picked() {
 
 			return !! pickOffset;
+
+		},
+
+		/**
+		 * @param {number} fraction 0..1 of the capture's gaussians to draw.
+		 * Stored even when the mesh has not landed yet, because the design
+		 * applies long before 11.4 MB of .sog does.
+		 */
+		setDetail( fraction ) {
+
+			if ( ! Number.isFinite( fraction ) ) return;
+			detail = Math.min( 1, Math.max( 0, fraction ) );
+			applyDetail();
 
 		},
 

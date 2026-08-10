@@ -356,6 +356,22 @@ textarea:focus-visible,
 	color: var(--wcs-ink-faint);
 }
 
+/* One rung down from a group title, for a group that holds two settings which
+   are not the same setting. Sentence case rather than the group title's caps,
+   so the hierarchy reads at a glance without a second size step. */
+.wcs-subgroup-title {
+	margin: var(--wcs-s3) 0 var(--wcs-s1) 0;
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-label);
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	color: var(--wcs-ink-dim);
+}
+
+.wcs-subgroup-title:first-of-type {
+	margin-top: 0;
+}
+
 .wcs-field {
 	margin: 0 0 var(--wcs-s3) 0;
 }

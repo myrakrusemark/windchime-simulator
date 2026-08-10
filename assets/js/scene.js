@@ -1146,6 +1146,13 @@ export function createStage(opts) {
   // an unchanged design can never repair itself, and the URL and the picture
   // diverge with nothing to report. Remembering the ask is the whole fix.
   let wantFraming = null;
+  // The same bargain for the capture's detail, and it matters here for one more
+  // reason than it does for the framing: the gaussians arrive ASYNCHRONOUSLY.
+  // A design carrying 40 percent applies before the .sog has finished loading,
+  // so the number has to be sitting here for createSplat to read on arrival or
+  // the first sight of the forest is at full cost on a machine that asked for
+  // less.
+  let wantDetail = Number.isFinite(params.splatDetail) ? params.splatDetail : 1;
   const placeErrors = [];
   let placeErrorSink = null;
 
@@ -1330,6 +1337,10 @@ export function createStage(opts) {
     } else if (plate) {
       plate.resize();
     }
+    // And the detail the design asked for, on the same terms. A plate has no
+    // setDetail, so this is a no-op there by construction rather than by a test
+    // on p.kind.
+    if (plate && typeof plate.setDetail === 'function') plate.setDetail(wantDetail);
 
     // Last, because a PMREM bake is not free and setSunElevation only does one
     // if the angle actually moved by more than half a degree.
@@ -2387,6 +2398,17 @@ export function createStage(opts) {
       if (Number.isFinite(scale)) w.scale = scale;
       wantFraming = w;
       if (plate) plate.setFraming(u, v, scale);
+    },
+    /**
+     * How much of the capture to draw, 0..1. Remembered the same way the
+     * framing is, and for the same reason: the ask has to survive a place that
+     * cannot honour it. A plate place has no gaussians and simply does not
+     * implement setDetail, so switching to the forest afterwards has to find
+     * the number waiting rather than back at one.
+     */
+    setSplatDetail(fraction) {
+      if (Number.isFinite(fraction)) wantDetail = Math.min(1, Math.max(0, fraction));
+      if (plate && typeof plate.setDetail === 'function') plate.setDetail(wantDetail);
     },
     get plate() { return plate; },
     place: () => place,

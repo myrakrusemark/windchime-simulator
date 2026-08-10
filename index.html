@@ -433,9 +433,24 @@
                         </div>
 
                         <div class="wcs-group">
-                            <h3 class="wcs-group-title" id="wcsQualityLabel">Drawing</h3>
+                            <h3 class="wcs-group-title">Quality</h3>
+                            <!-- Two dials, because there are two renderers behind
+                                 this picture and they cost different things. The
+                                 tier is the chime's: shadows and post-processing
+                                 on a lit, shaded object. The percentage is the
+                                 place's: how many of the capture's gaussians get
+                                 sorted and blended every frame. A machine that
+                                 needs one turned down does not always need the
+                                 other, so they are not folded into one slider. -->
+                            <h4 class="wcs-subgroup-title" id="wcsQualityLabel">Wind chime</h4>
                             <div class="wcs-choice" role="radiogroup" aria-labelledby="wcsQualityLabel" data-path="view.quality" data-options="quality"></div>
                             <p class="wcs-note">Auto picks from what this device managed on the first frame. Low drops the shadows and the post-processing.</p>
+                            <h4 class="wcs-subgroup-title">Photorealistic environment</h4>
+                            <p class="wcs-field">
+                                <span class="wcs-field-top"><label class="wcs-field-name" for="wcsSplats">Detail</label><span class="wcs-field-value" data-value-for="wcsSplats"></span></span>
+                                <input class="wcs-range" type="range" id="wcsSplats" data-path="view.splats" data-range="view.splats" data-fmt="pct" step="0.01">
+                            </p>
+                            <p class="wcs-note">How much of the photographed place is drawn. The forest is a hundred thousand gaussians re-sorted by depth every frame, and it is the most expensive thing on screen. A place with no capture ignores this.</p>
                         </div>
 
                     </div>

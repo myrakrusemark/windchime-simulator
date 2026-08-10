@@ -56,7 +56,14 @@ export const DESIGN_DEFAULTS = {
 	// number; design.js cannot import it (this file stays pure), so the two are
 	// tied by an assertion in tools/verify-place.mjs instead.
 	hang: { u: 0.50, v: 0.40, scale: 1.00 },                // plate fraction, plate fraction, ratio
-	view: { sun: null, quality: 'auto' },                   // degrees or null, 'auto'|'high'|'low'
+	// splats is the fraction of the capture's gaussians that get drawn. It is a
+	// SECOND quality dial and not a refinement of the first: `quality` is the
+	// renderer tier for the chime - shadows, post-processing, the things scene.js
+	// switches - and it has nothing to say about a place that arrived as a
+	// hundred thousand sorted quads. One number cannot serve both, because the
+	// device that needs the tier dropped is not always the device that needs the
+	// forest thinned.
+	view: { sun: null, quality: 'auto', splats: 1.00 },     // degrees or null, 'auto'|'high'|'low', 0..1
 	voice: { attack: 0.002, decay: 8.0, loudness: 0.50 },   // s, s, 0..1
 	wind: { mph: null, dirDeg: null, turbulence: null, source: 'place' }
 };
@@ -89,6 +96,11 @@ export const RANGES = Object.freeze( {
 	'hang.v': [ 0, 1 ],
 	'hang.scale': [ 0.6, 1.8 ],
 	'view.sun': [ 2, 74 ],              // scene.js SUN_LO/SUN_HI across both styles
+	// Floor at 0.05 rather than 0. Zero is not a quality setting, it is deleting
+	// the place, and a slider a visitor can drag into "there is no forest" reads
+	// as a bug however honestly it was labelled. Five percent of this capture is
+	// still 4,993 gaussians and still legibly a wood.
+	'view.splats': [ 0.05, 1.00 ],
 	'voice.attack': [ 0.0005, 0.020 ],
 	'voice.decay': [ 1.0, 20.0 ],       // DECAY_NOMINAL = 8 is unity
 	'voice.loudness': [ 0, 1 ],
@@ -280,7 +292,8 @@ export function clampDesign( partial ) {
 		},
 		view: {
 			sun: snapOrNull( view.sun, 'view.sun', 1 ),
-			quality: pick( view.quality, QUALITY_SET, D.view.quality )
+			quality: pick( view.quality, QUALITY_SET, D.view.quality ),
+			splats: snap( view.splats, 'view.splats', 100, D.view.splats )
 		},
 		voice: {
 			attack: snap( voice.attack, 'voice.attack', 10000, D.voice.attack ),
@@ -553,10 +566,13 @@ function windPhrase( w ) {
  *   described as parts; attack, ring and loudness are audio.js only, so they sit
  *   inside the "voiced" clause with the stock and never outside it.
  * - The tube count and the scale are both drawn and heard, so they lead.
- * - hang.u/v/scale and view.quality are deliberately absent. Hang is plate
- *   framing (CONTRACTS Rule A) - it moves the backdrop, not the chime, and a
- *   sentence claiming otherwise would be the exact lie H9 is about. Quality is a
- *   renderer tier, not a property of the wind chime a stranger just made.
+ * - hang.u/v/scale, view.quality and view.splats are deliberately absent. Hang
+ *   is plate framing (CONTRACTS Rule A) - it moves the backdrop, not the chime,
+ *   and a sentence claiming otherwise would be the exact lie H9 is about.
+ *   Quality is a renderer tier and splats is how much of the capture this
+ *   machine can afford to draw; neither is a property of the wind chime a
+ *   stranger just made, and a caption that said "on the forest path at 40
+ *   percent" would be describing the visitor's graphics card.
  *
  * @param {object} design any partial; it is clamped first, so this is total.
  * @param {object} [opts] { placeName } to override the place phrase once P4's
@@ -640,6 +656,7 @@ const FIELDS = Object.freeze( [
 	{ key: 'hs', path: [ 'hang', 'scale' ], kind: 'num', q: 100 },
 	{ key: 'su', path: [ 'view', 'sun' ], kind: 'num', q: 1 },
 	{ key: 'q', path: [ 'view', 'quality' ], kind: 'alias', to: QUALITY_ALIAS, from: QUALITY_BY_ALIAS },
+	{ key: 'sp', path: [ 'view', 'splats' ], kind: 'num', q: 100 },
 	{ key: 'at', path: [ 'voice', 'attack' ], kind: 'num', q: 10000 },
 	{ key: 'dk', path: [ 'voice', 'decay' ], kind: 'num', q: 10 },
 	{ key: 'ld', path: [ 'voice', 'loudness' ], kind: 'num', q: 100 },

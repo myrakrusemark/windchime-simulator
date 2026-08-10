@@ -610,10 +610,11 @@ line( 'v1_pl-porch         ' + D.describe( D.decode( 'v1_pl-porch_st-cb78_n-3' )
 // are therefore the ends of the travel, and the distinct-caption count says how
 // much resolution the field has in between.
 //
-// hang.* and view.quality are listed too, asserted SILENT rather than skipped,
-// so that this table is a complete statement about all twenty-one codec fields
-// and not a selective one. Hang moves the plate and not the chime (Rule A);
-// quality is a renderer tier. A caption naming either would be describing
+// hang.*, view.quality and view.splats are listed too, asserted SILENT rather
+// than skipped, so that this table is a complete statement about all twenty-two
+// codec fields and not a selective one. Hang moves the plate and not the chime
+// (Rule A); quality is a renderer tier and splats is how much of the capture
+// this machine draws. A caption naming any of them would be describing
 // something other than the wind chime.
 // ---------------------------------------------------------------------------
 
@@ -682,7 +683,8 @@ const SILENT = [
 	[ 'hang.u', sweep( 'hang.u', 100 ) ],
 	[ 'hang.v', sweep( 'hang.v', 100 ) ],
 	[ 'hang.scale', sweep( 'hang.scale', 120 ) ],
-	[ 'view.quality', [ 'auto', 'high', 'low' ] ]
+	[ 'view.quality', [ 'auto', 'high', 'low' ] ],
+	[ 'view.splats', sweep( 'view.splats', 95 ) ]
 ];
 
 function pad( s, n ) {

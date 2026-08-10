@@ -1011,6 +1011,14 @@ const designCtx = {
 
 		if ( stage && stage.setFraming ) stage.setFraming( u, v, scale );
 
+	},
+	// How much of a capture place gets drawn. Routed the same way and guarded
+	// the same way: a stage without it, or a place with no gaussians, is a
+	// no-op rather than a branch anybody has to write.
+	setSplatDetail: ( fraction ) => {
+
+		if ( stage && stage.setSplatDetail ) stage.setSplatDetail( fraction );
+
 	}
 };
 

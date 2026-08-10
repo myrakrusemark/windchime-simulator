@@ -194,6 +194,13 @@ export function foldIntoParams( design, params ) {
 	params.loudness = d.voice.loudness;
 
 	params.quality = d.view.quality;
+	// Into params as well as through the step below, and for the reason the
+	// header gives: this runs at WCS:DESIGN-BOOT, before the stage exists, so a
+	// shared link carrying ?c=..._sp-25 has somewhere to put 25 percent that the
+	// stage can read when it is built. The step in applyDesign only fires on a
+	// CHANGE, and a cold load is not a change - it is the starting value, and
+	// without this the first sight of the forest was always the full 99,871.
+	params.splatDetail = d.view.splats;
 
 	if ( d.view.sun !== null ) params.sunElevDeg = d.view.sun;
 	if ( d.wind.mph !== null ) params.windSpeedMph = d.wind.mph;
@@ -320,6 +327,18 @@ export function applyDesign( partial, ctx ) {
 
 		const next = call( c, 'tierFor', note, d.view.quality );
 		if ( next ) call( c, 'applyTier', note, next );
+
+	}
+
+	// 6b. How much of the capture to draw. A separate step from the tier above
+	//     and not folded into it: the tier switches shadows and post-processing
+	//     on the chime, and this switches how many gaussians the place spends a
+	//     depth sort on. They are two renderers with two costs. A place with no
+	//     capture ignores it, which is where the call goes quiet rather than
+	//     here - scene.js hands it to whatever the place put up.
+	if ( d.view.splats !== before.view.splats ) {
+
+		call( c, 'setSplatDetail', note, d.view.splats );
 
 	}
 
