@@ -265,6 +265,96 @@ export function createSplat( ctx, place, onError ) {
 	 * downstream cares about the order: spark re-sorts by depth every frame and
 	 * LOD is off.
 	 */
+	/**
+	 * SHUFFLE THE CAPTURE ONCE, SO THAT THINNING IT SAMPLES THE WOOD INSTEAD OF
+	 * DEMOLISHING PART OF IT.
+	 *
+	 * applyDetail draws a PREFIX - spark takes its count off
+	 * packedSplats.numSplats and draws that many from the front, which is one
+	 * integer and no reupload, and is the only reason the slider can be dragged
+	 * smoothly. A prefix is a fair sample only if the file is in no particular
+	 * order, and a gaussian capture is the opposite of that: reconstruction
+	 * groups by region and the SOG encoder keeps the grouping, because
+	 * neighbouring gaussians compress together. So dropping the tail deleted a
+	 * PLACE. At the shipped tenth: the path, the ground, the stump and the whole
+	 * right-hand tree gone, a band of canopy left hanging in the dark.
+	 *
+	 * Doing it here rather than in the asset, which was the first attempt and the
+	 * obvious one. Shuffling the PLY before conversion changes nothing, because
+	 * splat-transform re-orders on the way into .sog - the two builds render the
+	 * identical hole. The order has to be decided after the file is parsed, which
+	 * means here.
+	 *
+	 * ALL FOUR ARRAYS OR NONE. A gaussian is not just its packed record: the
+	 * harmonics live beside it in extra.sh1/sh2/sh3 at their own strides, indexed
+	 * by the same splat number. Permuting the positions and not the harmonics
+	 * would leave every leaf wearing another leaf's colour response, which is a
+	 * far worse bug than the one being fixed and would not look like a bug at
+	 * all - just a wood that had gone subtly wrong.
+	 *
+	 * Seeded, so the thinning is the same picture on every load rather than a
+	 * different forest each refresh.
+	 */
+	function spreadSplats() {
+
+		if ( ! mesh || ! mesh.packedSplats ) return;
+		const ps = mesh.packedSplats;
+		const capacity = ps.maxSplats;
+		const n = ps.numSplats;
+		if ( ! ( n > 1 ) || ! ( capacity >= n ) ) return;
+
+		// Every array that is indexed by splat number, with how many uint32 each
+		// splat owns in it. Derived from the array's own length rather than
+		// hard-coded, so a capture with fewer harmonic bands simply contributes
+		// fewer entries instead of being mis-strided.
+		const lanes = [];
+		const add = ( arr ) => {
+
+			if ( ! arr || ! arr.length || arr.length % capacity !== 0 ) return;
+			lanes.push( { arr, stride: arr.length / capacity, tmp: new Uint32Array( arr.length / capacity ) } );
+
+		};
+
+		add( ps.packedArray );
+		const ex = ps.extra || {};
+		add( ex.sh1 ); add( ex.sh2 ); add( ex.sh3 );
+		if ( ! lanes.length ) return;
+
+		// mulberry32, the same deterministic generator tools/verify-design.mjs
+		// uses. Math.random would make every reload a different wood.
+		let t = 0x9E3779B9;
+		const rand = () => {
+
+			t += 0x6D2B79F5;
+			let x = t;
+			x = Math.imul( x ^ ( x >>> 15 ), 1 | x );
+			x ^= x + Math.imul( x ^ ( x >>> 7 ), 61 | x );
+			return ( ( x ^ ( x >>> 14 ) ) >>> 0 ) / 4294967296;
+
+		};
+
+		// Fisher-Yates over splat indices, applied to every lane at once.
+		for ( let i = n - 1; i > 0; i -- ) {
+
+			const j = Math.floor( rand() * ( i + 1 ) );
+			if ( i === j ) continue;
+			for ( const lane of lanes ) {
+
+				const s = lane.stride, a = i * s, b = j * s;
+				lane.tmp.set( lane.arr.subarray( a, a + s ) );
+				lane.arr.copyWithin( a, b, b + s );
+				lane.arr.set( lane.tmp, b );
+
+			}
+
+		}
+
+		ps.needsUpdate = true;
+		mesh.needsUpdate = true;
+		mesh.generatorDirty = true;
+
+	}
+
 	function applyDetail() {
 
 		if ( ! mesh || ! mesh.packedSplats || ! fullSplats ) return;
@@ -362,6 +452,9 @@ export function createSplat( ctx, place, onError ) {
 			// figure (100,352 against 99,871 here) and thinning against that
 			// would draw 481 splats of whatever the padding holds.
 			fullSplats = m.numSplats;
+			// Before applyDetail, and once. The order decides what a prefix
+			// means, so it has to be settled before anything is drawn.
+			spreadSplats();
 			applyPose();
 			applyDetail();
 			scene.add( m );
