@@ -259,7 +259,23 @@ export function createSplat( ctx, place, onError ) {
 		try {
 
 			if ( ! back.splat ) return;
-			const res = await fetch( back.splat );
+			// A tuning override, same bargain as ?pose=. Three captures ship at
+			// different densities and which one is right is a looking question,
+			// not a benchmarking one: ?splat=10 / 30 / flat swaps them live so
+			// the same eyes can judge the cost and the quality together.
+			let url = back.splat;
+			try {
+
+				const pick = new URLSearchParams( location.search ).get( 'splat' );
+				if ( pick && /^[a-z0-9-]+$/i.test( pick ) ) {
+
+					url = back.splat.replace( /capture(-[a-z0-9]+)?\.sog$/i, `capture-${pick}.sog` );
+
+				}
+
+			} catch ( err ) {}
+
+			const res = await fetch( url );
 			if ( ! res.ok ) throw new Error( `${res.status} ${res.statusText}` );
 			const bytes = new Uint8Array( await res.arrayBuffer() );
 			if ( disposed ) return;
