@@ -214,7 +214,12 @@ function build( wcs, note ) {
 		v: document.getElementById( 'wcsHangV' ),
 		scale: document.getElementById( 'wcsHangScale' )
 	};
-	if ( ! sliders.u || ! sliders.v || ! sliders.scale ) return null;
+	// Only `scale` is required. u and v were deleted when clicking a splat
+	// replaced them, and this guard - written when all three were mandatory -
+	// meant mountHang returned before doing anything at all. So the Hang panel
+	// kept whatever the markup said, which was `disabled`, and every diagnostic
+	// I ran against the enable test was measuring a function that never ran.
+	if ( ! sliders.scale ) return null;
 
 	const why = document.getElementById( 'wcsHangWhy' );
 	const hint = document.getElementById( 'wcsHangHint' );
@@ -707,6 +712,13 @@ function build( wcs, note ) {
 		for ( const key of [ 'u', 'v', 'scale' ] ) {
 
 			const el = sliders[ key ];
+			// u and v no longer exist: clicking a splat replaced them. Without
+			// this guard sync() threw on the first missing slider and never
+			// reached scale, so Size stayed disabled with the porch's reason
+			// under it while every input to the enable test was already correct.
+			// Confirmed in Chrome, which is where it should have been confirmed
+			// the first time.
+			if ( ! el ) continue;
 			const off = ! on;
 			if ( el.disabled !== off ) el.disabled = off;
 			const field = el.closest ? el.closest( '.wcs-field' ) : null;
@@ -723,8 +735,13 @@ function build( wcs, note ) {
 
 		}
 
+		// Built from whichever sliders exist. u and v are gone, so reading their
+		// min/max threw here after mount stopped bailing out earlier - which is
+		// what hang-mount-failed and design-subscriber-failed were.
 		const key = ( pl ? pl.id : '-' ) + '|' + on + '|' +
-			( on ? sliders.u.min + ',' + sliders.u.max + ',' + sliders.v.min + ',' + sliders.v.max : '' );
+			( on ? [ 'u', 'v', 'scale' ]
+				.map( ( k ) => ( sliders[ k ] ? sliders[ k ].min + ',' + sliders[ k ].max : '' ) )
+				.join( '|' ) : '' );
 		if ( key !== stateKey ) {
 
 			stateKey = key;
@@ -1090,6 +1107,38 @@ function build( wcs, note ) {
 	} );
 
 	sync();
+
+	// Sync again until it takes.
+	//
+	// sync() runs at mount, on a design change and on a resize. None of those
+	// covers the case that actually happens: a splat place loads its capture
+	// asynchronously, so at mount there is nothing to measure, enabled comes
+	// out false, and no design change follows - opening a panel is not one. The
+	// visitor gets Size greyed out with the porch's reason under it, on a
+	// forest, confirmed in Chrome with every input to the test already correct.
+	//
+	// So retry on the frame hook until it sticks, then unsubscribe. Bounded by
+	// tries rather than by time so a place that genuinely has no reach stops
+	// asking instead of checking forever.
+	try {
+
+		if ( typeof api.onFrame === 'function' ) {
+
+			let tries = 240;
+			const off = api.onFrame( () => {
+
+				if ( enabled || -- tries <= 0 ) { if ( typeof off === 'function' ) off(); return; }
+				sync();
+
+			} );
+
+		}
+
+	} catch ( err ) {
+
+		note( 'hang-resync-failed', err );
+
+	}
 
 	// WCS:UI-MOUNT is alphabetical by function name, so this file mounts before
 	// ui/places.js - and places.js is what reconciles the decoded place and the
