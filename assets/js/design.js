@@ -62,7 +62,12 @@ export const DESIGN_DEFAULTS = {
 	// down by the cord's length, so a longer rope lowers the chime through the
 	// wood without the rig moving a millimetre. 0.61 is the two feet the drawn
 	// cord already was, kept so a cold ?c=v1 looks like it did.
-	hang: { u: 0.50, v: 0.40, scale: 1.00, cord: 0.61 },    // plate fraction, plate fraction, ratio, m
+	// scale 0.75 and cord 0.25 are Myra's, dialled in the live page against the
+	// forest and lifted from the browser rather than guessed: a chime three
+	// quarters of the authored size, hung on a short rope, is the one that sits
+	// in this capture at the scale a real one would. 1.00 and 0.61 were the
+	// numbers this shipped with before anybody had seen it in the wood.
+	hang: { u: 0.50, v: 0.40, scale: 0.75, cord: 0.25 },    // plate fraction, plate fraction, ratio, m
 	// splats is the fraction of the capture's gaussians that get drawn. It is a
 	// SECOND quality dial and not a refinement of the first: `quality` is the
 	// renderer tier for the chime - shadows, post-processing, the things scene.js

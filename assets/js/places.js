@@ -219,12 +219,22 @@ export const PLACES = Object.freeze( {
 			// Where the capture sits relative to the chime, which hangs at
 			// physics.js HOOK = (0, 2.60, 0) and does not move (Rule A).
 			//
-			// The quaternion is the y-down flip every SOG capture needs. The
-			// y offset drops the path surface onto the world's own ground plane:
-			// in the capture's own frame the path reads at about y = 0.39, so
-			// -0.39 puts it at zero and the chime hangs 2.6 m over it.
+			// The quaternion is the y-down flip every SOG capture needs.
+			//
+			// THIS POSE WAS PICKED, NOT SOLVED. It used to be [-0.85, 2.48, 9.15],
+			// derived from the path surface reading about y = 0.39 in the
+			// capture's own frame - correct arithmetic, and it hung the chime in
+			// a thin part of the wood because nothing in that derivation knew
+			// what was behind it. This is where Myra left it after clicking a
+			// branch in the live page: read back off the browser as the base
+			// pickOffset, with the u/v nudge taken out so a cold load with no
+			// pick reproduces the same frame exactly.
+			//
+			// The y is the number that moved most, 2.48 to 0.786, because a
+			// picked point sits wherever the branch was rather than wherever the
+			// ground would have to be for the arithmetic to close.
 			pose: Object.freeze( {
-				position: Object.freeze( [ -0.85, 2.48, 9.15 ] ),
+				position: Object.freeze( [ -0.851, 0.786, 4.682 ] ),
 				quaternion: Object.freeze( [ 1, 0, 0, 0 ] ),
 				scale: 1
 			} ),
@@ -365,8 +375,25 @@ export const PLACES = Object.freeze( {
 			// justify a photograph. The orbit below is bounded so a visitor can
 			// walk around the chime without swinging behind the capture's back.
 			fixed: false,
-			azDeg: 180,
-			elevDeg: 14,
+			// THE OPENING SHOT, and it is applied now rather than ignored.
+			//
+			// These two were already here and were dead: applyPlaceCamera only
+			// read azDeg/elevDeg on a FIXED place, so an orbitable one silently
+			// fell back to the style's bearing of 52 - a view composed for a
+			// porch, pointed at a wood. 180/14 was the authored guess; 186.8/4.2
+			// is where Myra actually left the camera, read back off the browser,
+			// looking down the path rather than across the canopy.
+			//
+			// Both are inside the orbit bounds below, and they have to be: this
+			// is a starting pose, not a cage, and a start outside the arc the
+			// visitor is allowed to reach would be snapped away on their first
+			// drag.
+			azDeg: 186.83,
+			elevDeg: 4.22,
+			// Ortho, so this is the frustum tightening rather than a dolly.
+			// 0.85 of the authored 3.20 m frame is the crop that puts the path's
+			// opening behind the chime.
+			zoom: 0.846,
 			eye: Object.freeze( [ 0, 0.24192, 0.97030 ] ),
 			// Raised 0.30 m from the 0.98 the plate was rendered around, which is
 			// what brings the hook and the limb into the picture. The plate's crop
@@ -436,7 +463,11 @@ export const PLACES = Object.freeze( {
 			uRange: Object.freeze( [ 0.41, 0.59 ] ),
 			vRange: Object.freeze( [ 0.36, 0.56 ] ),
 			scaleRange: Object.freeze( [ 0.75, 1.30 ] ),
-			default: Object.freeze( { u: 0.50, v: 0.40, scale: 1.00 } )
+			// scale 0.75, the bottom of the range above, because that is where
+			// the chime was left after an evening of looking at it in the wood.
+			// Tied to design.js DESIGN_DEFAULTS.hang by verify-place, so the two
+			// move together or the build fails.
+			default: Object.freeze( { u: 0.50, v: 0.40, scale: 0.75 } )
 		} ),
 
 		wind: Object.freeze( { mph: 9, dirDeg: 245, turbulence: 0.34 } ),

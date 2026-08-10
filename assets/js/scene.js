@@ -670,6 +670,33 @@ export function createStage(opts) {
           controls.maxDistance = c.orbit.zoom[1] * 3.0;
         }
       }
+
+      // AN ORBITABLE PLACE MAY STILL COMPOSE ITS OPENING SHOT.
+      //
+      // azDeg and elevDeg were read only under `cameraFixed` below, so a place
+      // that authored them AND allowed orbit had them quietly ignored - the eye
+      // kept the STYLE's bearing, which is a view composed for a porch pointed
+      // at a wood. forest-path has carried 180/14 since it was written and has
+      // never once used them.
+      //
+      // A start, not a cage: this runs when the place goes up, and the visitor
+      // drags away from it freely afterwards. Aimed from S.camTarget rather than
+      // the place's own target because applyFraming, which runs immediately
+      // after this on a non-fixed ortho place, resets controls.target to exactly
+      // that - so composing against anything else would be undone one line later.
+      if (c && Number.isFinite(c.azDeg) && Number.isFinite(c.elevDeg)) {
+        const el = c.elevDeg * DEG;
+        const az = c.azDeg * DEG;
+        _vA.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+        controls.target.set(S.camTarget[0], S.camTarget[1], S.camTarget[2]);
+        // 40 and 5.5 are the fixed branch's own numbers, repeated rather than
+        // shared with BASE_DIST: that const is declared six hundred lines below
+        // this function and reading it here is a temporal dead zone away from a
+        // ReferenceError the first time a place goes up.
+        camera.position.copy(controls.target).addScaledVector(_vA, S.ortho ? 40 : 5.5);
+        if (S.ortho && Number.isFinite(c.zoom)) camera.zoom = c.zoom;
+        controls.update();
+      }
       return;
     }
 
