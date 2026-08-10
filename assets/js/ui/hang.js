@@ -697,7 +697,11 @@ function build( wcs, note ) {
 		// to less than one notch reads as "nothing to move" rather than offering a
 		// slider with a single legal position.
 		const B = boundsFrom( L );
-		const on = !! ( pl && pl.kind === 'plate' && B && spanOf( B ) > 1e-9 );
+		// 'plate' OR 'splat'. This test was written when a plate was the only
+		// non-procedural place there was, and a splat place answering 'splat'
+		// made every control fall through to the porch's disabled state - with
+		// the porch's reason printed under it, on a forest.
+		const on = !! ( pl && ( pl.kind === 'plate' || pl.kind === 'splat' ) && B && spanOf( B ) > 1e-9 );
 		enabled = on;
 
 		for ( const key of [ 'u', 'v', 'scale' ] ) {

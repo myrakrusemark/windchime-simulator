@@ -469,7 +469,13 @@ export function createSplat( ctx, place, onError ) {
 				// extent rather than a polite radius around the authored pose.
 				// The clamp exists only to survive the outliers a reconstruction
 				// leaves scattered well outside the scene it reconstructed.
-				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 30.0;
+				// Back down from 30. A reconstruction scatters outliers well outside
+				// the scene it reconstructed, and the ray finds them: clicking
+				// what looks like open canopy hit one and carried the whole
+				// forest away with it, which is what "it all disappears" was.
+				// Six metres is about as far as you can see a hangable spot in
+				// this capture anyway.
+				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 6.0;
 				if ( travel.length() > maxTravel ) {
 
 					note( 'splat-pick-out-of-reach', new Error(
@@ -522,9 +528,14 @@ export function createSplat( ctx, place, onError ) {
 				u: place.hang.uRange.slice(),
 				v: place.hang.vRange.slice(),
 				scale: place.hang.scaleRange.slice(),
-				// A splat has no crop, so the reach is the authored range with no
-				// margin taken out of it for a frame edge that does not exist.
-				crop: [ 0.5, 0.5, 0.5, 0.5 ]
+				// A splat has no crop. hx/hy are the HALF-MARGIN a plate has to keep
+				// so its frame stays inside the image, and hang.js subtracts them
+				// from the authored range to get what is reachable. Reporting 0.5
+				// - half the frame - collapsed that range to a single point, and
+				// every control in the Hang panel fell through to the porch's
+				// disabled state with the porch's reason printed under it.
+				// A capture has no edge to fall off, so the margin is zero.
+				crop: [ 0.5, 0.5, 0, 0 ]
 			};
 
 		},
