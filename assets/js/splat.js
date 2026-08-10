@@ -351,15 +351,30 @@ export function createSplat( ctx, place, onError ) {
 	// binds to the renderer's own element and captures the pointer for the
 	// duration of a drag; a listener on the parent in the bubble phase is at the
 	// mercy of that. Capture on the same element sees every press first.
-	const el = ( ctx.renderer && ctx.renderer.domElement ) || ctx.container;
+	// WINDOW, capture phase. The canvas was one step better than the container
+	// and still not enough: OrbitControls captures the pointer for the duration
+	// of a press, and anything between it and us can swallow a release. window
+	// in capture sees every press before any element does, and the hit test
+	// below decides whether it was ours - which is the correct order anyway.
+	const el = ( typeof window !== 'undefined' ) ? window : null;
+	const canvas = ( ctx.renderer && ctx.renderer.domElement ) || ctx.container;
 	let downAt = null;
 	let downT = 0;
+	let downArmed = false;
 
 	function onDown( e ) {
 
 		if ( e.button !== undefined && e.button !== 0 ) { downAt = null; return; }
+		if ( e.target !== canvas ) { downAt = null; return; }   // chrome, not the picture
 		downAt = { x: e.clientX, y: e.clientY };
 		downT = performance.now();
+		// Armed at PRESS, not at release. P3's light dismiss closes the open
+		// panel on any press outside it, and hang.js used to suppress that for
+		// presses it claimed - which it no longer does, because its drag went
+		// with the sliders. So by the time pointerup runs the panel is already
+		// hidden and a release-time check says "not armed" for every single
+		// click. Measured: picked went false the moment the sliders came out.
+		downArmed = pickArmed();
 
 	}
 
@@ -371,9 +386,9 @@ export function createSplat( ctx, place, onError ) {
 		const held = performance.now() - downT;
 		downAt = null;
 		if ( moved > 5 || held > 500 ) return;      // that was a camera move
-		if ( ! pickArmed() ) return;
+		if ( ! downArmed ) return;
 
-		const r = el.getBoundingClientRect();
+		const r = canvas.getBoundingClientRect();
 		const ndcX = ( ( e.clientX - r.left ) / r.width ) * 2 - 1;
 		const ndcY = - ( ( e.clientY - r.top ) / r.height ) * 2 + 1;
 		const cam = typeof ctx.getCamera === 'function' ? ctx.getCamera() : null;
@@ -449,7 +464,12 @@ export function createSplat( ctx, place, onError ) {
 				const want = HOOK.clone().sub( hit.point ).add( mesh.position );
 				const home = new THREE.Vector3( POS[ 0 ], POS[ 1 ], POS[ 2 ] );
 				const travel = want.clone().sub( home );
-				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 4.0;
+				// Every gaussian is a real point in the capture and any of them is
+				// somewhere a chime could hang, so the reach is the capture's own
+				// extent rather than a polite radius around the authored pose.
+				// The clamp exists only to survive the outliers a reconstruction
+				// leaves scattered well outside the scene it reconstructed.
+				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 30.0;
 				if ( travel.length() > maxTravel ) {
 
 					note( 'splat-pick-out-of-reach', new Error(
