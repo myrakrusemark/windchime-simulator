@@ -424,6 +424,50 @@ export function createSplat( ctx, place, onError ) {
 
 	}
 
+	/**
+	 * ONE ANSWER TO "WHAT IS UNDER THE POINTER", USED BY BOTH THE HOVER AND THE
+	 * CLICK - because the moment they each work it out for themselves, the mark
+	 * starts promising things the click refuses.
+	 *
+	 * It did. Hover raycast and stopped; the pick raycast AND applied the reach
+	 * cap, so every point past the cap lit up white and then did nothing when it
+	 * was clicked. Measured with the eye swung round to look DOWN the path
+	 * rather than across it, which is where the far scenery is: at bearing 352
+	 * that was 46 of 72 lit points, at 172 it was 33 of 85. From the shipped
+	 * bearing it never happened once, which is how it was missed.
+	 *
+	 * THE CAP IS PER PICK, AND IT IS THE CAPTURE'S OWN SIZE.
+	 *
+	 * It used to measure the capture's total displacement from its authored
+	 * pose, which turns an outlier guard into a leash: picks compose, so walking
+	 * the chime along the path spends the allowance a metre at a time and the
+	 * far end is unreachable even though every step of the way there was fine.
+	 * What it is actually guarding against - a reconstruction's stray gaussian -
+	 * is a single wild jump, so a single jump is what it now measures.
+	 *
+	 * 35 m because that is the capture. Sampled 674 rays across six bearings and
+	 * two elevations, the distance from the hook to the nearest gaussian runs
+	 * p50 3.8 m, p90 10.1, p99 30.1, max 31.7 - the far end of the path really
+	 * is thirty metres away, and the old 6 m cap refused 193 of those 674, or
+	 * 29 percent of everything a visitor can point at. There is no gap in that
+	 * distribution to put a smaller number in.
+	 */
+	function resolve( ndcX, ndcY, camera ) {
+
+		if ( ! mesh || ! camera ) return null;
+		mesh.raycastable = true;
+		raycaster.setFromCamera( { x: ndcX, y: ndcY }, camera );
+		const hits = [];
+		mesh.raycast( raycaster, hits );
+		if ( ! hits.length ) return null;
+		hits.sort( ( a, b ) => a.distance - b.distance );
+		const hit = hits[ 0 ];
+		const t = HOOK.clone().sub( hit.point );
+		const reach = Number.isFinite( back.pickReach ) ? back.pickReach : 35.0;
+		return { hit, t, reach, outOfReach: t.length() > reach };
+
+	}
+
 	// Click to pick, drag to orbit. The distinction is the whole reason this is
 	// wired here rather than as a mode: a visitor who wants to look around must
 	// not have to remember which one they are in. A press that travels more than
@@ -503,13 +547,9 @@ export function createSplat( ctx, place, onError ) {
 		const ndcY = - ( ( e.clientY - r.top ) / r.height ) * 2 + 1;
 		try {
 
-			mesh.raycastable = true;
-			raycaster.setFromCamera( { x: ndcX, y: ndcY }, cam );
-			const hits = [];
-			mesh.raycast( raycaster, hits );
-			if ( ! hits.length ) { hideMark(); return; }
-			hits.sort( ( a, b ) => a.distance - b.distance );
-			showMark( mesh.worldToLocal( hits[ 0 ].point.clone() ) );
+			const r2 = resolve( ndcX, ndcY, cam );
+			if ( ! r2 || r2.outOfReach ) { hideMark(); return; }
+			showMark( mesh.worldToLocal( r2.hit.point.clone() ) );
 
 		} catch ( err ) { hideMark(); }
 
@@ -573,26 +613,28 @@ export function createSplat( ctx, place, onError ) {
 			if ( ! mesh || ! camera ) return null;
 			try {
 
-				mesh.raycastable = true;
-				raycaster.setFromCamera( { x: ndcX, y: ndcY }, camera );
-				const hits = [];
-				mesh.raycast( raycaster, hits );
-				if ( ! hits.length ) { hideMark(); return null; }
-				hits.sort( ( a, b ) => a.distance - b.distance );
-				const hit = hits[ 0 ];
+				const r2 = resolve( ndcX, ndcY, camera );
+				if ( ! r2 ) { hideMark(); return null; }
+				if ( r2.outOfReach ) {
 
+					note( 'splat-pick-out-of-reach', new Error(
+						`picked point is ${r2.t.length().toFixed( 1 )} m from the hook, cap is ${r2.reach}` ) );
+					// Hidden, not destroyed. Tearing the pair down here meant the
+					// next hover had to rebuild it and churn spark's generator,
+					// and hiding says the same thing to the visitor: the mark
+					// goes out, so the spot they are pointing at is not one they
+					// can have. The hover applies the same test, so in practice
+					// nothing was lit here to put out.
+					hideMark();
+					return null;
+
+				}
+
+				const hit = r2.hit;
 				// The hit is in world space; the SDF lives under the mesh.
 				showMark( mesh.worldToLocal( hit.point.clone() ) );
 
-				// Move the capture so the picked gaussian arrives at the hook -
-				// but not further than the place says it may travel.
-				//
-				// The first version of this had no clamp and the first pick
-				// landed on a gaussian 37 m out, which is inside the capture's
-				// tree bound and nowhere near anything a person would call a
-				// branch. Bringing it to the hook dragged the whole forest with
-				// it and left an empty frame. A capture has outliers; a pick
-				// has to survive hitting one.
+				// Move the capture so the picked gaussian arrives at the hook.
 				//
 				// Off the BASE, not off mesh.position. mesh.position is the base
 				// plus the u/v nudge, and applyPose adds that nudge again on the
@@ -601,36 +643,8 @@ export function createSplat( ctx, place, onError ) {
 				// that is 0.28 m of unasked-for lift per pick. Composing on the
 				// base means two picks in a row land where the second one was
 				// aimed rather than 0.56 m above it.
-				const t = HOOK.clone().sub( hit.point );
 				const from = pickOffset || { x: POS[ 0 ], y: POS[ 1 ], z: POS[ 2 ] };
-				const want = new THREE.Vector3( from.x + t.x, from.y + t.y, from.z + t.z );
-				const home = new THREE.Vector3( POS[ 0 ], POS[ 1 ], POS[ 2 ] );
-				const travel = want.clone().sub( home );
-				// Every gaussian is a real point in the capture and any of them is
-				// somewhere a chime could hang, so the reach is the capture's own
-				// extent rather than a polite radius around the authored pose.
-				// The clamp exists only to survive the outliers a reconstruction
-				// leaves scattered well outside the scene it reconstructed.
-				// Back down from 30. A reconstruction scatters outliers well outside
-				// the scene it reconstructed, and the ray finds them: clicking
-				// what looks like open canopy hit one and carried the whole
-				// forest away with it, which is what "it all disappears" was.
-				// Six metres is about as far as you can see a hangable spot in
-				// this capture anyway.
-				const maxTravel = Number.isFinite( back.pickReach ) ? back.pickReach : 6.0;
-				if ( travel.length() > maxTravel ) {
-
-					note( 'splat-pick-out-of-reach', new Error(
-						`picked point is ${travel.length().toFixed( 1 )} m from the authored pose, cap is ${maxTravel}` ) );
-					// Hidden, not destroyed. Tearing the pair down here meant the
-					// next hover had to rebuild it and churn spark's generator,
-					// and hiding says the same thing to the visitor: the mark
-					// goes out, so the spot they are pointing at is not one they
-					// can have.
-					hideMark();
-					return null;
-
-				}
+				const want = new THREE.Vector3( from.x + r2.t.x, from.y + r2.t.y, from.z + r2.t.z );
 
 				// The capture moves. The camera does not, and must not.
 				//
