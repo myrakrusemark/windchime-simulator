@@ -1254,7 +1254,21 @@ export function createStage(opts) {
         notePlaceError('place-asset-failed');
       };
       plate = (p.backdrop && p.backdrop.splat)
-        ? createSplat({ scene, renderer, container, getCamera: () => camera }, p, onPlaceError)
+        ? createSplat({
+          scene, renderer, container,
+          getCamera: () => camera,
+          // Move the eye with the world. A pick translates the capture so the
+          // chosen gaussian lands at the hook; on its own that hurls the whole
+          // forest across the frame and out of it. Shifting the camera and its
+          // target by the SAME vector holds the forest still on screen and
+          // makes the CHIME the thing that travelled, which is what was asked
+          // for. The chime itself never moves, so the physics is untouched.
+          shiftView: (dx, dy, dz) => {
+            camera.position.x += dx; camera.position.y += dy; camera.position.z += dz;
+            controls.target.x += dx; controls.target.y += dy; controls.target.z += dz;
+            controls.update();
+          }
+        }, p, onPlaceError)
         : createPlate({
         scene,
         container,

@@ -378,6 +378,44 @@ export function createSplat( ctx, place, onError ) {
 
 	}
 
+	// Hover. A splat under the pointer goes white while the Hang panel is open,
+	// so it is obvious what a click would take. Throttled to one raycast every
+	// other frame's worth of time - a raycast against 100k gaussians on every
+	// pointermove is not free.
+	let hoverAt = 0;
+
+	function onMove( e ) {
+
+		if ( ! mesh || ! pickArmed() ) return;
+		if ( e.target !== canvas ) return;
+		const now = performance.now();
+		if ( now - hoverAt < 60 ) return;
+		hoverAt = now;
+		const cam = typeof ctx.getCamera === 'function' ? ctx.getCamera() : null;
+		if ( ! cam ) return;
+		const r = canvas.getBoundingClientRect();
+		const ndcX = ( ( e.clientX - r.left ) / r.width ) * 2 - 1;
+		const ndcY = - ( ( e.clientY - r.top ) / r.height ) * 2 + 1;
+		try {
+
+			mesh.raycastable = true;
+			raycaster.setFromCamera( { x: ndcX, y: ndcY }, cam );
+			const hits = [];
+			mesh.raycast( raycaster, hits );
+			if ( ! hits.length ) return;
+			hits.sort( ( a, b ) => a.distance - b.distance );
+			ensureMark();
+			if ( sdf ) {
+
+				sdf.position.copy( mesh.worldToLocal( hits[ 0 ].point.clone() ) );
+				sdf.updateMatrixWorld( true );
+
+			}
+
+		} catch ( err ) {}
+
+	}
+
 	function onUp( e ) {
 
 		if ( ! downAt || ! mesh ) { downAt = null; return; }
@@ -413,6 +451,7 @@ export function createSplat( ctx, place, onError ) {
 	if ( el ) {
 
 		el.addEventListener( 'pointerdown', onDown, { passive: true, capture: true } );
+		el.addEventListener( 'pointermove', onMove, { passive: true, capture: true } );
 		el.addEventListener( 'pointerup', onUp, { passive: true, capture: true } );
 
 	}
@@ -485,8 +524,13 @@ export function createSplat( ctx, place, onError ) {
 
 				}
 
+				const prev = mesh.position.clone();
 				pickOffset = want;
 				applyPose();
+				// The capture moved by this much, so the eye moves by the same,
+				// and the forest holds still while the chime is what travelled.
+				const moved = mesh.position.clone().sub( prev );
+				if ( typeof ctx.shiftView === 'function' ) ctx.shiftView( moved.x, moved.y, moved.z );
 				return { point: hit.point.toArray(), distance: hit.distance };
 
 			} catch ( err ) {
@@ -561,6 +605,7 @@ export function createSplat( ctx, place, onError ) {
 			if ( el ) {
 
 				el.removeEventListener( 'pointerdown', onDown, true );
+				el.removeEventListener( 'pointermove', onMove, true );
 				el.removeEventListener( 'pointerup', onUp, true );
 
 			}
