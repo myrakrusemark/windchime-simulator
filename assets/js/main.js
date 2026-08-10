@@ -303,6 +303,11 @@ const wind = createWind( params );
 Object.assign( params, setParts( params ) );
 
 const rig = createRig( freqsFor( params.scaleName, params.noteCount ) );
+// The rope the chime hangs on, before the first frame. createRig builds with
+// physics.js's own default; a shared link carrying ?c=..._hc-150 has already
+// put 1.50 into params by here (WCS:DESIGN-BOOT), and the rig has to start
+// there rather than swing once at 0.61 and then jump.
+if ( Number.isFinite( params.hangCord ) ) rig.setCord( params.hangCord );
 
 // The one wind sampling contract, handed to physics as a stable reference so
 // nothing allocates a closure per substep.
@@ -1020,10 +1025,15 @@ const designCtx = {
 		if ( stage && stage.setSplatDetail ) stage.setSplatDetail( fraction );
 
 	},
-	// How long the rope between the chime's eye and the branch is. Same routing,
-	// same guard.
+	// How long the rope between the chime's eye and the branch is. TWO calls,
+	// and they are not the same call twice: the rig moves its static anchor up
+	// so the ring hangs a rope's length below the branch, and the stage lifts
+	// the CAPTURE so the picked gaussian is where that branch is. Physics and
+	// picture have to agree on one number or the chime hangs off a point in the
+	// wood that nothing is drawn at.
 	setCord: ( metres ) => {
 
+		rig.setCord( metres );
 		if ( stage && stage.setCord ) stage.setCord( metres );
 
 	}

@@ -130,18 +130,6 @@ function sparkFor( scene, renderer, camera ) {
  */
 const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 
-/**
- * How many pieces the rope is cut into.
- *
- * One cylinder was enough while the cord was a rigid stub that could only ever
- * be vertical. It cannot bend, and a rope that hangs a chime in moving air is
- * mostly bend, so the rope is a chain of short segments the caller re-aims every
- * frame. Twelve is where the silhouette stopped reading as a hinge at three
- * metres; below eight the joints show, above sixteen nothing changes and there
- * are more matrices to update.
- */
-const CORD_SEGMENTS = 12;
-
 function buildCordHanger( spec ) {
 
 	const g = new THREE.Group();
@@ -166,40 +154,18 @@ function buildCordHanger( spec ) {
 	eye.castShadow = true;
 	g.add( eye );
 
-	// ONE unit-length geometry, shared by every segment, scaled on y per frame.
+	// NO ROPE HERE ANY MORE.
 	//
-	// The alternative is a CylinderGeometry per length, disposed and rebuilt
-	// whenever the rope changes - which is an allocation on every frame of a
-	// slider drag and again on every frame of the sway. A unit cylinder with its
-	// origin at the BOTTOM (translated up by a half) is positioned at a segment's
-	// lower end, aimed at the upper one and scaled to the gap, which is three
-	// writes and no garbage.
-	const cordGeo = new THREE.CylinderGeometry( 0.0035, 0.0035, 1, 6 );
-	cordGeo.translate( 0, 0.5, 0 );
-	geoms.push( cordGeo );
-	const cordMat = new THREE.MeshStandardMaterial( {
-		color: spec.cordColor === undefined ? 0xcfc3ad : spec.cordColor,
-		roughness: 0.9, metalness: 0
-	} );
-	mats.push( cordMat );
-
-	const segments = [];
-	for ( let i = 0; i < CORD_SEGMENTS; i ++ ) {
-
-		const seg = new THREE.Mesh( cordGeo, cordMat );
-		seg.castShadow = true;
-		// matrixAutoUpdate stays on: the per-frame writer sets position and
-		// quaternion, which is exactly what three's own update consumes.
-		g.add( seg );
-		segments.push( seg );
-
-	}
-
+	// This group used to draw the cord above the eye as well, twelve segments it
+	// bent with a wind heuristic of its own. The rope is a real cord in the rig
+	// now - physics.js hangs the ring from a static anchor at the branch and
+	// reports the strand in RigState.cords like every other one - so scene.js's
+	// cord renderer draws it, with the same material and the same slack-driven
+	// sag as the bridle. Two drawers for one rope is two ropes.
 	g.userData.geoms = geoms;
 	g.userData.mats = mats;
-	g.userData.segments = segments;
-	// Where the rope leaves the eye. Everything above this is rope.
-	g.userData.footY = HOOK_Y + eyeR * 0.55 + eyeR;
+	g.userData.eye = eye;
+	g.userData.eyeRise = eyeR * 0.55;
 	return g;
 
 }
@@ -228,84 +194,25 @@ export function createSplat( ctx, place, onError ) {
 	const hanger = place.hanger === null ? null : buildCordHanger( place.hanger || {} );
 	if ( hanger ) scene.add( hanger );
 
-	// Scratch for the per-frame rope writer. Module-level would be shared between
-	// two live places during a switch; per-place is one allocation at mount and
-	// none afterwards, which is the point.
-	const _a = new THREE.Vector3();
-	const _b = new THREE.Vector3();
-	const _dir = new THREE.Vector3();
-	const _up = new THREE.Vector3( 0, 1, 0 );
-
-	// How far downwind the middle of the rope is, in metres, and the phase of the
-	// slow breathing on top of it.
-	let bowX = 0, bowZ = 0;
-	let swayPhase = 0;
-
-	/** A point on the rope at 0..1 from the eye, written into `out`. */
-	function ropePoint( t, foot, span, out ) {
-
-		// Quadratic Bezier through a control point pushed downwind, which is the
-		// same shape scene.js bends the chime's own cords with. Both ends are
-		// pinned - the eye by the welded hook, the top by the branch - so a rope
-		// in moving air can only belly, and the belly is what a Bezier is for.
-		const it = 1 - t;
-		const w0 = it * it, w1 = 2 * it * t, w2 = t * t;
-		const midY = foot + span * 0.5;
-		out.set(
-			HOOK_X * ( w0 + w2 ) + ( HOOK_X + bowX ) * w1,
-			foot * w0 + midY * w1 + ( foot + span ) * w2,
-			HOOK_Z * ( w0 + w2 ) + ( HOOK_Z + bowZ ) * w1
-		);
-
-	}
-
 	/**
-	 * Lay the rope from the top of the eye to whatever the chime hangs from.
+	 * Put the iron eye where the rig says the ring is.
 	 *
-	 * The top end is HOOK_Y + cordLen, which is the same point resolve() aims a
-	 * pick at - the rope and the pick agree by construction rather than by two
-	 * numbers being kept in step. Below about 43 mm there is no rope at all,
-	 * because the eye's own ring has already eaten that much: the segments go
-	 * invisible rather than being drawn at a negative length.
+	 * It used to sit at a constant, HOOK_Y plus a little, and that constant was
+	 * the same number physics.js welded the bridle to - one fact typed into two
+	 * files, and only the physics copy could ever move. The ring is a particle
+	 * now, so the eye reads its position and the two cannot disagree.
+	 *
+	 * The rise survives the move. A cord tied through an eye bears on the inside
+	 * of the ring's LOWER opening, not at its centre, so the torus is drawn a bit
+	 * over half a radius above the point the bridle converges on - which is what
+	 * stops the chime looking like it hangs beside its own ring.
 	 */
-	function shapeCord() {
+	function placeEye( x, y, z ) {
 
 		if ( ! hanger ) return;
-		const segs = hanger.userData.segments;
-		const foot = hanger.userData.footY;
-		const span = ( HOOK_Y + cordLen ) - foot;
-		if ( ! ( span > 1e-4 ) ) {
-
-			for ( const s of segs ) s.visible = false;
-			return;
-
-		}
-
-		const n = segs.length;
-		ropePoint( 0, foot, span, _a );
-		for ( let i = 0; i < n; i ++ ) {
-
-			ropePoint( ( i + 1 ) / n, foot, span, _b );
-			const seg = segs[ i ];
-			seg.visible = true;
-			seg.position.copy( _a );
-			_dir.subVectors( _b, _a );
-			const len = _dir.length();
-			seg.scale.set( 1, len, 1 );
-			if ( len > 1e-9 ) {
-
-				_dir.divideScalar( len );
-				seg.quaternion.setFromUnitVectors( _up, _dir );
-
-			}
-
-			_a.copy( _b );
-
-		}
+		hanger.userData.eye.position.set( x, y + hanger.userData.eyeRise, z );
 
 	}
-
-	shapeCord();
 
 	// The capture's own placement, authored with the place. A SOG capture
 	// arrives y-down, which is the single most common way to get a forest that
@@ -876,49 +783,21 @@ export function createSplat( ctx, place, onError ) {
 		 * has not moved.
 		 */
 		/**
-		 * The rope, blown about, once per rendered frame.
+		 * Follow the ring, once per rendered frame.
 		 *
-		 * WHY THE ROPE AND NOT THE CHIME. A rope holding a chime in moving air
-		 * swings the whole assembly, and this one cannot: physics.js welds the
-		 * hook at (0, 2.60, 0) and that is the fact every grab proxy, the bridle
-		 * derived at module load and windviz's world extents are built on. So
-		 * the honest half of the motion is the half that IS free - both ends of
-		 * the rope are pinned, the eye by the hook and the top by the branch, so
-		 * it bellies downwind instead of leaning. That is what a rope with a
-		 * little slack does, and it is the same quadratic Bezier scene.js already
-		 * bends the chime's own cords with.
+		 * There is no wind heuristic left in here. The rope and the ring are both
+		 * in the rig now - a static anchor at the branch, a cord down to a ring
+		 * particle, the bridle hanging off that - so the wind reaches them the
+		 * same way it reaches the tubes, through physics.js, and this only has to
+		 * put the drawn eye where the solver left it.
 		 *
-		 * The lean saturates the way that one does - speed / (speed + 18) is 0 in
-		 * calm and 0.45 at 15 m/s - so a gale bellies the rope hard without ever
-		 * folding it in half. Scaled by the rope's own length, because a two-inch
-		 * cord has nothing to belly and a three-metre one has plenty.
-		 *
-		 * The phase is INTEGRATED from the speed rather than multiplied into a
-		 * clock. Multiplying an ever-growing clock by a changing rate jumps every
-		 * time the wind moves, which is the bug wind.js's header warns about and
-		 * scene.js's own swayPhase avoids the same way.
-		 *
-		 * @param {number} dt      seconds since the last frame
-		 * @param {number} flowX   unit vector the air blows toward, world x
-		 * @param {number} flowZ   ...and world z
-		 * @param {number} speedMs wind speed in metres per second
+		 * @param {number[]} ringPos world position of the ring particle, or null
+		 *                           if the rig has not reported one yet.
 		 */
-		frame( dt, flowX, flowZ, speedMs ) {
+		frame( dt, ringPos ) {
 
-			if ( ! hanger || ! ( cordLen > 0 ) ) return;
-			const v = Number.isFinite( speedMs ) ? Math.max( 0, speedMs ) : 0;
-			const step = Number.isFinite( dt ) ? Math.min( 0.25, Math.max( 0, dt ) ) : 0;
-			swayPhase += v * 0.55 * step;
-			if ( swayPhase > Math.PI * 2048 ) swayPhase -= Math.PI * 2048;
-			const span = ( HOOK_Y + cordLen ) - hanger.userData.footY;
-			const lean = v / ( v + 18.0 );
-			// 0.72 + 0.28 sin, so the belly breathes between about three quarters
-			// and full rather than snapping to nothing on the back of each cycle -
-			// a rope in a steady wind stays out, it does not flap to plumb.
-			const amp = span * lean * 0.30 * ( 0.72 + 0.28 * Math.sin( swayPhase ) );
-			bowX = ( Number.isFinite( flowX ) ? flowX : 0 ) * amp;
-			bowZ = ( Number.isFinite( flowZ ) ? flowZ : 0 ) * amp;
-			shapeCord();
+			if ( ! hanger || ! ringPos ) return;
+			placeEye( ringPos[ 0 ], ringPos[ 1 ], ringPos[ 2 ] );
 
 		},
 
@@ -928,12 +807,12 @@ export function createSplat( ctx, place, onError ) {
 			const next = Math.max( 0, metres );
 			// Carry a live pick with the change. pickOffset holds the base that
 			// puts the picked gaussian `cordLen` above the hook, so lengthening
-			// the rope by d has to lift that base by d or the rope grows past a
-			// branch that stayed where it was. Nothing to carry when the visitor
-			// has not picked anything - see applyPose.
+			// the rope by d has to lift that base by d or the branch stays where
+			// it was while physics.js moves its anchor a rope's length up - and
+			// the chime hangs off a point in the wood with nothing drawn at it.
+			// Nothing to carry when the visitor has not picked anything.
 			if ( pickOffset ) pickOffset.y += next - cordLen;
 			cordLen = next;
-			shapeCord();
 			applyPose();
 
 		},

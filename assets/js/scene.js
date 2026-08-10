@@ -1489,10 +1489,13 @@ export function createStage(opts) {
 
     // Cords. One LineSegments for all of them: a TubeGeometry per cord rebuilt
     // every frame would cost more than the entire rest of the sync. The count
-    // is three bridle strands to the hook, one per tube, the clapper cord and
-    // the sail cord. syncRig clamps to whatever the rig actually reports, so an
-    // undersized buffer degrades to fewer drawn cords rather than to garbage.
-    const cordCount = n + 5;
+    // is three bridle strands to the RING, one per tube, the clapper cord, the
+    // sail cord, and the rope from the branch down to the ring. syncRig clamps
+    // to whatever the rig actually reports, so an undersized buffer degrades to
+    // fewer drawn cords rather than to garbage -- which is exactly how the rope
+    // came out invisible the first time this ran: physics.js grew a cord, this
+    // number did not, and the clamp silently dropped the last one.
+    const cordCount = n + 6;
     cordPositions = new Float32Array(cordCount * CORD_SEGMENTS * 2 * 3);
     const cordGeo = new THREE.BufferGeometry();
     const attr = new THREE.BufferAttribute(cordPositions, 3);
@@ -1774,6 +1777,7 @@ export function createStage(opts) {
 
   // -- per-frame sync -------------------------------------------------------
   let lastSyncMs = -1;
+  let lastRigState = null;
 
   function writeCord(k, a, b, rest, slack) {
     // Quadratic sag: at slack 0 the cord is a straight taut line, at slack 0.3
@@ -1824,6 +1828,10 @@ export function createStage(opts) {
 
   function syncRig(state) {
     if (!state) return;
+    // Held for render(), which needs the ring's position to place a capture
+    // place's iron eye and is not handed the state itself. main.js calls syncRig
+    // every frame before render, so this is never more than one frame old.
+    lastRigState = state;
 
     // syncRig is not handed dt, so it keeps its own clock for the ring decay.
     const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -2199,11 +2207,12 @@ export function createStage(opts) {
 
     keepTopInShot(dt);
 
-    // The place's own moving parts, if it has any. A capture place hangs the
-    // chime on a rope and the rope is in the wind like everything else here;
-    // a plate has nothing to move and does not implement this.
+    // The place's own moving parts, if it has any. A capture place draws the
+    // iron eye, and the eye now belongs to a particle the rig solves - so this
+    // hands over where that particle ended up rather than any wind of its own.
+    // A plate has no eye and does not implement this.
     if (plate && typeof plate.frame === 'function') {
-      plate.frame(dt, windFlow.x, windFlow.y, windSpeedMs);
+      plate.frame(dt, lastRigState && lastRigState.ring ? lastRigState.ring.pos : null);
     }
 
     renderer.info.reset();

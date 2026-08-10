@@ -415,6 +415,10 @@ for ( const id of ids ) {
 
 const sceneSrc = read( 'assets/js/scene.js' );
 const splatSrc = read( 'assets/js/splat.js' );
+// Read for one assertion only: that the bridle still hangs on the ring
+// particle. The eye a place draws and the anchor the rig solves are one fact in
+// two files, and this is the file that notices when they part company.
+const physicsSrc = read( 'assets/js/physics.js' );
 
 function styleField( style, field ) {
 
@@ -536,32 +540,34 @@ for ( const id of ids ) {
 
 	}
 
-	// 4. THE EYE IS ON THE HOOK. There is no limb any more - the capture has a
+	// 4. THE EYE IS ON THE RING. There is no limb any more - the capture has a
 	//    real canopy and a modelled branch in front of a photographed one looked
 	//    worse than none. What is left is the iron eye, and its whole job is to
-	//    be the point the bridle's three cords meet at. Move it sideways by even
-	//    a few centimetres and the chime hangs visibly BESIDE its own ring, with
-	//    nothing to error on: this is exactly how `z: -0.06` survived the limb it
-	//    was written for and put the ring off-centre on screen. Two assertions,
-	//    because the offset can come back from either end.
+	//    be the point the bridle's three cords meet at. Put it anywhere else by
+	//    even a few centimetres and the chime hangs visibly BESIDE its own ring,
+	//    with nothing to error on: this is exactly how `z: -0.06` survived the
+	//    limb it was written for and put the ring off-centre on screen.
 	ok( 'the hanger spec carries no lateral offset for the eye to inherit',
 		D.hanger.z === undefined && D.hanger.x === undefined,
 		'hanger has ' + JSON.stringify( D.hanger ) );
-	//    The cord half of this used to be the second `.position.set( HOOK_X, ...,
-	//    HOOK_Z )` in the file, back when it was one rigid cylinder that could
-	//    only ever stand plumb. It is a wind-bellied Bezier now, so "is it on the
-	//    hook axis" is no longer a question about one position: the ENDS have to
-	//    be on it and the middle has to be the only thing that leaves. Pinning
-	//    the formula is a stronger statement than pinning the old call was - it
-	//    catches a bow leaking into the endpoint terms, which is the modern way
-	//    to hang the chime beside its own ring.
-	ok( 'splat.js pins the eye to the hook in x and z',
-		( splatSrc.match( /\.position\.set\( HOOK_X, [^)]*, HOOK_Z \)/g ) || [] ).length === 1,
-		'expected the eye to be placed at HOOK_X/HOOK_Z' );
-	ok( 'splat.js keeps both ends of the rope on the hook axis, bowing only the middle',
-		/HOOK_X \* \( w0 \+ w2 \) \+ \( HOOK_X \+ bowX \) \* w1/.test( splatSrc ) &&
-		/HOOK_Z \* \( w0 \+ w2 \) \+ \( HOOK_Z \+ bowZ \) \* w1/.test( splatSrc ),
-		'expected the rope endpoints at HOOK_X/HOOK_Z with the bow on the control point only' );
+	//    This used to be "the eye is at HOOK_X/HOOK_Z", a constant, and that was
+	//    only ever true because the bridle hung off the same constant. The ring
+	//    is a particle now and it swings, so pinning the eye to an axis would
+	//    assert the opposite of what is wanted. The invariant that survives is
+	//    the one that always mattered: the eye is drawn WHERE THE BRIDLE MEETS.
+	//    Two halves, because the agreement can break from either end - splat.js
+	//    reading a constant again, or physics.js going back to a static anchor.
+	//    The one constant left is the eye's BUILD pose, and that one is wanted:
+	//    a hanger added to the scene before the rig has reported a ring has to
+	//    stand somewhere sane for a frame. What is asserted is that a frame with
+	//    a ring in it overrides that pose from the rig.
+	ok( 'splat.js places the eye from the rig ring rather than from a constant',
+		/function placeEye\(/.test( splatSrc ) &&
+		/placeEye\( ringPos\[ 0 \], ringPos\[ 1 \], ringPos\[ 2 \] \)/.test( splatSrc ),
+		'expected placeEye() fed from RigState.ring.pos inside frame()' );
+	ok( 'physics.js hangs the bridle on the ring particle, not on a point in the sky',
+		/link\(\[RING\], \[1\], \[i\], \[1\], BRIDLE_CORD, CORD_ALPHA, true, null\)/.test( physicsSrc ),
+		'expected the three bridle strands to take RING as their anchor with staticA null' );
 
 	// 5. A place may narrow the sun but never past what scene.js will accept.
 	// The no-sky branch, which is the one a plate place runs under.

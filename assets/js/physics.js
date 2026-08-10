@@ -112,6 +112,52 @@ const GRAV = -9.81;                // m/s^2 on Y
 const HOOK_X = 0.0, HOOK_Y = 2.60, HOOK_Z = 0.0;
 const HOOK_CORD = 0.550;           // assembly pendulum period 1.49 s: a calm sway
 
+// THE RING IS A BODY NOW, NOT AN ANCHOR.
+//
+// The three bridle strands used to hang from a fixed point at HOOK, and the
+// iron eye scene.js draws there was decoration painted over that anchor. It
+// read wrong the moment anything around it moved: the rope above bellies in
+// the wind, the plate below swings, and the one part between them was welded
+// to the sky.
+//
+// So the weld goes UP, to where a chime is actually tied - the branch - and the
+// ring becomes what it looks like, a mass on the end of a cord with the bridle
+// hanging off it. HOOK_Y is now the ring's REST height rather than a fixed
+// point, which is why the plate still hangs at 2.05 and the whole rest pose is
+// unchanged.
+//
+// This makes the assembly a double pendulum. That is the honest shape of a
+// chime on a rope and it is also why this is not free: a second stage moves the
+// sway period, and the sway is what swings the clapper into the tubes, so the
+// strike rate moves with it. The single-stage rig this replaced measured, at
+// 14 mph from bearing 270 over 40 s of sim: sway period 2.068 s, strike rate
+// 2.926 per second, plate travel 180 mm across and 108 mm deep. Anyone retuning
+// HOOK_CORD or RING_MASS should re-run that comparison rather than trust that
+// the sound came out the same.
+//
+// Mass comes from the drawn geometry rather than being typed, so the ring that
+// swings is the ring on screen. A torus of R 28 mm and r 6 mm is 2 pi^2 R r^2 =
+// 1.99e-5 cubic metres, and wrought iron at 7850 kg/m^3 makes that 0.156 kg -
+// heavy enough to matter against a 0.437 kg plate, which is the point: a ring
+// light enough to ignore would just track the tension line and never look like
+// it had any say.
+const RING_R = 0.028;              // the eye's radius, mirrored in splat.js
+const RING_TUBE = 0.006;           // and its bar thickness
+const RING_IRON_RHO = 7850;
+const RING_MASS = 2 * Math.PI * Math.PI * RING_R * RING_TUBE * RING_TUBE * RING_IRON_RHO;
+// Edge-on, the way PLATE_DRAG_AREA is. A ring is mostly hole, so what the wind
+// pushes on is two bars of diameter 2r across a span of 2R.
+const RING_DRAG_AREA = 4 * RING_R * RING_TUBE;
+const CD_RING = 1.1;
+// The rope the chime hangs on, in metres, and the ONE default. design.js
+// hang.cord carries the same number and tools/verify-design.mjs is where the
+// two are held together.
+const RING_CORD_DEFAULT = 0.61;
+// Below this the rope has no length to speak of and the ring is simply pinned
+// to the branch: solveLink bails out under 1e-9 of separation, so a zero-rest
+// cord would leave the ring in free fall rather than holding it still.
+const RING_CORD_MIN = 1e-3;
+
 // Radius of the visible suspension disk. Mirrored in scene.js as R_PLATE, the
 // same way R_TUBE and HOOK_Y are -- scene.js does not import from here. It has
 // to exceed R_RING below, which is where the tube cords hang: at 0.070 against
@@ -494,11 +540,21 @@ function quatFromBasis(xx, xy, xz, yx, yy, yz, zx, zy, zz, out) {
 export function createRig(freqs) {
   // --- particle storage -----------------------------------------------------
   let N = 0;                 // tube count
-  let P = 0;                 // particle count = 3 plate + 2N tube + 1 clapper + 2 sail
+  let P = 0;                 // particle count = 3 plate + 2N tube + 1 clapper + 2 sail + 1 ring
   let TUBE0 = 3;
   let CLAPPER = 0;
   let SAIL_T = 0;            // sail top particle (the one the cord holds)
   let SAIL_B = 0;            // sail bottom particle
+  // LAST, deliberately. Every other index is derived from the tube count and
+  // half this file's arithmetic is written against that layout; appending the
+  // ring means not one existing particle moves.
+  let RING = 0;
+
+  // Live rope length, and the ring cord that carries it. Both are rewritten by
+  // setCord rather than rebuilt, so dragging the slider does not re-solve the
+  // rig or teleport a chime that is mid-swing.
+  let ringCord = RING_CORD_DEFAULT;
+  let ringLink = null;
 
   let pos = new Float64Array(0);
   let prev = new Float64Array(0);
@@ -624,11 +680,12 @@ export function createRig(freqs) {
     while (list.length < 3) list.push(list[list.length - 1] * 2);
 
     N = list.length;
-    P = 3 + 2 * N + 1 + 2;
+    P = 3 + 2 * N + 1 + 2 + 1;
     TUBE0 = 3;
     CLAPPER = 3 + 2 * N;
     SAIL_T = CLAPPER + 1;
     SAIL_B = CLAPPER + 2;
+    RING = CLAPPER + 3;
 
     pos = new Float64Array(P * 3);
     prev = new Float64Array(P * 3);
@@ -685,6 +742,7 @@ export function createRig(freqs) {
     }
     invMass[CLAPPER] = 1 / CLAPPER_MASS;
     invMass[SAIL_T] = invMass[SAIL_B] = 1 / (SAIL_MASS * 0.5);
+    applyRingMass();
 
     // Canonical rest pose: everything plumb.
     for (let i = 0; i < 3; i++) {
@@ -707,6 +765,10 @@ export function createRig(freqs) {
     const sailTopY = PLATE_Y - CLAPPER_CORD - SAIL_CORD;
     restPos[SAIL_T * 3] = 0; restPos[SAIL_T * 3 + 1] = sailTopY; restPos[SAIL_T * 3 + 2] = 0;
     restPos[SAIL_B * 3] = 0; restPos[SAIL_B * 3 + 1] = sailTopY - SAIL_H; restPos[SAIL_B * 3 + 2] = 0;
+    // The ring rests exactly where the old static hook was, so every length
+    // below it - BRIDLE_CORD, the plate at 2.05, the tubes under that - is
+    // untouched and a rig at rest looks identical to the one this replaced.
+    restPos[RING * 3] = HOOK_X; restPos[RING * 3 + 1] = HOOK_Y; restPos[RING * 3 + 2] = HOOK_Z;
     sailRestX = 0;
     sailRestY = sailTopY - SAIL_H * 0.5;
     sailRestZ = 0;
@@ -729,12 +791,18 @@ export function createRig(freqs) {
     links.push(link([1], [1], [2], [1], PLATE_EDGE, 0, false, null));
     links.push(link([2], [1], [0], [1], PLATE_EDGE, 0, false, null));
 
-    // 2. hook bridle - three cords from the static hook to the plate rim. Not
-    //    one cord to the centroid: see BRIDLE_CORD. Hook plus rigid triangle is
-    //    a tetrahedron, so the plate keeps its attitude and the whole assembly
+    // 2. ring bridle - three cords from the RING to the plate rim. Not one cord
+    //    to the centroid: see BRIDLE_CORD. Ring plus rigid triangle is a
+    //    tetrahedron, so the plate keeps its attitude and the whole assembly
     //    swings as one, which is what a chime on a bridle actually does.
+    //
+    //    staticA is null now. These used to hang off [HOOK_X, HOOK_Y, HOOK_Z],
+    //    a point in the sky, and that single argument is the whole of what made
+    //    the ring unable to move: solveLink pushes nothing back into a static
+    //    anchor (see the `if (!L.staticA)` branch), so the bridle could pull the
+    //    plate around all day and never tug on what it was tied to.
     for (let i = 0; i < 3; i++) {
-      const b = link([i], [1], [i], [1], BRIDLE_CORD, CORD_ALPHA, true, [HOOK_X, HOOK_Y, HOOK_Z]);
+      const b = link([RING], [1], [i], [1], BRIDLE_CORD, CORD_ALPHA, true, null);
       links.push(b);
       cordLinks[i] = b;
     }
@@ -773,6 +841,37 @@ export function createRig(freqs) {
 
     // 7. sail spine - rigid.
     links.push(link([SAIL_T], [1], [SAIL_B], [1], SAIL_H, 0, false, null));
+
+    // 8. THE ROPE, from the branch down to the ring. This is the only static
+    //    anchor left in the rig, and it is the one the visitor picked: a
+    //    gaussian in the capture, welded, with everything below it free.
+    //
+    //    Appended LAST so the cord order the RigState comment promises - three
+    //    bridle strands, N tube cords, the clapper cord, the sail cord - still
+    //    holds for every index that already existed. scene.js sizes its line
+    //    buffer from cords.length, so a new one at the end costs it nothing.
+    //
+    //    Bilateral, unlike every other cord here. A rope that goes slack lets
+    //    the ring fall, and the ring is carrying the whole chime: the unilateral
+    //    trick that makes the tube cords belly is exactly wrong for the strand
+    //    the assembly hangs from.
+    ringLink = link([0], [1], [RING], [1], Math.max(RING_CORD_MIN, ringCord), CORD_ALPHA, false,
+      [HOOK_X, HOOK_Y + ringCord, HOOK_Z]);
+    links.push(ringLink);
+    cordLinks[N + 5] = ringLink;
+  }
+
+  /**
+   * Pin the ring or let it swing, by its inverse mass.
+   *
+   * A rope of no length is not a short rope, it is a weld, and solveLink cannot
+   * express one: it returns early under 1e-9 of separation, so a zero-rest cord
+   * leaves the ring in free fall rather than holding it against the branch.
+   * Zero inverse mass says the same thing the old static anchor did, and says it
+   * in the one place the solver already understands.
+   */
+  function applyRingMass() {
+    invMass[RING] = ringCord > RING_CORD_MIN ? 1 / RING_MASS : 0;
   }
 
   function buildContacts() {
@@ -804,6 +903,11 @@ export function createRig(freqs) {
       clapper: { pos: [0, 0, 0] },
       sail: { pos: [0, 0, 0], quat: [0, 0, 0, 1], leanDeg: 0, offset: [0, 0, 0] },
       cords,
+      // Where the iron eye is, and where the branch it hangs from is. scene.js
+      // draws the eye at `ring.pos` instead of at a constant, which is the
+      // whole visible point of the particle: the two used to be the same number
+      // typed into two files, and only one of them could move.
+      ring: { pos: [0, 0, 0], anchor: [HOOK_X, HOOK_Y + ringCord, HOOK_Z] },
       anchorBelowPlate: [0, 0, 0]
     };
   }
@@ -1070,6 +1174,21 @@ export function createRig(freqs) {
       addForce(0, k * rx, k * ry, k * rz);
       addForce(1, k * rx, k * ry, k * rz);
       addForce(2, k * rx, k * ry, k * rz);
+    }
+
+    // --- RING -------------------------------------------------------------
+    // Smaller than the plate's and just as negligible on its own, but the ring
+    // is the top of the pendulum now and it is the one part the wind reaches
+    // before anything below it. Skipped outright when the ring is pinned: a
+    // particle with zero inverse mass takes no notice of a force, so this would
+    // be arithmetic thrown away every substep of every frame.
+    if (invMass[RING] !== 0) {
+      const r3 = RING * 3;
+      windFn(_wind, pos[r3], pos[r3 + 1], pos[r3 + 2]);
+      const rx = _wind.x - vel[r3], ry = _wind.y - vel[r3 + 1], rz = _wind.z - vel[r3 + 2];
+      const rm = Math.sqrt(rx * rx + ry * ry + rz * rz);
+      const k = 0.5 * RHO * CD_RING * RING_DRAG_AREA * rm;
+      addForce(RING, k * rx, k * ry, k * rz);
     }
   }
 
@@ -1893,8 +2012,15 @@ export function createRig(freqs) {
       const dx = _pb[0] - e.a[0], dy = _pb[1] - e.a[1], dz2 = _pb[2] - e.a[2];
       const d = Math.sqrt(dx * dx + dy * dy + dz2 * dz2);
       e.rest = L.rest;
-      e.slack = MathUtils.clamp(1 - d / L.rest, 0, 1);
+      // Guarded, because the ring cord's rest can be driven to zero by the Cord
+      // slider and 1 - d/0 is not a slack fraction, it is a NaN travelling into
+      // scene.js's sag term and taking a drawn cord off screen with it.
+      e.slack = L.rest > 1e-6 ? MathUtils.clamp(1 - d / L.rest, 0, 1) : 0;
     }
+
+    const r3 = RING * 3;
+    st.ring.pos[0] = pos[r3]; st.ring.pos[1] = pos[r3 + 1]; st.ring.pos[2] = pos[r3 + 2];
+    st.ring.anchor[0] = HOOK_X; st.ring.anchor[1] = HOOK_Y + ringCord; st.ring.anchor[2] = HOOK_Z;
   }
 
   // --- public surface -------------------------------------------------------
@@ -1923,7 +2049,9 @@ export function createRig(freqs) {
     // change does not teleport the chime; the tubes are the only thing that
     // changes length, and they re-hang plumb under the current plate.
     const keep = [];
-    for (const p of [0, 1, 2, CLAPPER, SAIL_T, SAIL_B]) {
+    // RING is in the keep list for the same reason the plate is: a scale change
+    // must not drop the chime, and the ring is what the chime now hangs from.
+    for (const p of [0, 1, 2, CLAPPER, SAIL_T, SAIL_B, RING]) {
       const i3 = p * 3;
       keep.push([pos[i3], pos[i3 + 1], pos[i3 + 2], vel[i3], vel[i3 + 1], vel[i3 + 2]]);
     }
@@ -1931,7 +2059,7 @@ export function createRig(freqs) {
 
     build(newFreqs);
 
-    const slots = [0, 1, 2, CLAPPER, SAIL_T, SAIL_B];
+    const slots = [0, 1, 2, CLAPPER, SAIL_T, SAIL_B, RING];
     for (let k = 0; k < slots.length; k++) {
       const i3 = slots[k] * 3, s = keep[k];
       pos[i3] = s[0]; pos[i3 + 1] = s[1]; pos[i3 + 2] = s[2];
@@ -1974,6 +2102,38 @@ export function createRig(freqs) {
     rig.grabbed = null;
   }
 
+  /**
+   * How much rope the chime hangs on, in metres.
+   *
+   * The branch goes UP as the rope gets longer and the ring stays where it is,
+   * which is the whole reason this can be dragged live: the chime does not
+   * teleport, the thing it is tied to moves further away. That mirrors what
+   * splat.js does to the capture on the same slider - the picked gaussian is
+   * lifted so it sits `cord` above the hook - so the drawn branch and the
+   * physical anchor stay the same point.
+   *
+   * Rewritten in place rather than rebuilt. A rebuild would re-solve the rig
+   * and drop a chime that is mid-swing.
+   */
+  function setCord(metres) {
+    if (!Number.isFinite(metres)) return;
+    ringCord = MathUtils.clamp(metres, 0, 6);
+    if (ringLink) {
+      ringLink.rest = Math.max(RING_CORD_MIN, ringCord);
+      ringLink.staticA[1] = HOOK_Y + ringCord;
+    }
+    applyRingMass();
+    // A ring that has just been pinned has to BE at the branch, or the weld is
+    // to a point it is not standing on and the bridle hangs from the wrong
+    // place until something else moves it.
+    if (invMass[RING] === 0) {
+      const i3 = RING * 3;
+      pos[i3] = HOOK_X; pos[i3 + 1] = HOOK_Y + ringCord; pos[i3 + 2] = HOOK_Z;
+      prev[i3] = pos[i3]; prev[i3 + 1] = pos[i3 + 1]; prev[i3 + 2] = pos[i3 + 2];
+      vel[i3] = 0; vel[i3 + 1] = 0; vel[i3 + 2] = 0;
+    }
+  }
+
   build(freqs);
   reset();
   preload();
@@ -1987,6 +2147,7 @@ export function createRig(freqs) {
   rig.grab = grab;
   rig.moveGrab = moveGrab;
   rig.release = release;
+  rig.setCord = setCord;
 
   return rig;
 }
