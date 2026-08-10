@@ -383,6 +383,47 @@ export function createSplat( ctx, place, onError ) {
 
 	}
 
+	/**
+	 * WHITE MEANS CLICKABLE, AND IT HAS TO KEEP MEANING THAT.
+	 *
+	 * The mark used to be moved on a hit and left alone on a miss, so sweeping
+	 * the pointer off the foliage stranded it wherever it last landed. What the
+	 * visitor then saw was a white cluster sitting in open air with the pointer
+	 * on it - so they clicked it, and nothing happened, because there was
+	 * nothing under the pointer to pick. That is the whole of "some white
+	 * clusters don't move the chime": the white was stale, not unclickable.
+	 *
+	 * Hover and the pick run the same raycast against the same gaussians, so
+	 * showing on a hit and HIDING on a miss makes the mark an honest promise -
+	 * if it is lit, a click takes it, and if nothing lights up there is nothing
+	 * there. Which matters here, because a gaussian is drawn as a soft
+	 * ellipsoid metres across while the ray tests its centre: the capture paints
+	 * a good deal further than it can be picked, and the frame has real regions
+	 * that look like forest and contain no reconstruction at all. Measured on
+	 * one moved capture: 217 of 840 sampled points returned no hit, in a clean
+	 * diagonal band that is the edge of the capture's own volume.
+	 *
+	 * visible=false rather than tearing the edit down. SplatMesh gathers its
+	 * edits with traverseVisible, so an invisible one is simply not applied -
+	 * verified in the page - and rebuilding the pair on every pointermove would
+	 * churn spark's generator for nothing.
+	 */
+	function showMark( localPoint ) {
+
+		ensureMark();
+		if ( ! sdf || ! edit ) return;
+		sdf.position.copy( localPoint );
+		sdf.updateMatrixWorld( true );
+		edit.visible = true;
+
+	}
+
+	function hideMark() {
+
+		if ( edit ) edit.visible = false;
+
+	}
+
 	// Click to pick, drag to orbit. The distinction is the whole reason this is
 	// wired here rather than as a mode: a visitor who wants to look around must
 	// not have to remember which one they are in. A press that travels more than
@@ -435,9 +476,17 @@ export function createSplat( ctx, place, onError ) {
 	}
 
 	// Hover. A splat under the pointer goes white while the Hang panel is open,
-	// so it is obvious what a click would take. Throttled to one raycast every
-	// other frame's worth of time - a raycast against 100k gaussians on every
-	// pointermove is not free.
+	// so it is obvious what a click would take, and goes dark again the moment
+	// the pointer is over nothing - see showMark/hideMark for why that second
+	// half is the whole of the reported bug.
+	//
+	// Throttled to one raycast every other frame's worth of time - a raycast
+	// against 100k gaussians is not free. Timed in the open page at 15.3 ms per
+	// cast, which is a quarter of the main thread at this interval and the
+	// reason there is no widening search around a miss: a ring of eight offsets
+	// would cost 120 ms per sample, and it only recovered 50 of 217 dead points
+	// anyway, all of them within a few pixels of foliage that was already
+	// pickable.
 	let hoverAt = 0;
 
 	function onMove( e ) {
@@ -458,17 +507,11 @@ export function createSplat( ctx, place, onError ) {
 			raycaster.setFromCamera( { x: ndcX, y: ndcY }, cam );
 			const hits = [];
 			mesh.raycast( raycaster, hits );
-			if ( ! hits.length ) return;
+			if ( ! hits.length ) { hideMark(); return; }
 			hits.sort( ( a, b ) => a.distance - b.distance );
-			ensureMark();
-			if ( sdf ) {
+			showMark( mesh.worldToLocal( hits[ 0 ].point.clone() ) );
 
-				sdf.position.copy( mesh.worldToLocal( hits[ 0 ].point.clone() ) );
-				sdf.updateMatrixWorld( true );
-
-			}
-
-		} catch ( err ) {}
+		} catch ( err ) { hideMark(); }
 
 	}
 
@@ -534,18 +577,12 @@ export function createSplat( ctx, place, onError ) {
 				raycaster.setFromCamera( { x: ndcX, y: ndcY }, camera );
 				const hits = [];
 				mesh.raycast( raycaster, hits );
-				if ( ! hits.length ) return null;
+				if ( ! hits.length ) { hideMark(); return null; }
 				hits.sort( ( a, b ) => a.distance - b.distance );
 				const hit = hits[ 0 ];
 
-				ensureMark();
-				if ( sdf ) {
-
-					// The hit is in world space; the SDF lives under the mesh.
-					sdf.position.copy( mesh.worldToLocal( hit.point.clone() ) );
-					sdf.updateMatrixWorld( true );
-
-				}
+				// The hit is in world space; the SDF lives under the mesh.
+				showMark( mesh.worldToLocal( hit.point.clone() ) );
 
 				// Move the capture so the picked gaussian arrives at the hook -
 				// but not further than the place says it may travel.
@@ -585,7 +622,12 @@ export function createSplat( ctx, place, onError ) {
 
 					note( 'splat-pick-out-of-reach', new Error(
 						`picked point is ${travel.length().toFixed( 1 )} m from the authored pose, cap is ${maxTravel}` ) );
-					if ( sdf && edit && mesh ) { mesh.remove( edit ); edit = null; sdf = null; }
+					// Hidden, not destroyed. Tearing the pair down here meant the
+					// next hover had to rebuild it and churn spark's generator,
+					// and hiding says the same thing to the visitor: the mark
+					// goes out, so the spot they are pointing at is not one they
+					// can have.
+					hideMark();
 					return null;
 
 				}
