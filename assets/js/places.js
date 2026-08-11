@@ -284,7 +284,14 @@ export const PLACES = Object.freeze( {
 		// bottom edge, at 1/tan, so 27 degrees is 4.9 times the reach of 68).
 		// It is written here as a choice rather than dressed up as a measurement.
 		sun: Object.freeze( {
-			elevDeg: 68,
+			// 70, Myra's, chosen against the capture with the chime's own shadows
+			// finally switched on. 68 was solved when the only thing the angle
+			// had to satisfy was keeping a CAST shadow inside the bottom edge of
+			// a plate - see the frame arithmetic above, which is now history: a
+			// capture place has no ground plane and casts nothing onto one. What
+			// the angle does here is set how the light rakes across the object
+			// itself, and that is a looking question rather than a solved one.
+			elevDeg: 70,
 			azDeg: 28,
 			color: 0xfff4de,
 			intensity: 1.62,

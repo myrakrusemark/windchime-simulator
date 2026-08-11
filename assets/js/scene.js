@@ -1466,6 +1466,14 @@ export function createStage(opts) {
     });
     plateMesh = new THREE.Mesh(plateGeo, plateMat);
     plateMesh.castShadow = true;
+    // RECEIVE as well as cast, and this is new for every piece of the chime.
+    // Every mesh here has cast since the beginning and not one of them has ever
+    // caught anything, so the object has been lit as though it were convex: no
+    // plate shadow across the tube tops, no tube darkening the tube behind it,
+    // the striker and the sail floating in their own even light. On the porch
+    // that was a missed detail. On a capture, where the object has to sit in a
+    // photograph of real light, it is most of why it reads as pasted on.
+    plateMesh.receiveShadow = true;
     chime.add(plateMesh);
     chimeGeoms.push(plateGeo);
     chimeMats.push(plateMat);
@@ -1500,6 +1508,7 @@ export function createStage(opts) {
       });
       const mesh = new THREE.Mesh(outerGeo, mat);
       mesh.castShadow = true;
+      mesh.receiveShadow = true;
       chime.add(mesh);
 
       const boreGeo = new THREE.CylinderGeometry(R_BORE, R_BORE, L - 0.0006, 14, 1, true);
@@ -1526,6 +1535,7 @@ export function createStage(opts) {
     });
     clapperMesh = new THREE.Mesh(clapGeo, clapMat);
     clapperMesh.castShadow = true;
+    clapperMesh.receiveShadow = true;
     chime.add(clapperMesh);
     chimeGeoms.push(clapGeo);
     chimeMats.push(clapMat);
@@ -1539,6 +1549,7 @@ export function createStage(opts) {
     });
     sailMesh = new THREE.Mesh(sailGeo, sailMat);
     sailMesh.castShadow = true;
+    sailMesh.receiveShadow = true;
     chime.add(sailMesh);
     chimeGeoms.push(sailGeo);
     chimeMats.push(sailMat);
@@ -1770,21 +1781,31 @@ export function createStage(opts) {
   }
 
   /**
-   * Shadows on a splat place, which is to say: none.
+   * Shadows, everywhere, including on a capture.
    *
-   * A capture already contains its own shadows, baked into the colour of every
-   * gaussian by the light that was falling when it was shot. And there is no
-   * receiver: the ground plane is hidden on a non-procedural place and the
-   * plate's shadow catcher was a plate's answer to a plate's problem. So the
-   * shadow pass renders a map that lands on nothing.
+   * This used to be "shadows on a splat place, which is to say: none", and the
+   * reasoning was sound at the time and wrong in one particular: the capture
+   * does carry its own baked shadows, and the ground plane IS hidden on a
+   * non-procedural place, so a cast shadow had nothing to land on. What that
+   * missed is that the chime is its own receiver. A six-tube chime is not a
+   * convex object - the plate is a lid over the whole ring, the tubes stand in
+   * each other's light, the striker hangs inside all of it - and none of that
+   * was being drawn, on either place, because every mesh cast and nothing
+   * received. The object was lit as though it had no interior.
    *
-   * Measured at 300k gaussians: turning it off took 3.37 fps to 5.73.
+   * That is most of why it read as pasted onto the photograph rather than
+   * standing in it: the wood behind it is full of directional light and
+   * occlusion, and the object in front of it had neither.
+   *
+   * The old note recorded turning it off taking 3.37 fps to 5.73 at 300k
+   * gaussians. That was measured on the software rasteriser, where 3.37 was
+   * already unusable; the number that matters is what it costs on a machine
+   * that can draw this at all, and the commit body carries it.
    */
   function applyPlaceShadows() {
-    const off = splatPlace();
-    renderer.shadowMap.enabled = !off;
-    sun.castShadow = !off;
-    if (!off) renderer.shadowMap.needsUpdate = true;
+    renderer.shadowMap.enabled = true;
+    sun.castShadow = true;
+    renderer.shadowMap.needsUpdate = true;
   }
 
   function buildComposer() {
