@@ -1887,8 +1887,24 @@ export function createStage(opts) {
   // that the frame is visibly alive, small enough that it never fights the
   // composition - and a RATIO, so it means the same thing at any zoom.
   const DRIFT_ZOOM_SWING = 0.075;
+  // How long the drift takes to get up to speed and to come back down.
+  //
+  // Longer in than out on purpose. Coming ON is unrequested - the visitor did
+  // nothing and the picture started moving - so it wants to arrive under the
+  // threshold of noticing, which is a few seconds. Going OFF is the answer to
+  // something they just did, and an answer that takes three seconds reads as
+  // lag rather than as grace.
+  const DRIFT_EASE_IN_S = 3.0;
+  const DRIFT_EASE_OUT_S = 1.2;
   let driftOn = false;
   let driftArmed = false;
+  // 0 stopped, 1 at full speed. This multiplies the PHASE RATE and never the
+  // amplitude, and that distinction is the whole of getting this right: the
+  // sweep writes an absolute bearing, base + swing x sin(phase), so fading the
+  // amplitude would haul the camera back to where the drift started instead of
+  // letting it coast to a halt where it is. Fading the rate freezes the phase,
+  // which leaves the picture exactly where it stopped.
+  let driftGain = 0;
   let driftSweepPhase = 0;
   let driftZoomPhase = 0;
   let driftAzBase = 0, driftAzSwing = 0;
@@ -1897,7 +1913,10 @@ export function createStage(opts) {
   const _driftVec = new THREE.Vector3();
 
   function driftCamera(dt) {
-    if (!driftOn || cameraFixed) { driftArmed = false; return; }
+    const want = (driftOn && !cameraFixed) ? 1 : 0;
+    // Keep running while there is still speed to bleed off, which is what makes
+    // a stop a deceleration rather than a freeze-frame.
+    if (want === 0 && driftGain <= 0) { driftArmed = false; return; }
     if (!(dt > 0)) return;
 
     // Re-anchor every time the drift starts. The visitor has usually just spent
@@ -1922,8 +1941,20 @@ export function createStage(opts) {
       driftAzSwing = Math.min(DRIFT_SWEEP_DEG, cap) * DEG;
     }
 
-    driftSweepPhase += (dt / DRIFT_SWEEP_S) * Math.PI * 2;
-    driftZoomPhase += (dt / DRIFT_ZOOM_S) * Math.PI * 2;
+    // Toward full speed or toward nothing, at whichever rate applies.
+    const step = dt / (want > driftGain ? DRIFT_EASE_IN_S : DRIFT_EASE_OUT_S);
+    driftGain = want > driftGain
+      ? Math.min(want, driftGain + step)
+      : Math.max(want, driftGain - step);
+
+    // Smoothstep, so the ramp has no corner at either end. A linear gain still
+    // starts and stops with a visible kink - the speed goes from nothing to
+    // rising in one frame - and a kink in a camera move is exactly the thing
+    // being got rid of here.
+    const g = driftGain * driftGain * (3 - 2 * driftGain);
+
+    driftSweepPhase += (dt / DRIFT_SWEEP_S) * Math.PI * 2 * g;
+    driftZoomPhase += (dt / DRIFT_ZOOM_S) * Math.PI * 2 * g;
 
     _driftVec.subVectors(camera.position, controls.target);
     _driftSph.setFromVector3(_driftVec);
@@ -2628,8 +2659,11 @@ export function createStage(opts) {
      * whether they asked for reduced motion - and this owns what drifting is.
      */
     setDrift(on) {
+      // Note what is NOT here: turning it off does not disarm. driftCamera has
+      // to keep running until its gain has bled to nothing, or "stop" is a
+      // freeze-frame instead of a deceleration. Disarming is driftCamera's own
+      // business, once it has actually come to rest.
       driftOn = !!on;
-      if (!driftOn) driftArmed = false;
     },
     /** Metres of rope between the chime's eye and what it hangs from. */
     setCord(metres) {
