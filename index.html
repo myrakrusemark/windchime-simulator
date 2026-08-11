@@ -259,8 +259,24 @@
           picture and a button whose name is a bare adjective is a button that
           does not say what it is for.
         -->
+        <!--
+          THE LABEL IS THE INSTRUCTION NOW, not the state. "Muted" was a
+          condition a visitor could read and ignore, which is exactly what the
+          note above argued for and exactly what happened: it names a fact about
+          the page rather than an action, and the only action it implies is one
+          nobody asked for. "Click or tap to un-mute" says what to do, in both
+          idioms, and it is still not a noun and still not a part of the chime,
+          so the reasoning above about it not looking like a sixth pill holds.
+
+          The accessible name CONTAINS the visible text verbatim, and that is
+          load-bearing rather than tidy: a macOS or iOS Voice Control user says
+          "click <what they can see>", so an accessible name that does not start
+          with the visible label is a control they cannot operate by voice. The
+          rest of the sentence says what it does, for a screen reader user who
+          is not looking at the picture.
+        -->
         <div id="wcsLanding" class="wcs-landing">
-            <button type="button" id="wcsSound" class="wcs-sound" aria-label="Muted. Turn the sound on.">Muted</button>
+            <button type="button" id="wcsSound" class="wcs-sound" aria-label="Click or tap to un-mute. Turns the wind chime's sound on.">Click or tap to un-mute</button>
         </div>
         <!-- === /WCS:LANDING === -->
 
@@ -308,7 +324,22 @@
 
             <p id="statusLine" role="status" aria-live="polite"></p>
 
-            <p id="wcsCaption" class="wcs-caption" aria-live="polite"></p>
+            <!-- The caption is gone from the frame. It said "Six-tube C major
+                 pentatonic, voiced on Theta Flower of Life, on the forest path
+                 under a high sun" - true, and a sentence explaining a picture
+                 that had got good enough to not need explaining.
+
+                 describe() stays and is still exercised by
+                 tools/verify-design.mjs, because it is what the share flow and
+                 the page's own description are written from; only the line
+                 under the object goes. slots.js looks the element up and guards
+                 on finding it, so removing the markup is the whole change.
+
+                 NOTE FOR WHOEVER MISSES IT: this was the page's fourth
+                 aria-live region, and with it goes the running commentary a
+                 screen reader user got as they built. If that matters more than
+                 the clean frame, the fix is to put it back with the visually
+                 hidden class rather than to reinstate the visible line. -->
 
             <div id="wcsPills" class="wcs-pills" role="group" aria-label="Parts of the chime">
                 <button type="button" class="wcs-pill" data-slot="place" id="wcsPill-place" aria-expanded="false" aria-controls="wcsPanel-place">

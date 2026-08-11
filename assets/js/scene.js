@@ -1919,24 +1919,28 @@ export function createStage(opts) {
   // zoom do not lock into one motion and start reading as a rail.
   //
   // Set from the SPEED they produce rather than picked: a sinusoid of swing S
-  // and period P peaks at S x 2pi / P. 18 degrees over 160 s peaks at 0.71
-  // deg/s.
+  // and period P peaks at S x 2pi / P. 18 degrees over 320 s peaks at 0.35
+  // deg/s - a degree every three seconds, which is under what the eye reads as
+  // motion and about what it reads as the scene being alive.
   //
-  // This has been round trip. It started at 160 s, was matched to the old
-  // OrbitControls autoRotate at speed 0.12, and Myra asked for twice that
-  // because at 0.71 the drift took half a minute to notice. It ran at 80 s
-  // until the jitter was fixed - and the jitter was WHY it needed to be fast:
-  // a camera that shimmers as it moves has to get somewhere quickly to be worth
-  // the shimmer. With the re-sorting sorted the slow version reads as intended
-  // rather than as broken, so it goes back.
+  // Four settings in one session and the path matters. 160 s matched the old
+  // OrbitControls autoRotate; it doubled to 80 because at that speed the drift
+  // took half a minute to notice; then it halved twice, back through 160 to
+  // here. What changed in between was not taste - it was the jitter. A camera
+  // that shimmers while it travels has to get somewhere quickly to be worth the
+  // shimmer, so the drift was being asked to outrun a rendering artifact. With
+  // the re-sorting fixed and the near cull gone, slow reads as deliberate
+  // rather than as broken, and slow is what it was always supposed to be.
   //
   // The period is what changes, not the swing. Doubling the swing would double
   // how far it travels as well, and on a capture the extra degrees get spent
   // against the clamp at the edge of the arc.
-  const DRIFT_SWEEP_S = 160;
-  // Not a simple ratio of the sweep, so the two do not lock into one motion.
-  // 97 against 80 was chosen for that and still holds against 160: 1.65 to 1
-  // precesses rather than beating.
+  const DRIFT_SWEEP_S = 320;
+  // Deliberately NOT halved alongside. The two are separate motions on purpose
+  // and the whole reason for two periods is that they should not lock; 97
+  // against 320 is 3.3 to 1, which precesses. It does mean the breath is now
+  // the livelier of the two - if that reads wrong, this is the number to move,
+  // not the sweep.
   const DRIFT_ZOOM_S = 97;
   const DRIFT_SWEEP_DEG = 18;
   // Under a thirteenth either side of where the visitor left the zoom. Enough
