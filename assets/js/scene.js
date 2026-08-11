@@ -1919,20 +1919,24 @@ export function createStage(opts) {
   // zoom do not lock into one motion and start reading as a rail.
   //
   // Set from the SPEED they produce rather than picked: a sinusoid of swing S
-  // and period P peaks at S x 2pi / P. 18 degrees over 80 s peaks at 1.41
-  // deg/s, which is twice what the old OrbitControls autoRotate did at speed
-  // 0.12 - Myra asked for twice as fast after watching the matched-to-autoRotate
-  // version, and she is right that the old one was too polite to notice.
+  // and period P peaks at S x 2pi / P. 18 degrees over 160 s peaks at 0.71
+  // deg/s.
   //
-  // The PERIOD halved rather than the swing doubling, and they are not the same
-  // change: doubling the swing would also double how far it travels, and on a
-  // capture that means spending the extra degrees against the clamp at the edge
-  // of the arc. Same territory, covered twice as quickly.
-  const DRIFT_SWEEP_S = 80;
-  // Left long, and moved further from the sweep's period rather than closer.
-  // Two sinusoids at 80 and 85 seconds stay in step for minutes at a time and
-  // read as one motion; 97 against 80 visibly precess, which is the point of
-  // having two.
+  // This has been round trip. It started at 160 s, was matched to the old
+  // OrbitControls autoRotate at speed 0.12, and Myra asked for twice that
+  // because at 0.71 the drift took half a minute to notice. It ran at 80 s
+  // until the jitter was fixed - and the jitter was WHY it needed to be fast:
+  // a camera that shimmers as it moves has to get somewhere quickly to be worth
+  // the shimmer. With the re-sorting sorted the slow version reads as intended
+  // rather than as broken, so it goes back.
+  //
+  // The period is what changes, not the swing. Doubling the swing would double
+  // how far it travels as well, and on a capture the extra degrees get spent
+  // against the clamp at the edge of the arc.
+  const DRIFT_SWEEP_S = 160;
+  // Not a simple ratio of the sweep, so the two do not lock into one motion.
+  // 97 against 80 was chosen for that and still holds against 160: 1.65 to 1
+  // precesses rather than beating.
   const DRIFT_ZOOM_S = 97;
   const DRIFT_SWEEP_DEG = 18;
   // Under a thirteenth either side of where the visitor left the zoom. Enough
