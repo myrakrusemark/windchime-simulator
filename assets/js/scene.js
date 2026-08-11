@@ -579,11 +579,43 @@ export function createStage(opts) {
   // HEIGHT in metres and the aspect gives the width. OrbitControls drives ortho
   // through camera.zoom rather than by dollying, so the min/max below are zoom
   // factors, not distances; the eye stays put and the frustum tightens.
+  // === WCS:ORTHO-EYE ===
+  // THE ORTHO EYE SITS ON THE TARGET, AND THAT IS A JITTER FIX.
+  //
+  // It used to stand 40 units back, because an ortho eye contributes nothing
+  // but direction and pushing it clear stopped it clipping through the porch
+  // roof on a high orbit. Correct, and it had a cost nobody had looked for:
+  // spark re-sorts its gaussians when the view changes, and its test is
+  // `center.distanceTo(sortedCenter) > 1e-3` - ONE MILLIMETRE of eye movement -
+  // or 2.56 degrees of rotation. At a 40 unit radius a 1.4 deg/s orbit drags
+  // the eye a metre a second, so the position term tripped on literally every
+  // frame and the capture was re-sorted about fifteen times a second. Each
+  // landing reshuffles the blend order of a hundred thousand overlapping
+  // transparent quads at once, and that discrete swap is the jitter.
+  //
+  // For an orthographic camera the eye's POSITION is optically meaningless -
+  // only its direction and the frustum matter - so all of that motion was
+  // bought for nothing. The arithmetic for how close is close enough: the
+  // direction term allows 2.56 degrees, which at 1.4 deg/s is 1.8 s, and the
+  // eye must travel under 1 mm in that time. r x 0.0246 rad/s x 1.8 s < 0.001
+  // gives r < 2.3 cm. Hence 2 cm - near enough to be still, far enough that
+  // OrbitControls still has a well-conditioned direction to build its spherical
+  // from.
+  //
+  // Which then requires a NEGATIVE near plane, and this is the part that makes
+  // it safe rather than a clipping disaster. An orthographic projection has no
+  // eye point to be in front of, so near may be negative: the visible slab
+  // simply extends 200 units either side of the target instead of 0.05 to 200
+  // in front of an eye standing 40 back. Everything that was in shot is still
+  // in shot, and nothing can clip through the roof because the roof is inside
+  // the slab from both directions.
+  const ORTHO_EYE_R = 0.02;
+  const ORTHO_SLAB = 200;
   let camera;
   if (S.ortho) {
     const hh = S.viewHeight / 2;
     const hw = hh * (startW / startH);
-    camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.05, 200);
+    camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, -ORTHO_SLAB, ORTHO_SLAB);
   } else {
     camera = new THREE.PerspectiveCamera(S.fov, startW / startH, 0.05, 6000);
   }
@@ -598,10 +630,9 @@ export function createStage(opts) {
   if (S.ortho) {
     controls.minZoom = 0.55;
     controls.maxZoom = 2.6;
-    // An ortho eye contributes nothing but direction, so push it well clear of
-    // the porch. Left at 3 m it clipped through the roof on a high orbit.
+    // On the target, near enough to be still. See WCS:ORTHO-EYE.
     _vA.subVectors(camera.position, controls.target).normalize();
-    camera.position.copy(controls.target).addScaledVector(_vA, 40);
+    camera.position.copy(controls.target).addScaledVector(_vA, ORTHO_EYE_R);
   } else {
     controls.minDistance = 1.2;
     controls.maxDistance = 7;
@@ -655,7 +686,7 @@ export function createStage(opts) {
         _vA.set(S.camPos[0] - S.camTarget[0], S.camPos[1] - S.camTarget[1], S.camPos[2] - S.camTarget[2]);
         if (S.ortho) {
           camera.zoom = 1;
-          _vA.normalize().multiplyScalar(40);
+          _vA.normalize().multiplyScalar(ORTHO_EYE_R);
         }
         camera.position.copy(controls.target).add(_vA);
       }
@@ -689,11 +720,11 @@ export function createStage(opts) {
         const az = c.azDeg * DEG;
         _vA.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
         controls.target.set(S.camTarget[0], S.camTarget[1], S.camTarget[2]);
-        // 40 and 5.5 are the fixed branch's own numbers, repeated rather than
-        // shared with BASE_DIST: that const is declared six hundred lines below
-        // this function and reading it here is a temporal dead zone away from a
+        // The fixed branch's own numbers, repeated rather than shared with
+        // BASE_DIST: that const is declared six hundred lines below this
+        // function and reading it here is a temporal dead zone away from a
         // ReferenceError the first time a place goes up.
-        camera.position.copy(controls.target).addScaledVector(_vA, S.ortho ? 40 : 5.5);
+        camera.position.copy(controls.target).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : 5.5);
         if (S.ortho && Number.isFinite(c.zoom)) camera.zoom = c.zoom;
         controls.update();
       }
@@ -707,7 +738,7 @@ export function createStage(opts) {
     const el = (c.elevDeg === null || c.elevDeg === undefined ? 16 : c.elevDeg) * DEG;
     const az = (c.azDeg === null || c.azDeg === undefined ? 180 : c.azDeg) * DEG;
     _vA.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
-    camera.position.set(tgt[0], tgt[1], tgt[2]).addScaledVector(_vA, S.ortho ? 40 : 5.5);
+    camera.position.set(tgt[0], tgt[1], tgt[2]).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : 5.5);
     camera.lookAt(tgt[0], tgt[1], tgt[2]);
     if (S.ortho) camera.zoom = 1;
 
@@ -2517,7 +2548,7 @@ export function createStage(opts) {
 
   function cameraDistance() {
     // === WCS:PLACE-CAMERA (2 of 2, listener) ===
-    // For an ortho camera the eye sits 40 m back and its distance is
+    // For an ortho camera the eye sits ON the target and its distance is
     // meaningless; what "how big is the subject on screen" actually means here
     // is the frustum height, and that is what the audio panner wants.
     //
