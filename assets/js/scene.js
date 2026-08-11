@@ -80,13 +80,34 @@ const STYLES = {
   storybook: {
     name: 'storybook',
 
-    // An orthographic camera is most of the feel on its own: parallel edges
-    // stay parallel, so the porch reads as a diagram of a porch and the tubes
-    // stay the same width top to bottom. Height is the frustum in metres, which
-    // is the honest way to frame an ortho camera -- there is no field of view.
-    ortho: true,
-    // Tight enough that the chime is the subject. At 3.5 m the porch roof ate
-    // the top third of the frame and the chime read as a detail in a landscape.
+    // A LONG LENS FROM A LONG WAY BACK, which is the same picture the
+    // orthographic camera drew and a camera you can actually move.
+    //
+    // This was `ortho: true` for the whole of the project's life, and the
+    // reasoning was sound: parallel edges stay parallel, the porch reads as a
+    // diagram of a porch, the tubes keep their width top to bottom. What it
+    // also meant was that the camera could not DOLLY. Under an orthographic
+    // projection moving the eye along its view axis changes not one pixel, so
+    // "closer" was only ever a frustum crop, and every attempt to give the idle
+    // drift a camera move instead of a lens move ran into the same wall.
+    //
+    // A 12 degree lens at 12.4 m is the trade. Perspective convergence over a
+    // one-metre chime at that distance is about four per cent - visually
+    // parallel, which is the whole point of the idiom - while the projection is
+    // genuinely perspective, so a dolly moves near things faster than far ones
+    // and the capture gets the parallax a photograph of a wood should have.
+    //
+    // 12.4 m is solved, not picked: the frame this style wants is 2.6 m tall,
+    // and 2 x d x tan(fov/2) = 2.6 at 12 degrees gives d = 1.3 / tan(6) = 12.37.
+    // Portrait keeps the same lens and steps back to hold 3.5 m.
+    ortho: false,
+    fov: 12,
+    baseDist: 12.37,
+    baseDistPortrait: 16.65,
+    // Kept, and still read: applyOrthoFrustum no longer runs, but plate.js and
+    // places.js both size themselves from the frame this style asks for, and
+    // cameraDistance() reports it so a place cannot change how loud the chime is
+    // by reframing (H14).
     viewHeight: 2.6,
     viewHeightPortrait: 3.5,
     // A 30 degree downward look. The ground plane reads as a plane rather than
@@ -697,8 +718,17 @@ export function createStage(opts) {
           controls.minZoom = c.orbit.zoom[0];
           controls.maxZoom = c.orbit.zoom[1];
         } else {
-          controls.minDistance = c.orbit.zoom[0] * 3.0;
-          controls.maxDistance = c.orbit.zoom[1] * 3.0;
+          // A place authors its orbit limits as ZOOM FACTORS - 0.6 is "further
+          // out", 2.2 is "closer in" - because it was written for an ortho
+          // camera where that is literally the zoom. Under perspective the same
+          // intent is a distance, and it is the standing distance DIVIDED by
+          // the factor: zooming in means getting closer. The old `x 3.0` was
+          // fitted to golden's 3.45 m standing distance and would have clamped
+          // this style's 12.37 m eye to 6.6 - the framing would simply have been
+          // wrong, with nothing to error on.
+          const base = S.baseDist || 3.45;
+          controls.minDistance = base / c.orbit.zoom[1];
+          controls.maxDistance = base / c.orbit.zoom[0];
         }
       }
 
@@ -724,7 +754,7 @@ export function createStage(opts) {
         // BASE_DIST: that const is declared six hundred lines below this
         // function and reading it here is a temporal dead zone away from a
         // ReferenceError the first time a place goes up.
-        camera.position.copy(controls.target).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : 5.5);
+        camera.position.copy(controls.target).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : (S.baseDist || 5.5));
         if (S.ortho && Number.isFinite(c.zoom)) camera.zoom = c.zoom;
         controls.update();
       }
@@ -738,7 +768,7 @@ export function createStage(opts) {
     const el = (c.elevDeg === null || c.elevDeg === undefined ? 16 : c.elevDeg) * DEG;
     const az = (c.azDeg === null || c.azDeg === undefined ? 180 : c.azDeg) * DEG;
     _vA.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
-    camera.position.set(tgt[0], tgt[1], tgt[2]).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : 5.5);
+    camera.position.set(tgt[0], tgt[1], tgt[2]).addScaledVector(_vA, S.ortho ? ORTHO_EYE_R : (S.baseDist || 5.5));
     camera.lookAt(tgt[0], tgt[1], tgt[2]);
     if (S.ortho) camera.zoom = 1;
 
@@ -1936,33 +1966,36 @@ export function createStage(opts) {
   // how far it travels as well, and on a capture the extra degrees get spent
   // against the clamp at the edge of the arc.
   const DRIFT_SWEEP_S = 320;
-  // THE SECOND MOTION IS A TRUCK, NOT A ZOOM.
+  // THE SECOND MOTION IS A DOLLY: the camera moving toward and away from the
+  // chime along its own view axis.
   //
-  // It used to breathe camera.zoom. A zoom is a lens doing something no camera
-  // operator's body can do, and on an orthographic projection it is purely a
-  // crop: the frame tightens and nothing moves past anything else. A truck is
-  // the camera itself sliding sideways, which is a shot - and against a capture
-  // full of near branches and far path it is the one that reads as being
-  // somewhere rather than looking at something.
+  // It was a zoom, then briefly a truck, and both of those were the same
+  // misunderstanding wearing different clothes. Under the ORTHOGRAPHIC camera
+  // this scene used to have, a dolly and a zoom produce the identical image -
+  // moving the eye closer and widening the frustum are one operation when there
+  // is no perspective to compress - so "dolly" was unaskable and a truck was the
+  // only move with any parallax in it. The camera is a long lens now (see
+  // STYLES.storybook), so the dolly is real: near branches grow faster than the
+  // far path, which is the whole reason to move a camera rather than crop it.
   //
   // 97 s against the sweep's 320 is 3.3 to 1, deliberately not a simple ratio,
   // so the two never fall into a single motion.
-  const DRIFT_TRUCK_S = 97;
+  const DRIFT_DOLLY_S = 97;
   const DRIFT_SWEEP_DEG = 18;
-  // Metres either side of where the visitor left the camera, along its own
-  // right vector. 0.22 is about a fifteenth of the frame's width at the shipped
-  // zoom - enough that the near branches visibly pass the far ones, small
-  // enough that the chime never leaves the middle of the shot.
-  const DRIFT_TRUCK_M = 0.22;
+  // A fraction of the standing distance, not a fixed number of metres, so the
+  // move means the same thing whether the visitor has dollied in close or
+  // pulled well back. Seven per cent of 12 m is 84 cm of travel - plainly a
+  // camera moving, and nowhere near enough to change what the shot is of.
+  const DRIFT_DOLLY_SWING = 0.07;
   // A quarter cycle of head start, and this is the answer to "are they
   // sequential?". They were not sequential, they were WORSE: both phases began
   // at zero on every arm, so the sweep and the second motion set off together at
   // full speed and only pulled apart over minutes, which reads as one compound
-  // move rather than two. Offsetting the truck by a quarter cycle puts it at
-  // full displacement and zero speed exactly when the sweep is at zero
-  // displacement and full speed, so they interleave from the first frame.
-  const DRIFT_TRUCK_PHASE0 = Math.PI * 0.5;
-  const DRIFT_TRUCK_SIN0 = Math.sin(DRIFT_TRUCK_PHASE0);
+  // move rather than two. A quarter cycle puts the dolly at full displacement
+  // and zero speed exactly when the sweep is at zero displacement and full
+  // speed, so they interleave from the first frame.
+  const DRIFT_DOLLY_PHASE0 = Math.PI * 0.5;
+  const DRIFT_DOLLY_SIN0 = Math.sin(DRIFT_DOLLY_PHASE0);
   // How long the drift takes to get up to speed and to come back down.
   //
   // Longer in than out on purpose. Coming ON is unrequested - the visitor did
@@ -1982,29 +2015,10 @@ export function createStage(opts) {
   // which leaves the picture exactly where it stopped.
   let driftGain = 0;
   let driftSweepPhase = 0;
-  let driftTruckPhase = 0;
+  let driftDollyPhase = 0;
   let driftAzBase = 0, driftAzSwing = 0;
-  const _driftRight = new THREE.Vector3();
 
-  // THE TRUCK, WHICH NOW HAS TWO CONTRIBUTORS.
-  //
-  // The drift's sinusoid and the visitor's wheel both slide the camera sideways
-  // along the same axis, so they cannot each own controls.target - the second
-  // writer would erase the first every frame. One offset in metres, summed, and
-  // one function that writes it.
-  //
-  // Measured from the PLACE's authored target rather than from wherever the
-  // target happens to be, because applyFraming resets it to exactly that on
-  // every orientation change; anchoring on the live value would let a resize
-  // bake the current truck in and let it wander a little further each time.
-  let truckManual = 0;        // where the wheel has got to, eased
-  let truckManualWant = 0;    // where the wheel has asked for
-  let truckDrift = 0;         // the idle sweep's contribution, metres
-  // Far enough to put the chime against either edge of the frame and no
-  // further: past that the subject is gone and the control has stopped being a
-  // camera move and started being a way to get lost.
-  const TRUCK_MAX_M = 1.5;
-  const TRUCK_STEP_M = 0.12;
+  let driftDistBase = 1;
   const _driftSph = new THREE.Spherical();
   const _driftVec = new THREE.Vector3();
 
@@ -2012,22 +2026,7 @@ export function createStage(opts) {
     const want = (driftOn && !cameraFixed) ? 1 : 0;
     // Keep running while there is still speed to bleed off, which is what makes
     // a stop a deceleration rather than a freeze-frame.
-    if (want === 0 && driftGain <= 0) {
-      if (driftArmed) {
-        // HAND THE DRIFT'S LATERAL OFFSET TO THE MANUAL ONE on the way out.
-        // truckDrift is only recomputed while this function runs, so once it
-        // returns early the last value would sit there forever - the camera
-        // would keep a sweep's worth of truck it could never get rid of, and
-        // the wheel's clamp would measure from the wrong place. Folding it in
-        // leaves the camera exactly where it is and lets the drift restart
-        // from zero.
-        truckManual += truckDrift;
-        truckManualWant = truckManual;
-        truckDrift = 0;
-        driftArmed = false;
-      }
-      return;
-    }
+    if (want === 0 && driftGain <= 0) { driftArmed = false; return; }
     if (!(dt > 0)) return;
 
     // Re-anchor every time the drift starts. The visitor has usually just spent
@@ -2036,10 +2035,11 @@ export function createStage(opts) {
     if (!driftArmed) {
       driftArmed = true;
       driftSweepPhase = 0;
-      driftTruckPhase = DRIFT_TRUCK_PHASE0;
+      driftDollyPhase = DRIFT_DOLLY_PHASE0;
       _driftVec.subVectors(camera.position, controls.target);
       _driftSph.setFromVector3(_driftVec);
       driftAzBase = _driftSph.theta;
+      driftDistBase = _driftSph.radius;
 
 
       // How far it may sweep, never past half the authored arc: a place that
@@ -2064,7 +2064,7 @@ export function createStage(opts) {
     const g = driftGain * driftGain * (3 - 2 * driftGain);
 
     driftSweepPhase += (dt / DRIFT_SWEEP_S) * Math.PI * 2 * g;
-    driftTruckPhase += (dt / DRIFT_TRUCK_S) * Math.PI * 2 * g;
+    driftDollyPhase += (dt / DRIFT_DOLLY_S) * Math.PI * 2 * g;
 
     _driftVec.subVectors(camera.position, controls.target);
     _driftSph.setFromVector3(_driftVec);
@@ -2093,73 +2093,30 @@ export function createStage(opts) {
     _driftSph.makeSafe();
     _driftVec.setFromSpherical(_driftSph);
 
-    // The drift only REPORTS its share of the truck. applyTruck below owns the
-    // write, because the wheel contributes to the same axis and two writers on
-    // one number is how the second one silently wins.
-    // RELATIVE TO WHERE THE PHASE STARTED, which is what the offset costs. The
-    // truck begins a quarter cycle in, where sine is at 1, so a bare
-    // DRIFT_TRUCK_M * sin(phase) would slam the camera 22 cm sideways the
-    // instant the drift armed - and the ease-in could not soften it, because
-    // the gain scales the phase RATE and not the amplitude. Subtracting the
-    // value at phase zero starts the contribution at nothing while keeping the
-    // quarter-cycle relationship with the sweep.
-    truckDrift = DRIFT_TRUCK_M * (Math.sin(driftTruckPhase) - DRIFT_TRUCK_SIN0);
-
-    camera.position.copy(controls.target).add(_driftVec);
-  }
-
-  /**
-   * Slide the camera sideways: the drift's share plus the visitor's, written
-   * once, every frame, whether or not anything is drifting.
-   *
-   * SCROLL TRUCKS INSTEAD OF ZOOMING, and that is a real trade Myra made with
-   * her eyes open. OrbitControls' wheel handler is off, so there is now no way
-   * at all to change how big the chime is on screen - under an orthographic
-   * projection zoom was the ONLY way, since moving an ortho eye along its view
-   * direction changes not one pixel. What is bought is that every camera
-   * control on the page is now a camera move: drag orbits, wheel trucks, and
-   * nothing crops. A zoom always looks like a crop, because it is one.
-   *
-   * X and Z only. controls.target.y belongs to keepTopInShot, which eases it
-   * upward as the frame tightens on a procedural place, and writing it here
-   * would be two owners fighting over one number every frame.
-   */
-  function applyTruck(dt) {
-    // Eased, because a wheel notch is a step function and a camera that jumps
-    // 12 cm per click is a camera nobody is holding. About a sixth of a second
-    // to arrive, which is under the threshold of feeling laggy.
-    const k = dt > 0 ? Math.min(1, dt * 6) : 1;
-    truckManual += (truckManualWant - truckManual) * k;
-
-    const lat = truckManual + truckDrift;
-    _driftVec.subVectors(camera.position, controls.target);
-    // The camera's own right, flattened: a truck is a move across the ground,
-    // not a tilt. Perpendicular to the view in the horizontal plane, which for
-    // an offset of (x, _, z) is (z, 0, -x).
-    _driftRight.set(_driftVec.z, 0, -_driftVec.x);
-    if (_driftRight.lengthSq() < 1e-12) return;
-    _driftRight.normalize().multiplyScalar(lat);
-
-    controls.target.x = S.camTarget[0] + _driftRight.x;
-    controls.target.z = S.camTarget[2] + _driftRight.z;
-    // Position from the target LAST, so the eye carries the truck rather than
-    // being left behind aiming at a point that has slid away. That is the
-    // difference between trucking the camera and panning its head.
-    camera.position.copy(controls.target).add(_driftVec);
-  }
-
-  // OrbitControls' own wheel handling is off; this replaces it. Not passive,
-  // because it has to preventDefault: with nothing consuming the wheel, a
-  // scroll over the fixed canvas falls through to the document and drags the
-  // visitor down into the article they were not reading.
-  controls.enableZoom = false;
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const dir = e.deltaY > 0 ? 1 : -1;
-    truckManualWant = THREE.MathUtils.clamp(
-      truckManualWant + dir * TRUCK_STEP_M, -TRUCK_MAX_M, TRUCK_MAX_M
+    // THE DOLLY. Relative to the phase it started at, which is what the
+    // quarter-cycle offset costs: it begins where sine is 1, so a bare
+    // sin(phase) would jump the camera the instant the drift armed, and the
+    // ease-in could not soften it because the gain scales the phase RATE and
+    // not the amplitude. Subtracting the value at phase zero starts the
+    // contribution at nothing and keeps the offset from the sweep.
+    const breath = 1 + DRIFT_DOLLY_SWING * (Math.sin(driftDollyPhase) - DRIFT_DOLLY_SIN0);
+    _driftSph.radius = THREE.MathUtils.clamp(
+      driftDistBase * breath, controls.minDistance, controls.maxDistance
     );
-  }, { passive: false });
+    _driftVec.setFromSpherical(_driftSph);
+    camera.position.copy(controls.target).add(_driftVec);
+  }
+
+  // THE WHEEL IS A DOLLY, AND UNDER THIS PROJECTION THAT IS OrbitControls' ZOOM.
+  //
+  // It trucked for one commit, on a misreading. Worth writing down why the
+  // correction is a revert rather than new code: on an ORTHOGRAPHIC camera a
+  // dolly and a zoom produce the identical image. Moving the eye closer and
+  // widening the frustum are the same operation when there is no perspective to
+  // compress - the whole dolly-versus-zoom distinction, near things growing
+  // faster than far ones, is a perspective effect and there is none here. So
+  // controls.enableZoom IS the dolly, and replacing it with anything else was
+  // taking away the only way to change the subject's size for no picture.
   // === /WCS:DRIFT ===
 
   function writeCord(k, a, b, rest, slack) {
@@ -2598,7 +2555,6 @@ export function createStage(opts) {
     // the offset from it. Before controls.update(), so damping sees the pose
     // this frame rather than chasing it by one.
     driftCamera(dt);
-    applyTruck(dt);
 
     // The place's own moving parts, if it has any. A capture place draws the
     // iron eye, and the eye now belongs to a particle the rig solves - so this
@@ -2677,8 +2633,19 @@ export function createStage(opts) {
     // allowed to frame whatever its picture needs; it is not allowed to change
     // how loud the chime is by doing so. The visitor's own zoom still moves the
     // level, because that one IS the subject getting bigger.
+    //
+    // BOTH BRANCHES RETURN A FRAME HEIGHT IN METRES, and that is what makes the
+    // switch to a long lens silent. The perspective branch used to return the
+    // raw distance to the target, which was fine at golden's 3.45 m and absurd
+    // at storybook's 12.37: audio.js computes distGain = 1.6 / max(0.8, d), so
+    // 12.37 pins it at the 0.35 floor - about 5 dB quieter than the ortho path
+    // gave, and stuck there, so dollying would not have changed the level at
+    // all. Apparent size is the thing the panner actually wants, and for a
+    // perspective camera that is 2 d tan(fov/2). At the shipped 12 degrees and
+    // 12.37 m it comes to 2.60, which is the number the ortho branch returned,
+    // so nothing about the level moved when the projection did.
     if (S.ortho) return S.viewHeight / Math.max(camera.zoom, 1e-3);
-    return camera.position.distanceTo(controls.target);
+    return 2 * camera.position.distanceTo(controls.target) * Math.tan(camera.fov * DEG * 0.5);
     // === /WCS:PLACE-CAMERA (2 of 2, listener) ===
   }
 

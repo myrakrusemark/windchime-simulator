@@ -103,8 +103,15 @@ but a wrapper's docstring is not this ledger.
 ### `spark.module.js` carries two local patches
 
 **Read this before replacing the file.** Upgrading spark by dropping in a fresh
-build will silently revert them. Both are the same bug in two places: spark
-assumes a perspective camera, and this scene is orthographic.
+build will silently revert them. Both are the same bug: spark assumes a
+perspective camera and mishandles an orthographic one.
+
+**Both are dormant as of 2026-08-10.** `STYLES.storybook` moved to a 12 degree
+perspective lens at 12.37 m, so nothing on the page renders orthographically
+any more and both guards evaluate to spark's stock behaviour. They are kept
+because they are correct, because `golden` and any future style may go back,
+and because rediscovering either of them cost most of a day. Do not take their
+being inert as evidence they are unnecessary.
 
 #### 2. Re-sorting on eye movement that cannot change the order
 
