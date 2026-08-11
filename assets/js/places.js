@@ -441,10 +441,14 @@ export const PLACES = Object.freeze( {
 			// looking at the inside of a shell. Elevation stops short of
 			// overhead for the same reason - there is no canopy data directly
 			// above the camera path.
+			// The zoom floor is 1.0, which under the perspective camera means "the
+			// opening shot is as far out as this place goes". scene.js turns these
+			// factors into distances as baseDist / factor, so a floor below 1
+			// would put the opening mid-track with scene still behind it.
 			orbit: Object.freeze( {
 				azDeg: Object.freeze( [ - 70, 70 ] ),
 				elevDeg: Object.freeze( [ 2, 46 ] ),
-				zoom: Object.freeze( [ 0.6, 2.2 ] )
+				zoom: Object.freeze( [ 1.0, 2.2 ] )
 			} )
 		} ),
 
@@ -589,7 +593,7 @@ export const PLACES = Object.freeze( {
 			orbit: Object.freeze( {
 				azDeg: Object.freeze( [ - 180, 180 ] ),
 				elevDeg: Object.freeze( [ 8, 80 ] ),
-				zoom: Object.freeze( [ 0.55, 2.6 ] )
+				zoom: Object.freeze( [ 1.0, 2.6 ] )
 			} )
 		} ),
 

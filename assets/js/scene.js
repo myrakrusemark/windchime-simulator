@@ -97,13 +97,20 @@ const STYLES = {
     // genuinely perspective, so a dolly moves near things faster than far ones
     // and the capture gets the parallax a photograph of a wood should have.
     //
-    // 12.4 m is solved, not picked: the frame this style wants is 2.6 m tall,
-    // and 2 x d x tan(fov/2) = 2.6 at 12 degrees gives d = 1.3 / tan(6) = 12.37.
-    // Portrait keeps the same lens and steps back to hold 3.5 m.
+    // baseDist IS THE DOLLIED-OUT END OF THE TRACK, not the middle of it. A
+    // place's orbit.zoom floor is 1.0 for the same reason: the opening shot is
+    // as far back as the camera goes, and every move the visitor makes from
+    // there comes closer. Starting mid-track meant the first thing anyone could
+    // do was discover there was more scene behind them.
+    //
+    // 20.62 m at 12 degrees frames 4.33 m of world, against the 12.37 m that
+    // framed this style's authored 2.6 m. The chime is smaller in the opening
+    // frame by design - it is a wide shot of a wood with a chime in it, and
+    // scrolling walks you in to the object.
     ortho: false,
     fov: 12,
-    baseDist: 12.37,
-    baseDistPortrait: 16.65,
+    baseDist: 20.62,
+    baseDistPortrait: 27.75,
     // Kept, and still read: applyOrthoFrustum no longer runs, but plate.js and
     // places.js both size themselves from the frame this style asks for, and
     // cameraDistance() reports it so a place cannot change how loud the chime is
