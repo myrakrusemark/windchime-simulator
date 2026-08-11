@@ -14,11 +14,12 @@
                           height and margin would win. Every range rule below is
                           therefore written input[type="range"].wcs-range.
 
-     #hudOverlay.idle …   fades .hud-bottom, which no longer exists. Nothing the
-                          builder shell draws is in any .idle selector, so a
-                          panel cannot dissolve while it is being read
-                          (CONTRACTS H20). slots.js additionally keeps the HUD
-                          awake while a panel is open.
+     #hudOverlay.idle …   fades .hud-bottom, which no longer exists. The builder
+                          shell now puts its OWN row in that selector - see THE
+                          IDLE FADE at the foot of this file - while panels stay
+                          out of it, so a panel still cannot dissolve while it
+                          is being read (CONTRACTS H20). goIdle() additionally
+                          refuses to fire at all while a panel is open.
 
    Pointer events: #hudOverlay is pointer-events:none so an orbit drag that
    starts on the chrome still reaches the canvas. Only the things you actually
@@ -702,4 +703,64 @@ input[type="text"]#locationInput.wcs-text::placeholder {
 		transform: none;
 	}
 
+}
+
+/* ---------------------------------------------------------------------------
+   THE IDLE FADE
+   ---------------------------------------------------------------------------
+   The chrome dissolves when the pointer stops, so what is left is the object in
+   its place, and comes back the instant anything moves.
+
+   This existed and then quietly stopped existing. main.js has always added
+   `.idle` to #hudOverlay after HUD_IDLE_MS without a pointer, and styles.css
+   has always had the rules - but every selector in them names a piece of the
+   OLD chrome: .hud-bottom, #hudDock, #menuToggle, the settings drawer. P3
+   replaced all of that with the pill row and nothing in the builder shell was
+   ever added back, so the mechanism kept running against elements that no
+   longer exist. The header of this file has said so, in writing, the whole
+   time. Nobody had a reason to read it until the fade was asked for back.
+
+   In THIS sheet and not in styles.css, which is shared with about.html,
+   terms.html and privacy.html and is off limits (CONTRACTS H26). It loads after
+   styles.css, so where the two say different things about the same selector
+   this one wins by order at equal specificity.
+
+   ASYMMETRIC, and the reasoning is styles.css's own: whichever rule applies
+   AFTER the class changes is the one that governs, so the base state times the
+   WAKE and the .idle rule times the FADE. Coming back is quick - you moved the
+   pointer because you want the controls - while going is a long dissolve you
+   are not meant to notice starting.
+
+   WHAT DOES NOT FADE, on purpose:
+     - Share. index.html states it is "outside every .idle selector so it cannot
+       fade away under a visitor who has stopped moving the mouse", and it is
+       the page's one primary action. Left alone.
+     - Any open panel. goIdle() returns early while one is up, so a picker
+       cannot dissolve mid-read.
+     - The wordmark, which only half goes. The page still says what it is while
+       you watch it.
+   --------------------------------------------------------------------------- */
+
+#wcsPills {
+	transition: opacity 180ms ease-out;
+}
+
+#hudOverlay.idle #wcsPills {
+	opacity: 0;
+	transition: opacity 2200ms ease-in;
+}
+
+/* Nothing invisible stays clickable. A press then lands on the canvas, which
+   wakes the chrome, and the pills are back and legible before anything can be
+   hit by accident. */
+#hudOverlay.idle #wcsPills {
+	pointer-events: none;
+}
+
+/* Half, not the ghost styles.css asks for. 0.2 reads as "nearly gone"; this is
+   the "about half way" that was actually wanted, and at this size the wordmark
+   stays legible against both the wood and the lawn. */
+#hudOverlay.idle .hud-title h1 {
+	opacity: 0.45;
+	transition: opacity 2200ms ease-in;
 }
