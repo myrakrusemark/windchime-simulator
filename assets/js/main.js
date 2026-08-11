@@ -1806,8 +1806,15 @@ function updateHud() {
 
 	// Reduced motion: the simulation is the content and stays, but the camera
 	// stops drifting on its own.
+	//
+	// SIX SECONDS, DOWN FROM TWELVE. The twelve was set for an autoRotate slow
+	// enough that it took another fifteen seconds to notice, so the drift read
+	// as starting around half a minute in - long enough that a visitor had
+	// already decided the picture was static. Six plus a sweep at 1.4 deg/s is
+	// moving before they have finished looking at it, and any touch suspends it
+	// again on the very next frame.
 	const allowAutoRotate = ! ( reducedMotion && reducedMotion.matches );
-	if ( autoRotateSuspended && idleFor > 12000 && allowAutoRotate && stage && stage.setDrift ) {
+	if ( autoRotateSuspended && idleFor > 6000 && allowAutoRotate && stage && stage.setDrift ) {
 
 		stage.setDrift( true );
 		autoRotateSuspended = false;

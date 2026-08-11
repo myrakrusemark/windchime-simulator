@@ -1866,14 +1866,22 @@ export function createStage(opts) {
   // Two periods, deliberately not multiples of each other, so the sweep and the
   // zoom do not lock into one motion and start reading as a rail.
   //
-  // 160 s and 85 s are set from the SPEED they produce rather than picked: a
-  // sinusoid of swing S and period P peaks at S x 2pi / P, and 18 degrees over
-  // 160 s peaks at 0.71 deg/s - which is what the old OrbitControls autoRotate
-  // did at speed 0.12, and that was the drift nobody complained about. The
-  // first cut ran 24 degrees over 96 s, twice that, and a camera moving twice
-  // as fast as the one you remember is not the same idea done again.
-  const DRIFT_SWEEP_S = 160;
-  const DRIFT_ZOOM_S = 85;
+  // Set from the SPEED they produce rather than picked: a sinusoid of swing S
+  // and period P peaks at S x 2pi / P. 18 degrees over 80 s peaks at 1.41
+  // deg/s, which is twice what the old OrbitControls autoRotate did at speed
+  // 0.12 - Myra asked for twice as fast after watching the matched-to-autoRotate
+  // version, and she is right that the old one was too polite to notice.
+  //
+  // The PERIOD halved rather than the swing doubling, and they are not the same
+  // change: doubling the swing would also double how far it travels, and on a
+  // capture that means spending the extra degrees against the clamp at the edge
+  // of the arc. Same territory, covered twice as quickly.
+  const DRIFT_SWEEP_S = 80;
+  // Left long, and moved further from the sweep's period rather than closer.
+  // Two sinusoids at 80 and 85 seconds stay in step for minutes at a time and
+  // read as one motion; 97 against 80 visibly precess, which is the point of
+  // having two.
+  const DRIFT_ZOOM_S = 97;
   const DRIFT_SWEEP_DEG = 18;
   // Under a thirteenth either side of where the visitor left the zoom. Enough
   // that the frame is visibly alive, small enough that it never fights the
