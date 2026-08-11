@@ -56,6 +56,7 @@ the built page.
 | `assets/vendor/three.core.min.js` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/vendor/three.module.min.js` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
 | `assets/vendor/addons/**` | [three.js](https://github.com/mrdoob/three.js) | three.js authors | MIT | r185, 2026-08 |
+| `assets/vendor/spark.module.js` | [@sparkjsdev/spark](https://github.com/sparkjsdev/spark) | Spark authors | MIT | 2.1.0, 2026-08 |
 | `assets/places/forest-path/plate.webp` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
 | `assets/places/forest-path/capture.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
 | `assets/places/forest-path/capture-10.sog` | [superspl.at/scene/2be1a75a](https://superspl.at/scene/2be1a75a) | tanha | CC BY 4.0 | 2026-08-08 |
@@ -94,7 +95,38 @@ same source.
 
 
 three.js ships no LICENSE file inside `assets/vendor/`. Add one there when the
-vendored copy is next refreshed.
+vendored copy is next refreshed. `spark.module.js` had no row here until
+2026-08-10 either, despite being 5.4 MB and the largest third-party file in the
+tree; `assets/js/vendor-spark.js` has always named the version and the licence,
+but a wrapper's docstring is not this ledger.
+
+### `spark.module.js` carries one local patch
+
+**Read this before replacing the file.** Upgrading spark by dropping in a fresh
+build will silently revert it.
+
+Both splat vertex shaders discard any gaussian whose view-space z is at or
+behind the eye:
+
+```glsl
+if (viewCenter.z >= 0.0) { return; }
+```
+
+That is correct for a perspective camera and wrong for an orthographic one,
+which has no eye point to be behind and whose visible slab may legitimately
+start behind the camera position. This scene is orthographic and sits its eye
+ON the target (see WCS:ORTHO-EYE in scene.js), so the line deleted every
+gaussian nearer to the viewer than the chime - the near foliage, the stump, the
+front of the path. Both occurrences are guarded:
+
+```glsl
+if (!isOrthographic && viewCenter.z >= 0.0) { return; }
+```
+
+`isOrthographic` is three.js's own injected uniform and both shaders already
+use it further down, so it compiles unchanged. The clip test on the very next
+line, `abs(clipCenter.z) >= clipCenter.w`, already culls the real near/far slab
+correctly for both projections, so nothing is drawn that should not be.
 
 ## Original assets
 
