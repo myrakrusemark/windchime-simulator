@@ -1936,17 +1936,32 @@ export function createStage(opts) {
   // how far it travels as well, and on a capture the extra degrees get spent
   // against the clamp at the edge of the arc.
   const DRIFT_SWEEP_S = 320;
-  // Deliberately NOT halved alongside. The two are separate motions on purpose
-  // and the whole reason for two periods is that they should not lock; 97
-  // against 320 is 3.3 to 1, which precesses. It does mean the breath is now
-  // the livelier of the two - if that reads wrong, this is the number to move,
-  // not the sweep.
-  const DRIFT_ZOOM_S = 97;
+  // THE SECOND MOTION IS A TRUCK, NOT A ZOOM.
+  //
+  // It used to breathe camera.zoom. A zoom is a lens doing something no camera
+  // operator's body can do, and on an orthographic projection it is purely a
+  // crop: the frame tightens and nothing moves past anything else. A truck is
+  // the camera itself sliding sideways, which is a shot - and against a capture
+  // full of near branches and far path it is the one that reads as being
+  // somewhere rather than looking at something.
+  //
+  // 97 s against the sweep's 320 is 3.3 to 1, deliberately not a simple ratio,
+  // so the two never fall into a single motion.
+  const DRIFT_TRUCK_S = 97;
   const DRIFT_SWEEP_DEG = 18;
-  // Under a thirteenth either side of where the visitor left the zoom. Enough
-  // that the frame is visibly alive, small enough that it never fights the
-  // composition - and a RATIO, so it means the same thing at any zoom.
-  const DRIFT_ZOOM_SWING = 0.075;
+  // Metres either side of where the visitor left the camera, along its own
+  // right vector. 0.22 is about a fifteenth of the frame's width at the shipped
+  // zoom - enough that the near branches visibly pass the far ones, small
+  // enough that the chime never leaves the middle of the shot.
+  const DRIFT_TRUCK_M = 0.22;
+  // A quarter cycle of head start, and this is the answer to "are they
+  // sequential?". They were not sequential, they were WORSE: both phases began
+  // at zero on every arm, so the sweep and the second motion set off together at
+  // full speed and only pulled apart over minutes, which reads as one compound
+  // move rather than two. Offsetting the truck by a quarter cycle puts it at
+  // full displacement and zero speed exactly when the sweep is at zero
+  // displacement and full speed, so they interleave from the first frame.
+  const DRIFT_TRUCK_PHASE0 = Math.PI * 0.5;
   // How long the drift takes to get up to speed and to come back down.
   //
   // Longer in than out on purpose. Coming ON is unrequested - the visitor did
@@ -1966,9 +1981,10 @@ export function createStage(opts) {
   // which leaves the picture exactly where it stopped.
   let driftGain = 0;
   let driftSweepPhase = 0;
-  let driftZoomPhase = 0;
+  let driftTruckPhase = 0;
   let driftAzBase = 0, driftAzSwing = 0;
-  let driftZoomBase = 1, driftDistBase = 1;
+  const _driftTargetBase = new THREE.Vector3();
+  const _driftRight = new THREE.Vector3();
   const _driftSph = new THREE.Spherical();
   const _driftVec = new THREE.Vector3();
 
@@ -1985,12 +2001,11 @@ export function createStage(opts) {
     if (!driftArmed) {
       driftArmed = true;
       driftSweepPhase = 0;
-      driftZoomPhase = 0;
+      driftTruckPhase = DRIFT_TRUCK_PHASE0;
       _driftVec.subVectors(camera.position, controls.target);
       _driftSph.setFromVector3(_driftVec);
       driftAzBase = _driftSph.theta;
-      driftZoomBase = camera.zoom;
-      driftDistBase = _driftSph.radius;
+      _driftTargetBase.copy(controls.target);
 
       // How far it may sweep, never past half the authored arc: a place that
       // only holds 20 degrees of usable capture gets a 10 degree swing rather
@@ -2014,7 +2029,7 @@ export function createStage(opts) {
     const g = driftGain * driftGain * (3 - 2 * driftGain);
 
     driftSweepPhase += (dt / DRIFT_SWEEP_S) * Math.PI * 2 * g;
-    driftZoomPhase += (dt / DRIFT_ZOOM_S) * Math.PI * 2 * g;
+    driftTruckPhase += (dt / DRIFT_TRUCK_S) * Math.PI * 2 * g;
 
     _driftVec.subVectors(camera.position, controls.target);
     _driftSph.setFromVector3(_driftVec);
@@ -2042,16 +2057,23 @@ export function createStage(opts) {
     }
     _driftSph.makeSafe();
     _driftVec.setFromSpherical(_driftSph);
-    camera.position.copy(controls.target).add(_driftVec);
 
-    const breath = 1 + DRIFT_ZOOM_SWING * Math.sin(driftZoomPhase);
-    if (S.ortho) {
-      camera.zoom = THREE.MathUtils.clamp(driftZoomBase * breath, controls.minZoom, controls.maxZoom);
-      camera.updateProjectionMatrix();
-    } else {
-      const want = THREE.MathUtils.clamp(driftDistBase * breath, controls.minDistance, controls.maxDistance);
-      camera.position.copy(controls.target).addScaledVector(_driftVec.normalize(), want);
+    // The truck. The camera's own right vector, flattened - a truck is a move
+    // across the ground, not a tilt - times the offset for this instant.
+    _driftRight.set(_driftVec.z, 0, -_driftVec.x);
+    if (_driftRight.lengthSq() > 1e-12) {
+      _driftRight.normalize().multiplyScalar(DRIFT_TRUCK_M * Math.sin(driftTruckPhase));
+      // X and Z only. controls.target.y belongs to keepTopInShot, which eases it
+      // upward as the frame tightens on a procedural place, and writing it from
+      // here would be two owners fighting over one number every frame.
+      controls.target.x = _driftTargetBase.x + _driftRight.x;
+      controls.target.z = _driftTargetBase.z + _driftRight.z;
     }
+
+    // Position comes from the target LAST, so the eye carries the truck with it
+    // rather than being left behind aiming at a point that has slid away. That
+    // is what makes this a camera move instead of a pan.
+    camera.position.copy(controls.target).add(_driftVec);
   }
   // === /WCS:DRIFT ===
 

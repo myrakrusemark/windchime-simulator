@@ -100,10 +100,39 @@ vendored copy is next refreshed. `spark.module.js` had no row here until
 tree; `assets/js/vendor-spark.js` has always named the version and the licence,
 but a wrapper's docstring is not this ledger.
 
-### `spark.module.js` carries one local patch
+### `spark.module.js` carries two local patches
 
 **Read this before replacing the file.** Upgrading spark by dropping in a fresh
-build will silently revert it.
+build will silently revert them. Both are the same bug in two places: spark
+assumes a perspective camera, and this scene is orthographic.
+
+#### 2. Re-sorting on eye movement that cannot change the order
+
+`updateInternal` decides whether the depth sort is stale with
+
+```js
+const viewChanged = center.distanceTo(this.sortedCenter) > 1e-3
+  || dir.dot(this.sortedDir) < 0.999;
+```
+
+One millimetre of eye movement, or 2.56 degrees of rotation. Under a
+perspective camera both matter. Under an orthographic one the depth key is the
+projection onto the view DIRECTION and the eye's position does not enter it at
+all, so the first term asks the sort to redo itself for a move that provably
+cannot reorder anything. It is now
+
+```js
+const viewChanged = ((camera && camera.isOrthographicCamera) ? false
+  : center.distanceTo(this.sortedCenter) > 1e-3)
+  || dir.dot(this.sortedDir) < 0.999;
+```
+
+Measured on the forest while the camera drifts: 15.5 sorts a second before any
+of this, 8.4 after the eye moved onto its target, 5.3 with this patch and the
+truck running. Each landing reshuffles the blend order of ~100k transparent
+quads at once, which is what the jitter is.
+
+#### 1. Culling everything in front of the camera
 
 Both splat vertex shaders discard any gaussian whose view-space z is at or
 behind the eye:
