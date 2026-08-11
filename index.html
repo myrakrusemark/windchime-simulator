@@ -195,9 +195,15 @@
                 <h1>Wind Chime Simulator</h1>
             </div>
 
-            <!-- Top right, always visible from the first frame, and outside
-                 every .idle selector so it cannot fade away under a visitor who
-                 has stopped moving the mouse. This is where the bar keeps Save.
+            <!-- Top right, and visible from the first frame. It USED to be
+                 outside every .idle selector, on the reasoning that the page's
+                 one primary action should never fade away under a visitor who
+                 had stopped moving the mouse. It fades now: what is left when
+                 the pointer stops is the object in its place, and a Share
+                 button floating over a still forest is the one thing in the
+                 frame admitting there is a web page here. Any movement brings
+                 it back in 180 ms, which is faster than reaching for it.
+                 This is where the bar keeps Save.
 
                  The button is deliberately the only other thing in the top bar:
                  one wordmark, one primary button, and the pill row at the
