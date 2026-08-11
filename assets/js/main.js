@@ -1500,6 +1500,10 @@ for ( const target of [ document, document.documentElement ] ) {
 
 window.addEventListener( 'pointermove', markInteraction, { passive: true } );
 window.addEventListener( 'keydown', markInteraction, { passive: true } );
+// A wheel is a deliberate camera move and has to count as one. Without this the
+// chrome stayed faded and the drift kept sweeping while the visitor was actively
+// trucking the shot, because a trackpad scroll emits no pointermove.
+window.addEventListener( 'wheel', markInteraction, { passive: true } );
 
 // ---------------------------------------------------------------------------
 // GL context loss. Physics, wind and audio keep running; only the picture

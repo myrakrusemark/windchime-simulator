@@ -1962,6 +1962,7 @@ export function createStage(opts) {
   // full displacement and zero speed exactly when the sweep is at zero
   // displacement and full speed, so they interleave from the first frame.
   const DRIFT_TRUCK_PHASE0 = Math.PI * 0.5;
+  const DRIFT_TRUCK_SIN0 = Math.sin(DRIFT_TRUCK_PHASE0);
   // How long the drift takes to get up to speed and to come back down.
   //
   // Longer in than out on purpose. Coming ON is unrequested - the visitor did
@@ -1983,8 +1984,27 @@ export function createStage(opts) {
   let driftSweepPhase = 0;
   let driftTruckPhase = 0;
   let driftAzBase = 0, driftAzSwing = 0;
-  const _driftTargetBase = new THREE.Vector3();
   const _driftRight = new THREE.Vector3();
+
+  // THE TRUCK, WHICH NOW HAS TWO CONTRIBUTORS.
+  //
+  // The drift's sinusoid and the visitor's wheel both slide the camera sideways
+  // along the same axis, so they cannot each own controls.target - the second
+  // writer would erase the first every frame. One offset in metres, summed, and
+  // one function that writes it.
+  //
+  // Measured from the PLACE's authored target rather than from wherever the
+  // target happens to be, because applyFraming resets it to exactly that on
+  // every orientation change; anchoring on the live value would let a resize
+  // bake the current truck in and let it wander a little further each time.
+  let truckManual = 0;        // where the wheel has got to, eased
+  let truckManualWant = 0;    // where the wheel has asked for
+  let truckDrift = 0;         // the idle sweep's contribution, metres
+  // Far enough to put the chime against either edge of the frame and no
+  // further: past that the subject is gone and the control has stopped being a
+  // camera move and started being a way to get lost.
+  const TRUCK_MAX_M = 1.5;
+  const TRUCK_STEP_M = 0.12;
   const _driftSph = new THREE.Spherical();
   const _driftVec = new THREE.Vector3();
 
@@ -1992,7 +2012,22 @@ export function createStage(opts) {
     const want = (driftOn && !cameraFixed) ? 1 : 0;
     // Keep running while there is still speed to bleed off, which is what makes
     // a stop a deceleration rather than a freeze-frame.
-    if (want === 0 && driftGain <= 0) { driftArmed = false; return; }
+    if (want === 0 && driftGain <= 0) {
+      if (driftArmed) {
+        // HAND THE DRIFT'S LATERAL OFFSET TO THE MANUAL ONE on the way out.
+        // truckDrift is only recomputed while this function runs, so once it
+        // returns early the last value would sit there forever - the camera
+        // would keep a sweep's worth of truck it could never get rid of, and
+        // the wheel's clamp would measure from the wrong place. Folding it in
+        // leaves the camera exactly where it is and lets the drift restart
+        // from zero.
+        truckManual += truckDrift;
+        truckManualWant = truckManual;
+        truckDrift = 0;
+        driftArmed = false;
+      }
+      return;
+    }
     if (!(dt > 0)) return;
 
     // Re-anchor every time the drift starts. The visitor has usually just spent
@@ -2005,7 +2040,7 @@ export function createStage(opts) {
       _driftVec.subVectors(camera.position, controls.target);
       _driftSph.setFromVector3(_driftVec);
       driftAzBase = _driftSph.theta;
-      _driftTargetBase.copy(controls.target);
+
 
       // How far it may sweep, never past half the authored arc: a place that
       // only holds 20 degrees of usable capture gets a 10 degree swing rather
@@ -2058,23 +2093,73 @@ export function createStage(opts) {
     _driftSph.makeSafe();
     _driftVec.setFromSpherical(_driftSph);
 
-    // The truck. The camera's own right vector, flattened - a truck is a move
-    // across the ground, not a tilt - times the offset for this instant.
-    _driftRight.set(_driftVec.z, 0, -_driftVec.x);
-    if (_driftRight.lengthSq() > 1e-12) {
-      _driftRight.normalize().multiplyScalar(DRIFT_TRUCK_M * Math.sin(driftTruckPhase));
-      // X and Z only. controls.target.y belongs to keepTopInShot, which eases it
-      // upward as the frame tightens on a procedural place, and writing it from
-      // here would be two owners fighting over one number every frame.
-      controls.target.x = _driftTargetBase.x + _driftRight.x;
-      controls.target.z = _driftTargetBase.z + _driftRight.z;
-    }
+    // The drift only REPORTS its share of the truck. applyTruck below owns the
+    // write, because the wheel contributes to the same axis and two writers on
+    // one number is how the second one silently wins.
+    // RELATIVE TO WHERE THE PHASE STARTED, which is what the offset costs. The
+    // truck begins a quarter cycle in, where sine is at 1, so a bare
+    // DRIFT_TRUCK_M * sin(phase) would slam the camera 22 cm sideways the
+    // instant the drift armed - and the ease-in could not soften it, because
+    // the gain scales the phase RATE and not the amplitude. Subtracting the
+    // value at phase zero starts the contribution at nothing while keeping the
+    // quarter-cycle relationship with the sweep.
+    truckDrift = DRIFT_TRUCK_M * (Math.sin(driftTruckPhase) - DRIFT_TRUCK_SIN0);
 
-    // Position comes from the target LAST, so the eye carries the truck with it
-    // rather than being left behind aiming at a point that has slid away. That
-    // is what makes this a camera move instead of a pan.
     camera.position.copy(controls.target).add(_driftVec);
   }
+
+  /**
+   * Slide the camera sideways: the drift's share plus the visitor's, written
+   * once, every frame, whether or not anything is drifting.
+   *
+   * SCROLL TRUCKS INSTEAD OF ZOOMING, and that is a real trade Myra made with
+   * her eyes open. OrbitControls' wheel handler is off, so there is now no way
+   * at all to change how big the chime is on screen - under an orthographic
+   * projection zoom was the ONLY way, since moving an ortho eye along its view
+   * direction changes not one pixel. What is bought is that every camera
+   * control on the page is now a camera move: drag orbits, wheel trucks, and
+   * nothing crops. A zoom always looks like a crop, because it is one.
+   *
+   * X and Z only. controls.target.y belongs to keepTopInShot, which eases it
+   * upward as the frame tightens on a procedural place, and writing it here
+   * would be two owners fighting over one number every frame.
+   */
+  function applyTruck(dt) {
+    // Eased, because a wheel notch is a step function and a camera that jumps
+    // 12 cm per click is a camera nobody is holding. About a sixth of a second
+    // to arrive, which is under the threshold of feeling laggy.
+    const k = dt > 0 ? Math.min(1, dt * 6) : 1;
+    truckManual += (truckManualWant - truckManual) * k;
+
+    const lat = truckManual + truckDrift;
+    _driftVec.subVectors(camera.position, controls.target);
+    // The camera's own right, flattened: a truck is a move across the ground,
+    // not a tilt. Perpendicular to the view in the horizontal plane, which for
+    // an offset of (x, _, z) is (z, 0, -x).
+    _driftRight.set(_driftVec.z, 0, -_driftVec.x);
+    if (_driftRight.lengthSq() < 1e-12) return;
+    _driftRight.normalize().multiplyScalar(lat);
+
+    controls.target.x = S.camTarget[0] + _driftRight.x;
+    controls.target.z = S.camTarget[2] + _driftRight.z;
+    // Position from the target LAST, so the eye carries the truck rather than
+    // being left behind aiming at a point that has slid away. That is the
+    // difference between trucking the camera and panning its head.
+    camera.position.copy(controls.target).add(_driftVec);
+  }
+
+  // OrbitControls' own wheel handling is off; this replaces it. Not passive,
+  // because it has to preventDefault: with nothing consuming the wheel, a
+  // scroll over the fixed canvas falls through to the document and drags the
+  // visitor down into the article they were not reading.
+  controls.enableZoom = false;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const dir = e.deltaY > 0 ? 1 : -1;
+    truckManualWant = THREE.MathUtils.clamp(
+      truckManualWant + dir * TRUCK_STEP_M, -TRUCK_MAX_M, TRUCK_MAX_M
+    );
+  }, { passive: false });
   // === /WCS:DRIFT ===
 
   function writeCord(k, a, b, rest, slack) {
@@ -2513,6 +2598,7 @@ export function createStage(opts) {
     // the offset from it. Before controls.update(), so damping sees the pose
     // this frame rather than chasing it by one.
     driftCamera(dt);
+    applyTruck(dt);
 
     // The place's own moving parts, if it has any. A capture place draws the
     // iron eye, and the eye now belongs to a particle the rig solves - so this
