@@ -1299,9 +1299,9 @@ function markInteraction() {
 
 	}
 
-	if ( ! autoRotateSuspended && stage && stage.controls ) {
+	if ( ! autoRotateSuspended && stage && stage.setDrift ) {
 
-		stage.controls.autoRotate = false;
+		stage.setDrift( false );
 		autoRotateSuspended = true;
 
 	}
@@ -1807,9 +1807,9 @@ function updateHud() {
 	// Reduced motion: the simulation is the content and stays, but the camera
 	// stops drifting on its own.
 	const allowAutoRotate = ! ( reducedMotion && reducedMotion.matches );
-	if ( autoRotateSuspended && idleFor > 12000 && allowAutoRotate && stage && stage.controls ) {
+	if ( autoRotateSuspended && idleFor > 12000 && allowAutoRotate && stage && stage.setDrift ) {
 
-		stage.controls.autoRotate = true;
+		stage.setDrift( true );
 		autoRotateSuspended = false;
 
 	}
@@ -2444,10 +2444,13 @@ Object.assign( window.__wcs, {
 // from the default breeze: 12 mph out of the west, blowing east along +X.
 // ---------------------------------------------------------------------------
 
-if ( stage && stage.controls ) {
+if ( stage && stage.setDrift ) {
 
-	stage.controls.autoRotate = ! ( reducedMotion && reducedMotion.matches );
-	autoRotateSuspended = ! stage.controls.autoRotate;
+	// Suspended at boot either way: the drift is what happens after twelve
+	// seconds of nobody touching anything, and a page that starts by moving the
+	// camera has taken that decision away from the visitor before they arrive.
+	stage.setDrift( false );
+	autoRotateSuspended = true;
 
 }
 

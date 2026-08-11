@@ -1850,6 +1850,112 @@ export function createStage(opts) {
   let lastSyncMs = -1;
   let lastRigState = null;
 
+  // === WCS:DRIFT ===
+  // The camera's own slow breath: a sweep across the place's arc and a lazy
+  // push in and out, running whenever nobody has touched anything.
+  //
+  // NOT OrbitControls.autoRotate, which is what this used to be. That spins one
+  // way forever, and forever is wrong for a capture: tanha shot one direction,
+  // so past about seventy degrees off axis the reconstruction thins out and the
+  // visitor is looking at the inside of a shell. places.js has authored that arc
+  // since it was written (orbit.azDeg) and nothing ever read it. Driving the
+  // azimuth here means the drift can TURN AROUND at the edges of what a place
+  // actually contains, which is the difference between a camera that wanders and
+  // one that wanders somewhere there is nothing to see.
+  //
+  // Two periods, deliberately not multiples of each other, so the sweep and the
+  // zoom do not lock into one motion and start reading as a rail.
+  //
+  // 160 s and 85 s are set from the SPEED they produce rather than picked: a
+  // sinusoid of swing S and period P peaks at S x 2pi / P, and 18 degrees over
+  // 160 s peaks at 0.71 deg/s - which is what the old OrbitControls autoRotate
+  // did at speed 0.12, and that was the drift nobody complained about. The
+  // first cut ran 24 degrees over 96 s, twice that, and a camera moving twice
+  // as fast as the one you remember is not the same idea done again.
+  const DRIFT_SWEEP_S = 160;
+  const DRIFT_ZOOM_S = 85;
+  const DRIFT_SWEEP_DEG = 18;
+  // Under a thirteenth either side of where the visitor left the zoom. Enough
+  // that the frame is visibly alive, small enough that it never fights the
+  // composition - and a RATIO, so it means the same thing at any zoom.
+  const DRIFT_ZOOM_SWING = 0.075;
+  let driftOn = false;
+  let driftArmed = false;
+  let driftSweepPhase = 0;
+  let driftZoomPhase = 0;
+  let driftAzBase = 0, driftAzSwing = 0;
+  let driftZoomBase = 1, driftDistBase = 1;
+  const _driftSph = new THREE.Spherical();
+  const _driftVec = new THREE.Vector3();
+
+  function driftCamera(dt) {
+    if (!driftOn || cameraFixed) { driftArmed = false; return; }
+    if (!(dt > 0)) return;
+
+    // Re-anchor every time the drift starts. The visitor has usually just spent
+    // twelve seconds putting the camera somewhere; the breath is around THAT,
+    // not around wherever the place opened.
+    if (!driftArmed) {
+      driftArmed = true;
+      driftSweepPhase = 0;
+      driftZoomPhase = 0;
+      _driftVec.subVectors(camera.position, controls.target);
+      _driftSph.setFromVector3(_driftVec);
+      driftAzBase = _driftSph.theta;
+      driftZoomBase = camera.zoom;
+      driftDistBase = _driftSph.radius;
+
+      // How far it may sweep, never past half the authored arc: a place that
+      // only holds 20 degrees of usable capture gets a 10 degree swing rather
+      // than an 18 degree one spending half its time against a clamp.
+      const c = place.camera || {};
+      const arc = c.orbit && Array.isArray(c.orbit.azDeg) ? c.orbit.azDeg : null;
+      const cap = arc ? Math.abs(arc[1] - arc[0]) * 0.5 : DRIFT_SWEEP_DEG;
+      driftAzSwing = Math.min(DRIFT_SWEEP_DEG, cap) * DEG;
+    }
+
+    driftSweepPhase += (dt / DRIFT_SWEEP_S) * Math.PI * 2;
+    driftZoomPhase += (dt / DRIFT_ZOOM_S) * Math.PI * 2;
+
+    _driftVec.subVectors(camera.position, controls.target);
+    _driftSph.setFromVector3(_driftVec);
+    // Elevation and radius are the visitor's; only the bearing is ours, and it
+    // is written absolutely rather than incremented so a clamp cannot ratchet.
+    _driftSph.theta = driftAzBase + driftAzSwing * Math.sin(driftSweepPhase);
+    const c = place.camera || {};
+    const arc = c.orbit && Array.isArray(c.orbit.azDeg) ? c.orbit.azDeg : null;
+    if (arc && Number.isFinite(c.azDeg)) {
+      // TWO CONVENTIONS, AND THEY ARE 180 DEGREES APART.
+      //
+      // A place authors bearings the way applyPlaceCamera consumes them:
+      // direction = (sin az, _, -cos az), so az 0 looks along -Z. Spherical
+      // measures theta = atan2(x, z), so that same direction is theta = PI.
+      // The identity is theta = PI - az, checked at 0, 90 and 180.
+      //
+      // Clamping raw degrees against raw theta - which is what this did first -
+      // put every legal bearing outside the range, so the very first drift frame
+      // snapped the camera hard onto a bound and pinned it there. It looked like
+      // the sweep simply not working; it was the sweep working perfectly against
+      // a wall 124 degrees from where the visitor was standing.
+      const a = Math.PI - (c.azDeg + arc[0]) * DEG;
+      const b = Math.PI - (c.azDeg + arc[1]) * DEG;
+      _driftSph.theta = THREE.MathUtils.clamp(_driftSph.theta, Math.min(a, b), Math.max(a, b));
+    }
+    _driftSph.makeSafe();
+    _driftVec.setFromSpherical(_driftSph);
+    camera.position.copy(controls.target).add(_driftVec);
+
+    const breath = 1 + DRIFT_ZOOM_SWING * Math.sin(driftZoomPhase);
+    if (S.ortho) {
+      camera.zoom = THREE.MathUtils.clamp(driftZoomBase * breath, controls.minZoom, controls.maxZoom);
+      camera.updateProjectionMatrix();
+    } else {
+      const want = THREE.MathUtils.clamp(driftDistBase * breath, controls.minDistance, controls.maxDistance);
+      camera.position.copy(controls.target).addScaledVector(_driftVec.normalize(), want);
+    }
+  }
+  // === /WCS:DRIFT ===
+
   function writeCord(k, a, b, rest, slack) {
     // Quadratic sag: at slack 0 the cord is a straight taut line, at slack 0.3
     // it visibly bellies. Cords going slack and snapping taut is a wind cue in
@@ -2226,6 +2332,11 @@ export function createStage(opts) {
     // cannot, and it was never worth much: it is a screensaver flourish that
     // costs a full re-sort per frame.
     if (cameraFixed || splatPlace()) {
+      // autoRotate stays down, and now it stays down everywhere: the drift is
+      // driven by driftCamera, which sweeps inside the place's own arc instead
+      // of spinning past the edge of the capture. This line is the belt to that
+      // brace - main.js used to set the flag directly and something else may
+      // yet, and OrbitControls.update() spins on it WITHOUT checking `enabled`.
       if (controls.autoRotate) controls.autoRotate = false;
       syncVizForPlace();
       // Return for a splat place too. Falling through meant keepTopInShot
@@ -2277,6 +2388,10 @@ export function createStage(opts) {
     scene.fog.density = FOG_CALM + (FOG_BLOWN - FOG_CALM) * hazeT * hazeT;
 
     keepTopInShot(dt);
+    // After keepTopInShot, because that one owns controls.target and this reads
+    // the offset from it. Before controls.update(), so damping sees the pose
+    // this frame rather than chasing it by one.
+    driftCamera(dt);
 
     // The place's own moving parts, if it has any. A capture place draws the
     // iron eye, and the eye now belongs to a particle the rig solves - so this
@@ -2498,6 +2613,15 @@ export function createStage(opts) {
     setSplatDetail(fraction) {
       if (Number.isFinite(fraction)) wantDetail = Math.min(1, Math.max(0, fraction));
       if (plate && typeof plate.setDetail === 'function') plate.setDetail(wantDetail);
+    },
+    /**
+     * Turn the camera's idle drift on or off. main.js owns WHEN - it is the
+     * piece that knows how long since the visitor last touched anything, and
+     * whether they asked for reduced motion - and this owns what drifting is.
+     */
+    setDrift(on) {
+      driftOn = !!on;
+      if (!driftOn) driftArmed = false;
     },
     /** Metres of rope between the chime's eye and what it hangs from. */
     setCord(metres) {
