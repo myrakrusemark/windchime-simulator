@@ -527,9 +527,21 @@
                             <h4 class="wcs-subgroup-title">Photorealistic environment</h4>
                             <p class="wcs-field">
                                 <span class="wcs-field-top"><label class="wcs-field-name" for="wcsSplats">Detail</label><span class="wcs-field-value" data-value-for="wcsSplats"></span></span>
-                                <input class="wcs-range" type="range" id="wcsSplats" data-path="view.splats" data-range="view.splats" data-fmt="pct" step="0.01">
+                                <!-- pctmax, not pct. The stored value is still a
+                                     fraction of tanha's 998,709 and still tops
+                                     out at 0.35, because 0.35 is the whole of
+                                     the export this page ships. Printing that as
+                                     "35%" next to a thumb already at the end of
+                                     its travel read as a slider that had given
+                                     up two thirds of the way, and invited a
+                                     visitor to go looking for detail that is not
+                                     in the download (Myra, 2026-08-11).
+                                     pctmax divides by the field's own RANGES
+                                     top, so the end of the travel reads 100% and
+                                     the URL still carries sp-35. -->
+                                <input class="wcs-range" type="range" id="wcsSplats" data-path="view.splats" data-range="view.splats" data-fmt="pctmax" step="0.01">
                             </p>
-                            <p class="wcs-note">How much of the photographed place is drawn, as a share of everything its author captured. The forest is 998,709 gaussians re-sorted by depth every frame and it is the most expensive thing on screen, so it arrives at a tenth of that. It stops at 35%, which is as much of this capture as a browser will draw. A place with no capture ignores this.</p>
+                            <p class="wcs-note">How much of the photographed place is drawn. The whole capture is 349,548 gaussians, re-sorted by depth every frame, which is the most expensive drawing this page does. It starts at under a third of that. A place with no capture ignores this.</p>
                         </div>
 
                     </div>

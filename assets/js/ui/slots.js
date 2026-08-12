@@ -112,14 +112,32 @@ const FORMAT = {
 		return x.toFixed( 2 ) + '×' + ( Math.abs( x - 1 ) < 5e-3 ? ' (as built)' : '' );
 
 	},
-	pct: ( v ) => round( v * 100 ) + '%'
+	pct: ( v ) => round( v * 100 ) + '%',
+	// A percentage of the FIELD'S OWN TOP rather than of one, for a field whose
+	// stored unit is a fraction of something the visitor never sees. view.splats
+	// is a fraction of tanha's 998,709 gaussians and stops at 0.35, because 0.35
+	// is the whole of the export this page ships - there is no more detail to
+	// have. Printed as "35%" it looked like a slider that quit early. `max` is
+	// the top of the RANGES entry the control already names in data-range, so
+	// this cannot drift from the travel it is describing.
+	pctmax: ( v, max ) => round( ( v / ( max > 0 ? max : 1 ) ) * 100 ) + '%'
 };
 
-function format( kind, value ) {
+// The denominator for pctmax, read off the same data-range the slider's travel
+// came from. Every other formatter ignores it.
+function scaleFor( el ) {
+
+	const key = el && el.dataset ? el.dataset.range : null;
+	const r = key ? RANGES[ key ] : null;
+	return r ? r[ 1 ] : 1;
+
+}
+
+function format( kind, value, el ) {
 
 	const fn = FORMAT[ kind ];
 	if ( typeof fn !== 'function' || ! Number.isFinite( value ) ) return '';
-	return fn( value );
+	return fn( value, scaleFor( el ) );
 
 }
 
@@ -514,7 +532,7 @@ function build( wcs, note ) {
 			// and so does what a screen reader is told. Both come from the same
 			// format() call, so the number in the ear and the number on the screen
 			// cannot drift.
-			const text = format( fmt, v );
+			const text = format( fmt, v, el );
 			if ( out ) {
 
 				out.textContent = text;
@@ -569,7 +587,7 @@ function build( wcs, note ) {
 			const s = String( v );
 			if ( el.value !== s ) el.value = s;
 
-			const text = format( el.dataset.fmt, v ) + ( isNull && NULLABLE.has( path ) ? ' (this place)' : '' );
+			const text = format( el.dataset.fmt, v, el ) + ( isNull && NULLABLE.has( path ) ? ' (this place)' : '' );
 			setValueText( el, text );
 
 			const out = host.querySelector( '[data-value-for="' + el.id + '"]' );
