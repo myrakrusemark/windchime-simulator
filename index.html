@@ -385,19 +385,56 @@
                              from the PLACES table, not authored here: the table
                              is the one source of truth for what a place is, and
                              a second copy in markup is a second thing to keep in
-                             step. The container and the credit line are static
-                             because they are the parts that are not per-place. -->
+                             step. Only the container is static.
+
+                             The two prose lines that used to sit under the cards
+                             are gone (Myra, 2026-08-11): each card already
+                             carries its own blurb and its own byline, so the
+                             paragraph under them said the same two facts a
+                             second time, and the panel opened on more reading
+                             than picking.
+
+                             THE CC BY LINK DID NOT GO WITH THEM. The card's
+                             byline is text only, because a <a> inside a <button>
+                             is a keyboard trap, so the licence link moved to the
+                             footer of this page and to about.html's Credits
+                             section - still on the built page, which is what
+                             CONTRACTS 5.5 and verify-place.mjs both require,
+                             rather than only in a markdown table nobody
+                             receives. -->
                         <div class="wcs-group">
                             <h3 class="wcs-group-title" id="wcsPlaceLabel">Where it hangs</h3>
                             <div class="wcs-place-choice" id="wcsPlaceChoice" role="radiogroup" aria-labelledby="wcsPlaceLabel"></div>
-                            <p class="wcs-note">The forest path is a photograph, so the chime is the only thing in it that moves and the view is fixed - the capture was shot in one direction only. The porch is built, and you can drag to walk around it.</p>
-                            <p class="wcs-note wcs-credit">Forest path captured by <a href="https://superspl.at/scene/2be1a75a" rel="noopener noreferrer" target="_blank">tanha</a>, used under <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener noreferrer" target="_blank">CC BY 4.0</a>.</p>
                         </div>
                         <!-- === /WCS:PLACE-PANEL === -->
 
                         <div class="wcs-group">
-                            <h3 class="wcs-group-title">Weather here</h3>
-                            <p class="wcs-note">Every place has its own wind, and that is what is blowing when you arrive. Move a slider and the chime keeps your weather instead, wherever the link is opened. Name a town and it will go and fetch what is really happening there.</p>
+                            <h3 class="wcs-group-title" id="wcsWindModeLabel">Weather here</h3>
+
+                            <!-- LOCAL OR MANUAL, and only ever one of them on
+                                 screen. The group used to show the location box
+                                 and the three wind sliders at once, which read
+                                 as four controls for one decision: a visitor who
+                                 fetched Asheville's wind was still looking at a
+                                 speed slider, and a visitor who dragged the
+                                 speed slider was still looking at a box asking
+                                 where they are. They are two answers to the same
+                                 question, so they are two positions of one
+                                 switch (Myra, 2026-08-11).
+                                 wcsWindMode is a .wcs-choice with NO data-path,
+                                 deliberately: slots.js builds and owns every
+                                 `.wcs-choice[data-path]` group from its frozen
+                                 OPTION_SETS table and clears whatever markup it
+                                 finds inside one. Without a path it skips this,
+                                 and ui/landing.js - which already owns the
+                                 weather row - wires the two buttons itself. -->
+                            <div class="wcs-choice" id="wcsWindMode" role="radiogroup" aria-labelledby="wcsWindModeLabel">
+                                <button type="button" class="wcs-choice-option" role="radio" aria-checked="false" tabindex="-1" data-wind-mode="local" aria-controls="wcsWindLocal">Local</button>
+                                <button type="button" class="wcs-choice-option" role="radio" aria-checked="false" tabindex="-1" data-wind-mode="manual" aria-controls="wcsWindManual">Manual</button>
+                            </div>
+
+                            <div class="wcs-mode-pane" id="wcsWindLocal" data-wind-pane="local" hidden>
+                            <p class="wcs-note">Name a town and the chime blows with the wind that is really there. Leave the box empty and it asks the browser where you are instead. The reading comes from weather.gov, which only covers the United States. A fresh one arrives every fifteen minutes.</p>
 
                             <!-- The live-weather entry point.
                                  These two ids are the ONLY callers of
@@ -442,6 +479,10 @@
                                 <input type="text" id="locationInput" class="wcs-text" placeholder="City, State or Country" autocomplete="address-level2" spellcheck="false" maxlength="120">
                                 <button type="button" id="startButton" class="wcs-weather-go"><span data-weather-go-label>Use where I am</span></button>
                             </p>
+                            </div>
+
+                            <div class="wcs-mode-pane" id="wcsWindManual" data-wind-pane="manual" hidden>
+                            <p class="wcs-note">Every place has its own wind, and that is what is blowing when you arrive. Move a slider and the chime keeps your numbers wherever the link is opened.</p>
 
                             <p class="wcs-field">
                                 <span class="wcs-field-top"><label class="wcs-field-name" for="wcsWindSpeed">Wind speed</label><span class="wcs-field-value" data-value-for="wcsWindSpeed"></span></span>
@@ -455,6 +496,7 @@
                                 <span class="wcs-field-top"><label class="wcs-field-name" for="wcsTurbulence">Gustiness</label><span class="wcs-field-value" data-value-for="wcsTurbulence"></span></span>
                                 <input class="wcs-range" type="range" id="wcsTurbulence" data-path="wind.turbulence" data-range="wind.turbulence" data-fmt="ratio2" step="0.01">
                             </p>
+                            </div>
                         </div>
 
                         <div class="wcs-group">

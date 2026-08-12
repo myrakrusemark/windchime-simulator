@@ -373,6 +373,18 @@ textarea:focus-visible,
 	margin-top: 0;
 }
 
+/* One half of a group that is really a switch: Local or Manual inside Weather.
+   Only one is ever in the layout, and `hidden` rather than a transform is the
+   point - the half that is off screen has to be out of the focus order and out
+   of the panel's own Tab trap (H21, one level down). ui/landing.js sets it. */
+.wcs-mode-pane {
+	margin-top: var(--wcs-s2);
+}
+
+.wcs-mode-pane[hidden] {
+	display: none;
+}
+
 .wcs-field {
 	margin: 0 0 var(--wcs-s3) 0;
 }

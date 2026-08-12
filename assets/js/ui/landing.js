@@ -67,7 +67,9 @@ export function mountLanding( wcs, noteError ) {
 
 		// First, and outside the unlock control's own guard: the two are
 		// unrelated, and the weather wiring must not be skipped because a
-		// container is missing.
+		// container is missing. The switch and the row it shows are separate
+		// mounts for the same reason - a page missing one still gets the other.
+		mountWindMode( wcs, noteError );
 		mountWeather( wcs, noteError );
 
 		const root = document.getElementById( 'wcsLanding' );
@@ -202,6 +204,143 @@ export function mountLanding( wcs, noteError ) {
 		noteError( 'landing-mount-failed', err );
 
 	}
+
+}
+
+
+/**
+ * LOCAL OR MANUAL - the switch above the weather controls.
+ *
+ * The group showed a location box AND three wind sliders at once, which is four
+ * controls for one decision. Someone who had just fetched Asheville's wind was
+ * still looking at a speed slider offering to overwrite it, and someone who had
+ * dragged the speed slider was still looking at a box asking where they are.
+ * They are two answers to the same question, so they became two positions of one
+ * switch (Myra, 2026-08-11).
+ *
+ * WHAT THE SWITCH WRITES, AND WHAT IT DOES NOT
+ *
+ * Manual writes. `wind.source: 'place'` is a real revert and belongs in the
+ * design and in the shared URL as `ws-p`, so pressing Manual after a reading has
+ * landed says so. The numbers the weather left in `wind.mph` stay, which is what
+ * makes Manual a starting point rather than a reset: the sliders open on the
+ * wind that is actually blowing.
+ *
+ * Local writes NOTHING. `wind.source: 'weather'` means the visitor asked for a
+ * reading, and it is still `arm()` below - the button press - that records it.
+ * Two reasons, and the second is the load-bearing one:
+ *
+ *   1. no fetch fires when a tab is pressed, so a design saying 'weather' with
+ *      no reading behind it would put `ws-w` in a link whose recipient gets the
+ *      place's own wind. The URL would describe something that never happened.
+ *   2. H23. The empty-box branch of runWeatherChain calls navigator.geolocation
+ *      and the browser puts a permission prompt on the screen. Nothing that can
+ *      be reached by an arrow key may lead there. The button is named for it and
+ *      the switch is not.
+ *
+ * The traffic runs the other way instead: a landed reading, or a shared link
+ * that arrived carrying `ws-w`, pulls the switch to Local through onDesign. It
+ * never pushes back to Manual on its own - only the visitor's own press does
+ * that, or the switch would jump under someone mid-drag.
+ */
+function mountWindMode( wcs, noteError ) {
+
+	const group = document.getElementById( 'wcsWindMode' );
+	if ( ! group ) return;
+
+	const buttons = Array.from( group.querySelectorAll( '[data-wind-mode]' ) );
+	const panes = Array.from( document.querySelectorAll( '[data-wind-pane]' ) );
+	if ( buttons.length === 0 || panes.length === 0 ) return;
+
+	// A link that asked for live weather opens on Local. Everything else opens
+	// on Manual, which is CONTRACTS 6/P2's "defaulting off": the location box is
+	// one press further in than it was, and nothing on the first frame reaches it.
+	let mode = 'manual';
+	try {
+
+		if ( typeof wcs.design === 'function' && wcs.design().wind.source === 'weather' ) mode = 'local';
+
+	} catch ( err ) {
+
+		noteError( 'wind-mode-read-failed', err );
+
+	}
+
+	function paint() {
+
+		for ( const b of buttons ) {
+
+			const on = b.dataset.windMode === mode;
+			b.setAttribute( 'aria-checked', on ? 'true' : 'false' );
+			b.tabIndex = on ? 0 : - 1;
+
+		}
+
+		// `hidden`, not a transform. slots.js's Tab trap walks the panel for
+		// anything focusable with a box, so the half that is not on screen has to
+		// be out of the layout or the trap cycles through three sliders nobody
+		// can see (the same reasoning as H21, one level down).
+		for ( const p of panes ) p.hidden = p.dataset.windPane !== mode;
+
+	}
+
+	function set( next ) {
+
+		if ( next !== 'local' && next !== 'manual' ) return;
+		const changed = next !== mode;
+		mode = next;
+		paint();
+
+		if ( ! changed || next !== 'manual' ) return;
+
+		try {
+
+			if ( typeof wcs.applyDesign !== 'function' || typeof wcs.design !== 'function' ) return;
+			if ( wcs.design().wind.source !== 'place' ) wcs.applyDesign( { wind: { source: 'place' } } );
+
+		} catch ( err ) {
+
+			noteError( 'wind-mode-apply-failed', err );
+
+		}
+
+	}
+
+	for ( const b of buttons ) b.addEventListener( 'click', () => set( b.dataset.windMode ) );
+
+	// The same keyboard contract as every other radiogroup on this page: one Tab
+	// stop, arrows to move inside it, and moving inside it commits.
+	group.addEventListener( 'keydown', ( e ) => {
+
+		const keys = [ 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End' ];
+		if ( keys.indexOf( e.key ) === - 1 ) return;
+		const at = buttons.indexOf( document.activeElement );
+		let next;
+		if ( e.key === 'Home' ) next = 0;
+		else if ( e.key === 'End' ) next = buttons.length - 1;
+		else if ( e.key === 'ArrowRight' || e.key === 'ArrowDown' ) next = ( at + 1 + buttons.length ) % buttons.length;
+		else next = ( at - 1 + buttons.length ) % buttons.length;
+		e.preventDefault();
+		buttons[ next ].focus();
+		set( buttons[ next ].dataset.windMode );
+
+	} );
+
+	try {
+
+		if ( typeof wcs.onDesign === 'function' ) wcs.onDesign( ( d ) => {
+
+			if ( d && d.wind && d.wind.source === 'weather' && mode !== 'local' ) set( 'local' );
+
+		} );
+
+	} catch ( err ) {
+
+		noteError( 'wind-mode-subscribe-failed', err );
+
+	}
+
+	paint();
 
 }
 
