@@ -844,5 +844,115 @@
     </article>
 
     <script type="module" src="assets/js/main.js"></script>
+
+    <!--
+      Click counter. Feeds the windchimesimulator.com rows on the KPI board at
+      home.myrakrusemark.com. The source of truth for this snippet is
+      Work/click-counter/snippets/windchimesimulator.html - edit it there and
+      copy it down, so the Worker's SITES set and the page that writes to it
+      stay in one place.
+
+      It attaches from the document rather than to each control, because the
+      panels are built by assets/js/ui/*.js after this runs and the place cards
+      later still; a querySelectorAll here would bind to half a page.
+
+      gtag above answers "how many people". This answers "what did they touch".
+      Google Analytics can hold custom events too, but reading them back needs a
+      service account and the Data API, while the Worker is a plain GET the
+      dashboard already makes for six other sites.
+    -->
+    <script>
+      (function () {
+        var url = 'https://click-counter.myrakrusemark.workers.dev/e';
+        var SITE = 'windchimesimulator.com';
+
+        // Longest-lived first: closest() walks up from the clicked node, so a
+        // click on the label inside a pill still resolves to the pill.
+        var MAP = [
+          ['#wcsShareButton', 'share'],
+          ['.wcs-pill[data-slot="place"]', 'pill-place'],
+          ['.wcs-pill[data-slot="tubes"]', 'pill-tubes'],
+          ['.wcs-pill[data-slot="striker"]', 'pill-striker'],
+          ['.wcs-pill[data-slot="sail"]', 'pill-sail'],
+          ['.wcs-pill[data-slot="hang"]', 'pill-hang']
+        ];
+
+        // Once per page load per event. Someone who opens the tubes panel eight
+        // times is one person who cared about tubes, and the board reads these
+        // rows as "how many people", not "how many pokes".
+        var sent = {};
+
+        function send(event) {
+          if (sent[event]) return;
+          sent[event] = 1;
+          // keepalive lets the request outlive the page, which is what
+          // sendBeacon is for - but sendBeacon returns true and then aborts
+          // with NS_ERROR_ABORT, so nothing arrives. no-cors keeps the default
+          // text/plain content type, which is CORS-safelisted and so skips the
+          // preflight; the Worker parses the body as JSON either way.
+          fetch(url, {
+            method: 'POST',
+            body: JSON.stringify({ site: SITE, event: event }),
+            keepalive: true,
+            mode: 'no-cors'
+          });
+        }
+
+        // This domain has no Cloudflare zone, so the edge never sees the page
+        // and the board would print a permanent dash where every other site
+        // shows its visitors. This is the number that fills that row.
+        send('pageview');
+
+        // Sound is counted off the landing latch, not off #wcsSound. THE RELAY
+        // in assets/js/ui/landing.js unlocks audio from a gesture anywhere on
+        // the page, so most visitors never press that button and counting its
+        // clicks would report a fraction of the people who heard the chime.
+        // dismiss() puts .is-done on #wcsLanding exactly once, whichever
+        // gesture got there.
+        var landing = document.getElementById('wcsLanding');
+        if (landing) {
+          var latched = function () {
+            if (!landing.classList.contains('is-done')) return false;
+            send('sound-on');
+            return true;
+          };
+          // main.js is a module and so runs after this script, but check once
+          // anyway rather than assume the ordering holds.
+          if (!latched()) {
+            new MutationObserver(function (_, obs) {
+              if (latched()) obs.disconnect();
+            }).observe(landing, { attributes: true, attributeFilter: ['class'] });
+          }
+        }
+
+        // Capture phase, so a handler that stops propagation cannot take the
+        // count with it.
+        document.addEventListener('click', function (e) {
+          var node = e.target;
+          if (!node || !node.closest) return;
+          for (var i = 0; i < MAP.length; i++) {
+            if (node.closest(MAP[i][0])) {
+              send(MAP[i][1]);
+              return;
+            }
+          }
+          // Inside a panel, anything interactive that is not the Done button is
+          // a change to the chime. The choice rows are <button>s rather than
+          // radio inputs, so they never reach the change handler below.
+          var hit = node.closest('button, [role="radio"], input');
+          if (hit && hit.closest('.wcs-panel') && !hit.hasAttribute('data-close')) {
+            send('adjust');
+          }
+        }, true);
+
+        // Sliders are the other half of "changed something". One event covers
+        // all of them: the question worth asking is what share of visitors move
+        // anything at all, and a row per slider would be twenty dashes.
+        document.addEventListener('change', function (e) {
+          var node = e.target;
+          if (node && node.closest && node.closest('.wcs-panel')) send('adjust');
+        }, true);
+      })();
+    </script>
 </body>
 </html>
