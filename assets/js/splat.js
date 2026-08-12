@@ -36,7 +36,7 @@
  */
 
 import * as THREE from 'three';
-import { SplatMesh, SparkRenderer, SplatEdit, SplatEditSdf } from './vendor-spark.js';
+import { SplatMesh, SparkRenderer } from './vendor-spark.js';
 
 /**
  * One SparkRenderer per scene, not per place. Spark draws every SplatMesh in
@@ -478,113 +478,185 @@ export function createSplat( ctx, place, onError ) {
 	// the picked point arrives at the hook is Rule A again - the chime still
 	// never moves.
 	//
-	// The white mark is a SplatEdit carrying one spherical SDF. It recolours
-	// the gaussians inside it rather than drawing anything on top, so what
-	// lights up is the actual thing that was picked.
+	// The mark is a DOT over the point, not a light on the gaussians. See below.
 	// ------------------------------------------------------------------
 
 	const HOOK = new THREE.Vector3( 0, 2.60, 0 );
 	const raycaster = new THREE.Raycaster();
-	let edit = null;
-	let sdf = null;
 	let pickOffset = null;   // world translation that puts the pick at the hook
 
-	// THE MARK, AND THE ONE-WORD BUG THAT ERASED THE FOREST.
+	// THE MARK IS A DOT AT THE POINT, NOT A LIGHT ON THE GAUSSIANS.
 	//
-	// rgbaBlendMode was 'mix', which is not a blend mode spark has. SplatEdit's
-	// constructor takes the string without looking at it, and the throw comes
-	// later and somewhere else: rgbaBlendModeToNumber runs inside the per-frame
-	// edit encode, so `Unknown blend mode: mix` was raised on EVERY FRAME from
-	// the moment the first hover built the mark - and it aborted the frame
-	// update that hands spark its splat data, so the entire capture stopped
-	// drawing. That is the whole of "the forest disappears". It was never the
-	// pick's arithmetic, never keepTopInShot, never applyFraming: hovering one
-	// gaussian erased 99,871 of them, and clicking erased them because a click
-	// builds the same mark.
+	// It was a SplatEdit carrying one spherical SDF, recolouring whatever
+	// gaussians fell inside it with add_rgba. Two things were wrong with that,
+	// and only the second is a matter of taste:
 	//
-	// Measured in the open page: 1860 console errors, all this one, and the
-	// forest came back the instant the edit was removed from the mesh. The three
-	// spark accepts are 'multiply', 'set_rgb' and 'add_rgba'.
+	//   1. An SDF catches a gaussian by its CENTRE, and this capture's centres
+	//      are metres apart while the ellipsoids drawn from them are metres
+	//      long. So the mark's size on screen was a property of how densely
+	//      tanha's reconstruction happened to sample that bit of wood: a clear
+	//      glow in dense canopy, almost nothing in thin understorey, and the
+	//      radius that made the thin case visible whited out a third of the
+	//      frame in the dense one. The mark could not say the same thing twice.
+	//   2. A glow says "these leaves", and the question the visitor is answering
+	//      is "where does it hang". A point is what they are choosing, so a
+	//      point is what the mark should be (Myra, 2026-08-11).
 	//
-	// WHY add_rgba AND NOT set_rgb, WHICH IS THE ONE THAT MEANS "PAINT IT WHITE"
+	// AND IT IS IN THE SCENE, NOT OVER IT.
 	//
-	// Because an SDF catches a gaussian by its CENTRE, and this capture's
-	// centres are metres apart while the ellipsoids drawn from them are metres
-	// long. A sphere small enough to mean "that spot" contains few centres or
-	// none, and set_rgb keeps each one's alpha - so recolouring two faint smears
-	// changes almost nothing in the pixels they cover. Walked up against two
-	// fixed hovers, one in dense canopy and one in thin understorey: set_rgb at
-	// 0.16 and 0.40 was invisible in both, 0.55 read in the dense one and was
-	// still invisible in the thin one, and 3.00 whited out the whole canopy -
-	// which is what proved the mark had been working all along and only ever
-	// been too small to find.
+	// The first cut of the dot was a div positioned by projecting the hit point
+	// to pixels, written that way to keep the mark away from spark after the
+	// blend-mode incident this file records below. It worked and it was flat: a
+	// fixed fourteen pixels whether the branch was two metres away or thirty, so
+	// the one question a visitor is actually asking - how far down the path is
+	// that - had no answer on screen. Myra's call, 2026-08-11: put it in real 3D
+	// space.
 	//
-	// add_rgba raises alpha as well as colour, so one caught gaussian is worth
-	// seeing. That makes it strong enough to overdo: at full opacity and 0.45 it
-	// threw a flare a third of the frame across over the dense hover. Opacity
-	// 0.6 is where both hovers land - a clear glow on canopy, a faint one on
-	// thin air, which is honest, because thin air is not a branch to hang from.
+	// The old comment justified pixels by saying a world-space marker cannot
+	// convey distance under an orthographic camera. That was true of this scene
+	// once and is not true of it now: storybook renders PERSPECTIVE at a narrow
+	// 12 degree field (STYLES.storybook.ortho is false), measured in the page as
+	// camera.isOrthographicCamera === false. So a sphere of fixed world radius
+	// shrinks with distance exactly as it should, and the mark finally says how
+	// far away the branch is by being smaller.
 	//
-	// softEdge is a distance in metres either side of the SDF surface over which
-	// the effect ramps, so it has to sit well under the radius or the mark is
-	// all ramp: at radius 0.16 the old softEdge 0.35 meant the centre of the
-	// sphere never reached full strength either.
-	function ensureMark() {
+	// It is an ordinary Mesh with an ordinary MeshBasicMaterial, which is the
+	// part that keeps the old caution intact. Nothing here is a SplatEdit and
+	// nothing here reaches spark's per-frame encode - the failure that erased
+	// the forest was an invalid rgbaBlendMode inside that encode, and a mesh
+	// parented to the capture cannot get near it.
+	//
+	// PARENTED TO THE MESH, in the capture's own local space, so it travels when
+	// the capture slides - which is what puts it on the top of the rope after a
+	// pick rather than leaving it behind on empty air. The capture carries a
+	// non-unit scale (SIZE / hang.scale, 1.33 as this ships), so the radius is
+	// divided back out or the mark would change size with the Size slider.
+	// Metres, and solved against the object rather than guessed. The suspension
+	// plate is 248 mm across and is the thing a visitor is judging distances
+	// next to, so the core is about a twelfth of it: measured in the page at the
+	// shipped framing that is a 10 px dot beside a 55 px plate, which reads as a
+	// point rather than as a second object. The first cut was 0.075 and came out
+	// as an amber ball the size of the plate itself.
+	const DOT_R = 0.022;      // metres, the solid core
+	const HALO_R = 1.8;       // multiples of the core
 
-		if ( edit || ! mesh ) return;
-		const MARK_R = 0.45;
-		sdf = new SplatEditSdf( {
-			type: 'sphere',
-			radius: MARK_R,
-			color: new THREE.Color( 1, 1, 1 ),
-			opacity: 0.6
-		} );
-		edit = new SplatEdit( { rgbaBlendMode: 'add_rgba', softEdge: MARK_R * 0.31, sdfs: [ sdf ] } );
-		// Parented to the mesh, so the mark travels with the capture when the
-		// capture slides. In mesh-local space it is a fixed point on a branch.
-		mesh.add( edit );
-		edit.add( sdf );
+	let dot = null;
+	let dotGeo = null;
+	let dotMat = null;
+	let haloMat = null;
+	const _local = new THREE.Vector3();
+	// Where a landed pick leaves the chosen point: the top of the rope, on the
+	// axis the hook is welded to. Reused rather than allocated, same rule as
+	// every other scratch vector in this file.
+	const _hung = new THREE.Vector3();
+
+	function ensureDot() {
+
+		if ( dot || ! mesh ) return;
+		try {
+
+			// One sphere, drawn twice. The core is depth-tested, so a leaf in
+			// front of the chosen point covers it and the mark reads as being IN
+			// the wood rather than painted on the front of it - which is the whole
+			// reason for moving it into the scene. The halo is not, so a point
+			// behind a near frond still shows where it is instead of disappearing
+			// and reading as "there is nothing here to click". Between them the
+			// mark is never lost and never lies about depth.
+			// TRANSPARENT AT FULL OPACITY, WHICH IS NOT A CONTRADICTION - it is
+			// what puts the mark in the pass that runs AFTER the capture. three.js
+			// draws every opaque object first and every transparent one after, and
+			// a SplatMesh is transparent by construction, so an opaque dot was
+			// drawn and then had a hundred thousand alpha-blended gaussians laid
+			// over the top of it. Measured at the dot's own centre pixel: the
+			// marker asked for rgb(224,145,47) and the frame came back with
+			// rgb(69,60,17), a third of its colour, sitting behind the forest it
+			// was pointing at. renderOrder puts it after the splats within that
+			// pass. (The cords in scene.js were moved the opposite way across this
+			// same line, and for the same reason.)
+			dotGeo = new THREE.SphereGeometry( 1, 16, 12 );
+			dotMat = new THREE.MeshBasicMaterial( {
+				color: 0xe0912f, depthWrite: false, transparent: true, opacity: 1
+			} );
+			haloMat = new THREE.MeshBasicMaterial( {
+				color: 0xe0912f, depthWrite: false, depthTest: false,
+				transparent: true, opacity: 0.25
+			} );
+
+			dot = new THREE.Mesh( dotGeo, dotMat );
+			// After the capture, so the blend lands on top of the gaussians rather
+			// than under whatever spark drew last.
+			dot.renderOrder = 20;
+			dot.castShadow = false;
+			dot.receiveShadow = false;
+
+			const halo = new THREE.Mesh( dotGeo, haloMat );
+			halo.scale.setScalar( HALO_R );
+			halo.renderOrder = 19;
+			halo.castShadow = false;
+			halo.receiveShadow = false;
+			dot.add( halo );
+
+			dot.visible = false;
+			mesh.add( dot );
+
+		} catch ( err ) {
+
+			note( 'splat-dot-failed', err );
+			dot = null;
+
+		}
 
 	}
 
 	/**
-	 * WHITE MEANS CLICKABLE, AND IT HAS TO KEEP MEANING THAT.
+	 * SHOWN MEANS CLICKABLE, AND IT HAS TO KEEP MEANING THAT.
 	 *
-	 * The mark used to be moved on a hit and left alone on a miss, so sweeping
-	 * the pointer off the foliage stranded it wherever it last landed. What the
-	 * visitor then saw was a white cluster sitting in open air with the pointer
-	 * on it - so they clicked it, and nothing happened, because there was
-	 * nothing under the pointer to pick. That is the whole of "some white
-	 * clusters don't move the chime": the white was stale, not unclickable.
+	 * The mark this replaces was moved on a hit and left alone on a miss, so
+	 * sweeping the pointer off the foliage stranded it wherever it last landed.
+	 * The visitor then saw a mark sitting in open air with the pointer on it, so
+	 * they clicked it, and nothing happened, because there was nothing under the
+	 * pointer to pick. That is the whole of "some white clusters don't move the
+	 * chime": the mark was stale, not unclickable.
 	 *
 	 * Hover and the pick run the same raycast against the same gaussians, so
-	 * showing on a hit and HIDING on a miss makes the mark an honest promise -
-	 * if it is lit, a click takes it, and if nothing lights up there is nothing
-	 * there. Which matters here, because a gaussian is drawn as a soft
+	 * showing on a hit and HIDING on a miss makes the dot an honest promise - if
+	 * it is up, a click takes it, and if nothing appears there is nothing there.
+	 * Which is worth the care here, because a gaussian is drawn as a soft
 	 * ellipsoid metres across while the ray tests its centre: the capture paints
 	 * a good deal further than it can be picked, and the frame has real regions
 	 * that look like forest and contain no reconstruction at all. Measured on
 	 * one moved capture: 217 of 840 sampled points returned no hit, in a clean
 	 * diagonal band that is the edge of the capture's own volume.
 	 *
-	 * visible=false rather than tearing the edit down. SplatMesh gathers its
-	 * edits with traverseVisible, so an invisible one is simply not applied -
-	 * verified in the page - and rebuilding the pair on every pointermove would
-	 * churn spark's generator for nothing.
+	 * @param {THREE.Vector3} worldPoint
 	 */
-	function showMark( localPoint ) {
+	function showDot( worldPoint ) {
 
-		ensureMark();
-		if ( ! sdf || ! edit ) return;
-		sdf.position.copy( localPoint );
-		sdf.updateMatrixWorld( true );
-		edit.visible = true;
+		ensureDot();
+		if ( ! dot || ! mesh ) return;
+
+		_local.copy( worldPoint );
+		mesh.worldToLocal( _local );
+		if ( ! Number.isFinite( _local.x ) || ! Number.isFinite( _local.y ) || ! Number.isFinite( _local.z ) ) {
+
+			hideDot();
+			return;
+
+		}
+
+		dot.position.copy( _local );
+		// Out of the parent's scale, so the mark is DOT_R metres of world however
+		// big the capture has been drawn.
+		const s = Math.abs( mesh.scale.x ) > 1e-6 ? mesh.scale.x : 1;
+		dot.scale.setScalar( DOT_R / s );
+		dot.visible = true;
+		dot.updateMatrixWorld( true );
 
 	}
 
-	function hideMark() {
+	function hideDot() {
 
-		if ( edit ) edit.visible = false;
+		if ( dot ) dot.visible = false;
 
 	}
 
@@ -687,9 +759,9 @@ export function createSplat( ctx, place, onError ) {
 
 	}
 
-	// Hover. A splat under the pointer goes white while the Hang panel is open,
-	// so it is obvious what a click would take, and goes dark again the moment
-	// the pointer is over nothing - see showMark/hideMark for why that second
+	// Hover. A dot lands on the point under the pointer while the Hang panel is
+	// open, so it is obvious where a click would hang the chime, and it goes out
+	// the moment the pointer is over nothing - see showDot for why that second
 	// half is the whole of the reported bug.
 	//
 	// Throttled to one raycast every other frame's worth of time - a raycast
@@ -703,8 +775,21 @@ export function createSplat( ctx, place, onError ) {
 
 	function onMove( e ) {
 
-		if ( ! mesh || ! pickArmed() ) return;
-		if ( e.target !== canvas ) return;
+		// NOT A POINTER. slots.js pokes window with a synthetic pointermove twice
+		// a second while a panel is open, to hold off the HUD's idle fade (H20),
+		// and it tags them for exactly this reason. They carry no position and
+		// they are dispatched AT window, so `e.target` is window rather than the
+		// canvas - which put the dot out every 500 ms the moment the two `return`s
+		// below started hiding it. Measured: opacity caught mid-fade at 0.18 on a
+		// dot that had been correctly placed a second earlier.
+		if ( e.__wcsSynthetic ) return;
+
+		// Both of these used to be a bare `return`, which left the dot up. The
+		// panel closing, or the pointer arriving on the panel itself, is exactly
+		// the stranded-mark case showDot is written against: a mark over the
+		// picture while nothing is listening for a click on the picture.
+		if ( ! mesh || ! pickArmed() ) { hideDot(); return; }
+		if ( e.target !== canvas ) { hideDot(); return; }
 		const now = performance.now();
 		if ( now - hoverAt < 60 ) return;
 		hoverAt = now;
@@ -716,10 +801,10 @@ export function createSplat( ctx, place, onError ) {
 		try {
 
 			const r2 = resolve( ndcX, ndcY, cam );
-			if ( ! r2 || r2.outOfReach ) { hideMark(); return; }
-			showMark( mesh.worldToLocal( r2.hit.point.clone() ) );
+			if ( ! r2 || r2.outOfReach ) { hideDot(); return; }
+			showDot( r2.hit.point );
 
-		} catch ( err ) { hideMark(); }
+		} catch ( err ) { hideDot(); }
 
 	}
 
@@ -782,25 +867,21 @@ export function createSplat( ctx, place, onError ) {
 			try {
 
 				const r2 = resolve( ndcX, ndcY, camera );
-				if ( ! r2 ) { hideMark(); return null; }
+				if ( ! r2 ) { hideDot(); return null; }
 				if ( r2.outOfReach ) {
 
 					note( 'splat-pick-out-of-reach', new Error(
 						`picked point is ${r2.t.length().toFixed( 1 )} m from the hook, cap is ${r2.reach}` ) );
-					// Hidden, not destroyed. Tearing the pair down here meant the
-					// next hover had to rebuild it and churn spark's generator,
-					// and hiding says the same thing to the visitor: the mark
-					// goes out, so the spot they are pointing at is not one they
-					// can have. The hover applies the same test, so in practice
-					// nothing was lit here to put out.
-					hideMark();
+					// The dot goes out, which says the same thing to the visitor:
+					// the spot they are pointing at is not one they can have. The
+					// hover applies the same test, so in practice nothing was up
+					// here to put out.
+					hideDot();
 					return null;
 
 				}
 
 				const hit = r2.hit;
-				// The hit is in world space; the SDF lives under the mesh.
-				showMark( mesh.worldToLocal( hit.point.clone() ) );
 
 				// Move the capture so the picked gaussian arrives at the hook.
 				//
@@ -840,6 +921,17 @@ export function createSplat( ctx, place, onError ) {
 				// is where a correctly placed capture IS.
 				pickOffset = { x: want.x, y: want.y, z: want.z };
 				applyPose();
+
+				// And follow the point the visitor chose to where it now is. The
+				// pick puts the picked gaussian one rope-length above the welded
+				// hook, so the dot lands on the top of the rope - the same spot
+				// on the same branch, which is what makes the translation read as
+				// the chime having moved to it rather than as the wood jumping.
+				// After applyPose, because it is the pose that decides where the
+				// hook's rope-top is on screen.
+				_hung.set( 0, HOOK.y + cordLen, 0 );
+				showDot( _hung );
+
 				return { point: hit.point.toArray(), distance: hit.distance };
 
 			} catch ( err ) {
@@ -855,7 +947,7 @@ export function createSplat( ctx, place, onError ) {
 		clearPick() {
 
 			pickOffset = null;
-			if ( edit && mesh ) { mesh.remove( edit ); edit = null; sdf = null; }
+			hideDot();
 			applyPose();
 
 		},
@@ -965,6 +1057,19 @@ export function createSplat( ctx, place, onError ) {
 		dispose() {
 
 			disposed = true;
+			// The mark is a child of the capture, so removing the mesh below takes
+			// it out of the scene - but three disposes nothing by itself, and a
+			// geometry and two materials per place switch is a leak in a tab left
+			// open all day.
+			if ( dot ) {
+
+				if ( dot.parent ) dot.parent.remove( dot );
+				dot = null;
+
+			}
+			if ( dotGeo ) { dotGeo.dispose(); dotGeo = null; }
+			if ( dotMat ) { dotMat.dispose(); dotMat = null; }
+			if ( haloMat ) { haloMat.dispose(); haloMat = null; }
 			if ( el ) {
 
 				el.removeEventListener( 'pointerdown', onDown, true );

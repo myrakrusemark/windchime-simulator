@@ -106,6 +106,16 @@
 	border-color: var(--wcs-ink);
 }
 
+/* .wcs-hang-dot is gone, and it went the right way. The mark that says which
+   branch the chime would hang from was a div positioned by projecting the hit
+   point to pixels, which made it a fixed fourteen pixels whether the branch was
+   two metres away or thirty - so the one question a visitor asks of a forest
+   path, how far down it is that, had no answer on screen. It is a real object in
+   the scene now (splat.js, ensureDot), fixed in metres rather than in pixels, so
+   it shrinks with distance and a near leaf covers it. Myra's call, 2026-08-11.
+   Nothing about it is styleable from here any more, which is the honest outcome:
+   it is part of the picture rather than part of the chrome. */
+
 /* The invitation, and it is only over the chime. The first cut put `grab` on
    the whole canvas from the first frame, which promised that pressing anywhere
    would move something and gave the sail - which is a different gesture owned
