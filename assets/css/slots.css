@@ -157,6 +157,45 @@ textarea:focus-visible,
 	pointer-events: none;
 }
 
+/* The byline under the pill row.
+   Tight to the pills rather than a full column gap below them, because it
+   belongs to the row above it: --wcs-s3 of air read as a second, unrelated
+   thing sitting at the bottom of the frame. The negative top margin takes back
+   most of the column's own gap.
+   .wcs-slots is pointer-events:none and every control in it sets its own back,
+   so this does too or the link would not be clickable. */
+.wcs-byline {
+	margin: calc(var(--wcs-s3) * -1 + var(--wcs-s1)) 0 0 0;
+	font-family: var(--wcs-font-ui);
+	font-size: var(--wcs-fs-note);
+	letter-spacing: 0.04em;
+	line-height: 1;
+	opacity: 0.62;
+	transition: opacity 180ms ease-out;
+}
+
+.wcs-byline a {
+	pointer-events: auto;
+	color: var(--wcs-ink);
+	text-decoration: none;
+	/* The one halo on the page's floating text: this sits directly over the
+	   picture with no surface behind it, and at 0.78rem it has to survive both a
+	   sunlit gap and deep canopy shade. */
+	text-shadow: 0 1px 3px color-mix(in srgb, var(--wcs-ink-on-accent) 75%, transparent);
+}
+
+.wcs-byline a:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* One focus ring on the page, and this is it. */
+.wcs-byline a:focus-visible {
+	outline: 2px solid var(--wcs-focus);
+	outline-offset: 3px;
+	border-radius: 3px;
+}
+
 .wcs-pill {
 	pointer-events: auto;
 	display: inline-flex;
@@ -789,3 +828,18 @@ input[type="text"]#locationInput.wcs-text::placeholder {
 	opacity: 0.45;
 	transition: opacity 2200ms ease-in;
 }
+
+/* The byline half-goes with it, and for the same reason: the wordmark says what
+   the page is and this says whose it is, and neither fact stops being true
+   because the visitor held still. It sits at 0.62 at rest rather than at 1 -
+   a signature under the controls is not competing with them - so the idle
+   opacity is a step down from that rather than the wordmark's number. Written
+   here beside the wordmark's own rule so the two cannot drift apart. */
+#hudOverlay.idle .wcs-byline {
+	opacity: 0.34;
+	transition: opacity 2200ms ease-in;
+}
+
+/* Deliberately NOT in the pointer-events rule above. That one exists so nothing
+   invisible stays clickable; this never becomes invisible, so a press on it is
+   a press on a link the visitor can still see. */

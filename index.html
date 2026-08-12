@@ -370,6 +370,25 @@
                 </button>
             </div>
 
+            <!-- The byline, directly under the pill row.
+                 Last child of .wcs-slots, which is the column the pills sit at
+                 the bottom of - so it rides the same safe-area padding a phone's
+                 home indicator forces, rather than being placed against the
+                 viewport and having to be told about it separately.
+
+                 IT DOES NOT GO ALL THE WAY OUT WITH THE REST OF THE CHROME.
+                 When the pointer stops, the pill row and Share dissolve to
+                 nothing, because what is meant to be left is the object in its
+                 place. Whose page it is survives that, exactly as the wordmark
+                 does at the top of the frame: it half-fades and stays legible.
+                 Myra, 2026-08-11. slots.css carries the rule beside the
+                 wordmark's own so the two cannot drift apart.
+
+                 Not in the footer, which already carries the same name: this is
+                 the frame's own signature and that is the site's small print.
+                 They say the same thing in two registers and both are wanted. -->
+            <p class="wcs-byline"><a href="https://myrakrusemark.com" target="_blank" rel="noopener noreferrer">myrakrusemark.com</a></p>
+
             <div id="wcsPanelHost" class="wcs-panel-host">
 
                 <!-- ---- Place ------------------------------------------- -->
