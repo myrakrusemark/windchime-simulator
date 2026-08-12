@@ -429,6 +429,47 @@ function styleField( style, field ) {
 
 }
 
+// ---------------------------------------------------------------------------
+// EVERY STYLE HAS TO ANSWER THE PORTRAIT QUESTION.
+//
+// applyFraming reads these off S unconditionally when the window is taller than
+// it is wide. `camTargetPortraitY` was authored on golden and on golden only,
+// and both shipped places run under storybook - so the first narrow window put
+// `controls.target.set(0, undefined, 0)` in, which is a NaN target, a NaN camera
+// position one line later, and a view matrix that draws nothing anywhere. No
+// error, no console message, twenty-eight draw calls a frame of nothing, and it
+// did not come back when the window was widened again because the recovery path
+// measures an offset from the camera position it had already destroyed.
+//
+// Found by Myra on a 645 px window, 2026-08-11. applyFraming now falls back and
+// then backstops a non-finite result, so this cannot brick the page any more -
+// but a style that has not been asked the question is still a style nobody
+// framed, and that is what this catches.
+// Scoped to the branch applyFraming actually takes, because the two halves read
+// different fields and asserting both would fail a style for not answering a
+// question it is never asked: an ortho style reframes by growing the frustum and
+// never touches baseDistPortrait, a perspective one moves the eye and never
+// touches viewHeightPortrait. camPos and camTarget are in both lists because the
+// non-finite backstop falls back to them whichever branch ran.
+const PORTRAIT_KEYS_COMMON = [ 'camPos', 'camTarget' ];
+const PORTRAIT_KEYS_ORTHO = [ 'viewHeight', 'viewHeightPortrait' ];
+const PORTRAIT_KEYS_PERSP = [ 'camTargetPortraitY', 'baseDist', 'baseDistPortrait' ];
+
+for ( const style of STYLE_NAMES ) {
+
+	const ortho = styleField( style, 'ortho' ) === 'true';
+	const keys = PORTRAIT_KEYS_COMMON.concat( ortho ? PORTRAIT_KEYS_ORTHO : PORTRAIT_KEYS_PERSP );
+
+	for ( const key of keys ) {
+
+		const v = styleField( style, key );
+		ok( style + ': the ' + ( ortho ? 'ortho' : 'perspective' ) + ' style authors ' + key,
+			v !== null && v !== 'undefined', String( v ) );
+
+	}
+
+}
+
 for ( const id of ids ) {
 
 	const p = P.PLACES[ id ];

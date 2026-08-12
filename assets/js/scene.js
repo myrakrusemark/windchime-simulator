@@ -124,6 +124,13 @@ const STYLES = {
     // nothing but clipping.
     camPos: [2.83, 3.20, -2.22],
     camTarget: [0, 1.45, 0],
+    // A portrait frame is taller than it is wide, so the object sits lower in it
+    // unless the aim comes up. The same 0.10 m the ortho branch of applyFraming
+    // lifts by, written here rather than left to a fallback: this key was absent
+    // from this style until 2026-08-11 and applyFraming read it unconditionally,
+    // which put a NaN in the camera on the first narrow window and drew nothing
+    // for the rest of the session. Golden has always carried one.
+    camTargetPortraitY: 1.55,
     porchRoof: false,
     // [lowest, highest] camera elevation above the horizon, degrees.
     elevRange: [8, 80],
@@ -2340,9 +2347,43 @@ export function createStage(opts) {
     _vA.subVectors(camera.position, controls.target);
     const len = _vA.length() || BASE_DIST;
     const want = portrait ? S.baseDistPortrait : BASE_DIST;
-    baseTargetY = portrait ? S.camTargetPortraitY : S.camTarget[1];
+
+    // NARROW WINDOW, NO PICTURE AT ALL. Myra, 2026-08-11, on a 645 px window:
+    // the frame came up as the plate's tint and nothing else - no forest, no
+    // chime, no error in the console, 28 draw calls a frame all rendering
+    // nothing.
+    //
+    // `camTargetPortraitY` is authored on the golden style and nowhere else,
+    // and BOTH shipped places run under storybook. So the first frame narrow
+    // enough to read as portrait did `controls.target.set(0, undefined, 0)`,
+    // which is target.y NaN, which is camera.position NaN one line later, and
+    // a view matrix of NaN draws nothing anywhere.
+    //
+    // It never came back either, and that is the half worth keeping in mind:
+    // widening the window calls this again with a finite target, but the FIRST
+    // line of it measures the offset from a camera position that is already
+    // NaN, so want/len is NaN and the camera stays broken until a reload. One
+    // narrow moment, permanent.
+    const portraitY = Number.isFinite(S.camTargetPortraitY) ? S.camTargetPortraitY : S.camTarget[1];
+    baseTargetY = portrait ? portraitY : S.camTarget[1];
     controls.target.set(0, baseTargetY, 0);
-    camera.position.copy(controls.target).addScaledVector(_vA, want / len);
+    _vB.copy(controls.target).addScaledVector(_vA, want / len);
+
+    // And the belt to that pair of braces. Every input above is a style or place
+    // constant and a live camera position, so a missing key or a degenerate
+    // offset is the only way this goes wrong - and when it does it takes the
+    // whole picture with it, silently, for the rest of the session. Falling back
+    // to the style's own authored eye costs one branch on a resize and cannot
+    // leave a visitor looking at a blank rectangle.
+    if (!Number.isFinite(_vB.x) || !Number.isFinite(_vB.y) || !Number.isFinite(_vB.z)) {
+      notePlaceError('camera-framing-nan');
+      _vB.set(S.camPos[0], S.camPos[1], S.camPos[2]);
+      if (!Number.isFinite(baseTargetY)) {
+        baseTargetY = S.camTarget[1];
+        controls.target.set(S.camTarget[0], baseTargetY, S.camTarget[2]);
+      }
+    }
+    camera.position.copy(_vB);
     controls.update();
   }
 
