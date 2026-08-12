@@ -221,20 +221,66 @@ export function createAudio(params) {
 
   // --- Public surface ------------------------------------------------------
 
+  // NEVER WAIT FOREVER ON resume().
+  //
+  // Firefox does not settle the promise from AudioContext.resume() while its
+  // autoplay policy is still holding the context - it neither resolves nor
+  // rejects. Awaiting it therefore hangs whatever called unlock(), and on a
+  // Galaxy S23 in Firefox that wedged the page permanently on the FIRST tap:
+  // main.js sets unlockInFlight before calling in and clears it in the .then
+  // that never ran, so every later gesture returned at the guard. Myra's report
+  // is the exact signature - "no amount of interaction will trigger it, but
+  // turning the screen off and back on works" - because the visibility handler
+  // calls the bare resume() below instead, which awaits nothing and is behind no
+  // latch at all.
+  //
+  // So the wait is bounded and the ANSWER is read off ctx.state rather than off
+  // the promise. Nothing is cancelled: a resume Firefox settles later still
+  // starts the context, main.js's frame loop notices audio.ready() and latches
+  // the toast, and the page catches up on its own. What the timeout buys is that
+  // the caller is released either way, so the next tap is a real retry.
+  const RESUME_WAIT_MS = 400;
+
+  function resumeBounded() {
+    if (!ctx) return Promise.resolve(false);
+    if (ctx.state === 'running') return Promise.resolve(true);
+    const attempt = (async () => {
+      try { await ctx.resume(); } catch (e) { /* a stale gesture; the retry is the next one */ }
+    })();
+    const deadline = new Promise((r) => { setTimeout(r, RESUME_WAIT_MS); });
+    return Promise.race([attempt, deadline]).then(() => !!ctx && ctx.state === 'running');
+  }
+
   const audio = {
 
     async unlock() {
-      if (ctx) {
-        if (ctx.state !== 'running') {
-          try { await ctx.resume(); } catch (e) { /* user gesture may be stale */ }
-        }
-        return ctx.state === 'running';
-      }
+      if (ctx) return resumeBounded();
       if (unlockPromise) return unlockPromise;
 
       unlockPromise = (async () => {
         const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext;
         if (!Ctor) return false;   // no Web Audio at all; the sim carries on silently
+
+        // THE RING/SILENT SWITCH, WHICH IS THE ONE FAILURE THAT LOOKS LIKE
+        // SUCCESS.
+        //
+        // On iOS a Web Audio context defaults to the "ambient" audio session,
+        // and an ambient session is silenced by the hardware switch on the side
+        // of the phone. Everything else reports fine: resume() resolves, state
+        // is 'running', ready() is true, the toast latches and says the chime is
+        // sounding - and the phone plays nothing. There is no error to catch and
+        // nothing on the page can tell the difference, which is why it has to be
+        // asked for up front rather than detected.
+        //
+        // 'playback' is the session a media player asks for and it ignores the
+        // switch. Safari 16.4 and up; everywhere else navigator.audioSession is
+        // undefined and this is skipped. Set BEFORE the context is constructed,
+        // because the session type is read when the context is created.
+        try {
+          const s = globalThis.navigator && globalThis.navigator.audioSession;
+          if (s && s.type !== 'playback') s.type = 'playback';
+        } catch (e) { /* an older iOS, or a browser that has no session at all */ }
+
         try {
           ctx = new Ctor({ latencyHint: 'interactive' });
           buildGraph();
@@ -242,13 +288,18 @@ export function createAudio(params) {
           ctx = null;
           return false;
         }
-        try { await ctx.resume(); } catch (e) { /* some browsers start running */ }
-        return ctx.state === 'running';
+        return resumeBounded();
       })();
 
-      const ok = await unlockPromise;
-      unlockPromise = null;
-      return ok;
+      // finally, not a straight assignment after the await. This latch is the
+      // second half of the same wedge: if the body above ever fails to settle,
+      // a plain `unlockPromise = null` on the next line never runs and every
+      // later call returns the same hung promise forever.
+      try {
+        return await unlockPromise;
+      } finally {
+        unlockPromise = null;
+      }
     },
 
     ready() {

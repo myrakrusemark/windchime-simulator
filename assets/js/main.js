@@ -1475,7 +1475,15 @@ if ( dom.canvas ) {
 // not, and "click anywhere" has to mean anywhere. Capture phase so a handler
 // that stops propagation cannot swallow it, and passive because none of this
 // wants to preventDefault.
-for ( const evt of [ 'pointerdown', 'keydown' ] ) {
+// `touchend` and `click` are in the list for iOS, and they are not redundant
+// with pointerdown. WebKit gates Web Audio on its own notion of a user gesture,
+// and the events it has always counted are touchend, click and keydown - a
+// pointerdown that never becomes one of those has, on some iOS versions, left
+// the context suspended with no error anywhere. Every entry here goes through
+// the same unlockAudio(), which no-ops once the context is running and is
+// written to be safely repeatable, so the extra two cost one guarded return on
+// a platform that did not need them.
+for ( const evt of [ 'pointerdown', 'touchend', 'click', 'keydown' ] ) {
 
 	window.addEventListener( evt, () => {
 
