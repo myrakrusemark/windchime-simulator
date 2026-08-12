@@ -9,7 +9,9 @@
  * this page. It is the only choice here that replaces the whole world, it
  * carries a line of prose, and it carries somebody's name - a CC BY capture has
  * to be credited to the person who receives the built page, not only in a
- * markdown table they will never open. */
+ * markdown table they will never open. The card carries the byline; the licence
+ * link lives in about.html's Credits section, because a <a> cannot go inside the
+ * <button> the card is. */
 
 .wcs-place-choice {
 	display: grid;
@@ -78,17 +80,12 @@
 	opacity: 0.66;
 }
 
-/* The attribution outside the group, where a real link is allowed to live. A
-   link nested inside a <button> is a keyboard trap, not a style problem. */
-.wcs-credit a {
-	color: inherit;
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-
-.wcs-credit a:hover {
-	color: var(--wcs-ink);
-}
+/* .wcs-credit is gone with the paragraph it styled. The panel's two prose lines
+   came out on 2026-08-11; the linked attribution moved to index.html's footer
+   and to about.html's Credits section, both of which are the built page and both
+   of which reach somebody who only ever receives it (CONTRACTS 5.5). The byline
+   on the card above stays, text only: a link nested inside a <button> is a
+   keyboard trap, not a style problem. */
 
 /* One focus ring on the page, and this is it. The old stylesheet had exactly
    one focus style across sixteen controls; every new control carries it. */
