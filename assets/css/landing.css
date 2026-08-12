@@ -243,6 +243,29 @@
 	text-decoration-color: var(--wcs-ink);
 }
 
+/* A THUMB-SIZED TARGET WITHOUT A THUMB-SIZED BOX.
+   Measured on a 390 px frame: the button is 159 x 27, and --wcs-tap is 44
+   because that is the minimum a thumb reliably hits - the number this codebase
+   enforces on the pills, the place cards and the hang grab region. Growing the
+   padding to reach it would push the underline down away from the text and move
+   the one label on the first frame, so the HIT REGION grows and the box does
+   not. An empty ::after centred on the button covers the full 44 px and nothing
+   about the picture changes.
+   Only the height needs it; at 159 px the width is already past the floor. */
+.wcs-sound {
+	position: relative;
+}
+
+.wcs-sound::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	height: var(--wcs-tap);
+}
+
 
 /* ---------------------------------------------------------------------------
    Leaving.
