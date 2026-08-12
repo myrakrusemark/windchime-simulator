@@ -681,7 +681,14 @@ select option {
 }
 
 /* The filled-track trick from the original: a zero-width thumb dragging a very
-   large box-shadow behind it paints the track fill with no extra elements. */
+   large box-shadow behind it paints the track fill with no extra elements.
+   The shadow is the fill, so its width is the LONGEST TRACK IT CAN EVER PAINT.
+   It was -20rem/20rem, which is 640px of fill on a 16px root, and the panel is
+   760px wide: measured on the Place panel, the Detail slider sat at its maximum
+   with the first 80px of its track still unfilled, and Sun height the same. It
+   read as a slider too short for its box. 100rem is 1600px, past the 800px cap
+   the panel host will ever reach, and it costs nothing because overflow:hidden
+   below clips whatever falls outside the track. */
 input[type="range"] {
     background-color: #ffffff33;
     margin: 8px 0;
@@ -697,14 +704,14 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     width: 0;
     height: 2em;
-    box-shadow: -20rem 0 0 20rem #ffffffdd;
+    box-shadow: -100rem 0 0 100rem #ffffffdd;
 }
 
 input[type="range"]::-moz-range-thumb {
     border: none;
     width: 0;
     height: 2em;
-    box-shadow: -20rem 0 0 20rem #ffffffdd;
+    box-shadow: -100rem 0 0 100rem #ffffffdd;
 }
 
 input[type="text"] {
