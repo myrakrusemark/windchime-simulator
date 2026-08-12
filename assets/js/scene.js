@@ -411,6 +411,159 @@ function makeTubeRoughnessMap() {
 }
 
 /**
+ * A PLANK, PROCEDURALLY - and the lacquer over it.
+ *
+ * The chime's wood is a suspension disk, a striker and a sail, and all three
+ * were one flat colour each. On the porch that is the idiom. In a photograph of
+ * a wood it is the same tell the painted tubes were: a real cedar disc has
+ * grain running across it and a finish that catches the light, and an object
+ * with neither reads as a shape rather than as a thing somebody cut.
+ *
+ * WHY TWO MAPS AND NOT ONE
+ *
+ * The colour map is the grain. The roughness map is what makes it LACQUERED
+ * rather than raw: a finish is not uniform gloss, it is a film that sits
+ * slightly thinner over the open pores of the latewood, so the dark bands are
+ * fractionally rougher than the pale ones and the highlight breaks along the
+ * grain instead of sliding over it as a clean bar. Same convention as
+ * makeTubeRoughnessMap - three.js MULTIPLIES roughnessMap.g by
+ * material.roughness, so the absolute value lives in the map and the material
+ * stays at 1.0.
+ *
+ * The colour map is deliberately near-WHITE rather than brown. Three parts
+ * share one texture and they are three different woods - cedar disk, paler
+ * striker, paler still sail - so the map carries only the light-and-dark of the
+ * grain and each part's own colour multiplies through it. A brown map would
+ * have made all three the same plank.
+ *
+ * Everything is seeded off hash2, so a chime does not re-grow its own grain on
+ * every reload.
+ */
+function hash2(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi);
+  const c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+
+function fbm(x, y, octaves) {
+  let s = 0, a = 0.5, f = 1;
+  for (let i = 0; i < octaves; i++) { s += a * vnoise(x * f, y * f); a *= 0.5; f *= 2; }
+  return s;
+}
+
+function makeWoodMaps() {
+  const W = 512;
+  const H = 256;
+
+  // Growth rings across the width of the texture. Seven over a 248 mm disk is
+  // about a ring every 35 mm, which is a fast-grown softwood - cedar, which is
+  // what the plate has always been coloured as.
+  const RINGS = 7;
+  // How far the rings wander off straight. Zero is plywood; much more than this
+  // is a burl. This is a board sawn through a slightly off-centre log.
+  const WOBBLE = 1.15;
+
+  const colour = new Uint8Array(W * H * 4);
+  const rough = new Uint8Array(W * H * 4);
+
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      const u = i / W;
+      const v = j / H;
+
+      // The rings run ALONG v and vary across u, which is what puts straight
+      // parallel grain on a cylinder cap: three.js maps a cap as a planar
+      // projection of the disc, so a pattern that varies in one axis only comes
+      // out as a board rather than as a tree stump seen end-on.
+      //
+      // RING SPACING IS NOT CONSTANT, and that is the first of the two things
+      // that separate wood from wallpaper. A tree does not put on the same width
+      // every year - a wet summer is a wide pale band and a dry one is a narrow
+      // dark one - so the ring count is modulated by its own slow noise. The
+      // first cut had a fixed count and came out as evenly spaced pinstripe.
+      const rate = 0.55 + 0.95 * fbm(u * 1.3 + 11.0, v * 0.22, 2);
+      const wander = fbm(u * 3.0, v * 1.15, 4);
+      const fine = fbm(u * 40.0, v * 3.0, 3);
+
+      const g = u * RINGS * rate + wander * WOBBLE + 0.14 * fine;
+      const t = g - Math.floor(g);
+
+      // AND THE RING IS ASYMMETRIC, which is the second. Earlywood opens pale
+      // and wide in the spring and darkens gradually into the dense latewood at
+      // the end of the season; then the next spring starts and the tone steps
+      // straight back to pale. So the profile is a ramp with a cliff at the end
+      // of it, not the symmetric band the first cut drew - which is why that one
+      // read as a printed stripe however narrow it was made.
+      const dark = Math.pow(t, 3.2);
+
+      // Pores and fine figure, stretched hard along the grain direction.
+      const streak = fbm(u * 130.0, v * 1.6, 2) - 0.5;
+      const grit = fbm(u * 26.0, v * 9.0, 3) - 0.5;
+      // Ray fleck: the short bright dashes that catch the light across the
+      // grain. Sparse, so only the top of the noise range shows anything.
+      const fleck = fbm(u * 70.0, v * 15.0, 2);
+
+      // The pale field starts at 0.93 rather than 1. This map MULTIPLIES each
+      // part's own colour, and a field pinned at white meant the wood was only
+      // ever its authored colour or darker - so the grain read as dirt on a flat
+      // board instead of as a board.
+      // 0.38 and not the 0.47 this was first drawn at. On a 248 mm disk seen at
+      // the shipped framing the plate is about ninety pixels across, and grain
+      // strong enough to read there was a black-and-tan stripe the moment
+      // anybody zoomed in. Wood is a low-contrast material; what makes it read
+      // is the shape of the transition, not the depth of it.
+      let lum = 0.93 - 0.38 * dark - 0.13 * fine * (1 - dark) - 0.09 * streak
+        - 0.05 * grit - 0.06 * Math.max(0, fleck - 0.60) * 4;
+      if (lum < 0.30) lum = 0.30;
+      if (lum > 1) lum = 1;
+
+      // Latewood is redder as well as darker. A neutral multiply would have
+      // kept each part's hue exactly, which is the one thing real grain does
+      // not do.
+      const warm = 0.07 * dark;
+      const o = (j * W + i) * 4;
+      colour[o] = Math.round(255 * lum);
+      colour[o + 1] = Math.round(255 * lum * (1 - warm));
+      colour[o + 2] = Math.round(255 * lum * (1 - 2.1 * warm));
+      colour[o + 3] = 255;
+
+      // The finish. 0.24 is a satin lacquer; the open pores of the latewood
+      // take less of it and push to about 0.50, which is where the highlight
+      // starts breaking along the grain rather than lying across it.
+      const r = 0.24 + 0.26 * dark + 0.04 * grit;
+      const rb = Math.round(255 * Math.min(1, Math.max(0, r)));
+      rough[o] = rb;
+      rough[o + 1] = rb;
+      rough[o + 2] = rb;
+      rough[o + 3] = 255;
+    }
+  }
+
+  const mk = (data, space) => {
+    const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.colorSpace = space;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    return tex;
+  };
+
+  return { colour: mk(colour, THREE.SRGBColorSpace), rough: mk(rough, THREE.NoColorSpace) };
+}
+
+/**
  * Ground map, 256 x 256 covering the whole 60 m plane.
  *
  * Two jobs, one texture. First, LARGE-SCALE VARIATION: an unbroken flat colour
@@ -1490,6 +1643,19 @@ export function createStage(opts) {
       setSunElevation(p.sun.elevDeg);
       params.sunElevDeg = currentSunElev;
     }
+
+    // WHAT THE OBJECT IS MADE OF HERE, AND WHAT IT REFLECTS.
+    //
+    // Both have to be re-asked on a place switch, because both are the place's
+    // answer rather than the style's and the meshes were built under whichever
+    // place was up before. buildEnvironment is idempotent per URL, so walking
+    // between two places and back does not re-bake anything.
+    //
+    // After the sun, deliberately: setSunElevation re-bakes a PROCEDURAL probe,
+    // and on a place that carries its own image that would be a bake thrown
+    // away. buildEnvironment reinstates the right one either way.
+    buildEnvironment();
+    applyChimeLook();
   }
   // === /WCS:PLACE-BACKDROP ===
 
@@ -1499,6 +1665,294 @@ export function createStage(opts) {
 
   const roughMap = makeTubeRoughnessMap();
   roughMap.anisotropy = maxAniso;
+
+  /**
+   * WHAT THE OBJECT IS MADE OF, WHICH IS NOT THE SAME QUESTION AS HOW THE WORLD
+   * IS DRAWN.
+   *
+   * A place names a STYLE and the style has always decided both. That is fine
+   * while every place is a drawn one, and it stopped being fine the moment a
+   * place was a photograph: storybook says painted tubes, no environment map
+   * and no tone curve, which is a coherent idiom for an illustration and is
+   * three separate reasons for the chime to read as a decal in a wood.
+   *
+   * So a place may carry a `look` block, and it wins over S for the chime's
+   * materials ONLY. Nothing read here reaches the ground, the sky, the fog, the
+   * shadow frustum or the camera - a look cannot turn one style into another,
+   * it can only say what the metal is.
+   *
+   * Read as a function rather than captured, because `place` is reassigned by
+   * applyPlace and the materials outlive the place that built them.
+   */
+  const NO_LOOK = Object.freeze({});
+
+  /**
+   * A tuning override, read once, same bargain as `?pose=` and `?splat=` in
+   * splat.js: how metal looks against a photograph is a looking question, and
+   * an edit-reload-squint cycle at twelve seconds a turn is the wrong
+   * instrument for it. `?look=envGain,envSunGain,tubeMetalness,tubeLight,tubeSat`
+   * dials it in the live page and the winning numbers get pasted back into the
+   * place. Additive, ignored when absent, and it carries nothing into the
+   * design - the URL a visitor copies is still just their chime.
+   */
+  const LOOK_KEYS = ['envGain', 'envSunGain', 'tubeMetalness', 'tubeLight', 'tubeSat', 'tubeGlowAmount',
+    'woodLacquer', 'cordTone'];
+  let lookOverride = null;
+  try {
+    const raw = new URLSearchParams(location.search).get('look');
+    if (raw) {
+      const n = raw.split(',').map(Number);
+      lookOverride = {};
+      for (let i = 0; i < LOOK_KEYS.length; i++) {
+        if (Number.isFinite(n[i])) lookOverride[LOOK_KEYS[i]] = n[i];
+      }
+    }
+  } catch (err) { /* no override is the normal case */ }
+
+  function look() {
+    const own = (place && place.look) || NO_LOOK;
+    // Only ever on a place that HAS a look. Merging an override onto the porch
+    // would hand a built world an environment map it was never authored for.
+    if (!lookOverride || own === NO_LOOK) return own;
+    return Object.assign({}, own, lookOverride);
+  }
+
+  /** A look key, falling back to the style's own answer. */
+  function lk(key, fallback) {
+    const L = look();
+    return L[key] === undefined ? (fallback === undefined ? S[key] : fallback) : L[key];
+  }
+
+  /**
+   * How hard the environment map hits, in absolute terms.
+   *
+   * NOT multiplied by S.envIntensity, and that is the whole point: storybook's
+   * is 0, so every `envMapIntensity: 0.68 * S.envIntensity` in buildChime comes
+   * out at zero and a baked cube would light nothing. A place that has asked
+   * for an environment is asking for it against a style that says there is
+   * none, so its own number is the one that counts.
+   */
+  function envAmount(kind) {
+    const L = look();
+    // No probe of its own: back to the style's numbers, which are the ones
+    // buildChime wrote. NOT null-and-leave-it-alone, which was the first cut and
+    // was wrong in the one direction that shows: walk from the wood to the
+    // porch and the tubes kept the forest's envMapIntensity of 1.0 with the
+    // forest's cube still bound, so a chime on a built porch went on reflecting
+    // a wood it was no longer in.
+    if (L.env === undefined) {
+      return kind === 'tube' ? 1.15 * S.envIntensity : S.envIntensity;
+    }
+    return kind === 'tube'
+      ? (L.envIntensity === undefined ? 1.0 : L.envIntensity)
+      : (L.envIntensityWood === undefined ? 0.45 : L.envIntensityWood);
+  }
+
+  /**
+   * Push the place's look onto materials that already exist.
+   *
+   * Two callers and they need different things. buildChime runs on every rig
+   * rebuild - a tube count, a scale, a striker mass - and builds its materials
+   * from S, so this is what finishes them. applyPlace runs on a place switch,
+   * when the meshes are already up and only the place under them changed. One
+   * function, so a chime built on the porch and carried into the wood is the
+   * same object as one built in the wood.
+   */
+  function applyChimeLook() {
+    const brushed = lk('tubeBrushed');
+    const eTube = envAmount('tube');
+    const eWood = envAmount('wood');
+    const sat = lk('tubeSat');
+    const light = lk('tubeLight');
+    const hue = S.tubeHueDeg;
+    const n = tubeMats.length;
+
+    for (let i = 0; i < n; i++) {
+      const m = tubeMats[i];
+      const h = THREE.MathUtils.lerp(hue[0], hue[1], n > 1 ? i / (n - 1) : 0.5) / 360;
+      m.color.setHSL(h, sat, light, THREE.SRGBColorSpace);
+      m.metalness = lk('tubeMetalness');
+      m.roughness = lk('tubeRoughness');
+      const map = brushed ? roughMap : null;
+      // needsUpdate only when the MAP changes: swapping a texture in or out
+      // recompiles the shader, and doing that on every place switch would drop
+      // a frame for nothing.
+      if (m.roughnessMap !== map) { m.roughnessMap = map; m.needsUpdate = true; }
+      if (eTube !== null) m.envMapIntensity = eTube;
+      // The ambient bounce. flashTube() drives emissiveIntensity on a strike,
+      // so this sets the FLOOR it returns to rather than a value it holds -
+      // see the strike handling in syncRig, which lerps back toward
+      // material.userData.glowFloor instead of toward zero.
+      const glow = lk('tubeGlowAmount', 0);
+      m.userData.glowFloor = glow;
+      if (glow > 0) {
+        m.emissive.setHex(lk('tubeGlow', 0xfff2d0), THREE.SRGBColorSpace);
+        if (m.emissiveIntensity < glow) m.emissiveIntensity = glow;
+      }
+    }
+
+    // The wood, the bore and the striker take a share of the same probe. A
+    // cedar plate under a green canopy is not neutral either, and leaving these
+    // on the style's zero while the tubes reflected a wood was the tell: an
+    // object half in the place and half out of it.
+    for (const [mat, k] of woodEnv) {
+      if (mat) mat.envMapIntensity = eWood * k;
+    }
+
+    applyWoodLook();
+    applyCordLook();
+
+    // And the cord's own colour, which is the other half of "white lines". The
+    // style's 0xcfc4ac is a bright cream authored against a drawn porch under a
+    // pale sky; hung in deep woodland shade the same value is the brightest
+    // thing on the object.
+    if (cordLine) cordLine.material.color.setHex(lk('cord'), THREE.SRGBColorSpace);
+  }
+
+  // Which chime materials are wood-ish, and how much of the probe each takes.
+  // Filled by buildChime; the multipliers are the ones buildChime already used
+  // against S.envIntensity, kept so the relative weighting does not change.
+  let woodEnv = [];
+
+  // The plank and its finish, built ON DEMAND. Two 512x256 textures is half a
+  // megabyte and a couple of hundred thousand noise samples, and a place that
+  // never asks for grain - the porch, whose whole idiom is flat - must not pay
+  // for either at module load.
+  let woodMaps = null;
+
+  function grainMaps() {
+    if (!woodMaps) woodMaps = makeWoodMaps();
+    return woodMaps;
+  }
+
+  /**
+   * The wood, and whether it is finished.
+   *
+   * The three parts are MeshPhysicalMaterial so that `clearcoat` is available -
+   * which is what "lacquered" actually is. A gloss painted straight onto the
+   * base material makes the WOOD shiny, so the grain's own dark bands go shiny
+   * too and it reads as varnished plastic. A clearcoat is a second specular
+   * layer over the top with its own roughness, so the finish catches the light
+   * as one film while the grain underneath stays matte and brown, which is what
+   * a lacquered board looks like.
+   *
+   * A place with no `woodGrain` gets clearcoat 0 and no maps, and three.js only
+   * compiles the clearcoat path when clearcoat > 0 - so the porch pays nothing
+   * for this beyond the material class.
+   */
+  /**
+   * One texture, cloned per repeat.
+   *
+   * THE THREE PARTS ARE NOT THE SAME SIZE and their UVs all span 0..1 anyway, so
+   * one texture at one repeat put seven growth rings across a 248 mm disk AND
+   * seven across a 110 mm sail AND seven across a 68 mm striker. Measured on
+   * screen: the sail came out as corduroy and the striker as a ribbed washer,
+   * both from wood that looked right on the plate.
+   *
+   * So the repeat is solved from the part's real width against the plank the
+   * texture draws, and every part ends up with the same ring pitch in
+   * millimetres - which is what makes them read as three pieces cut from one
+   * board rather than three different woods.
+   *
+   * Texture.clone() shares the image, so this is a second set of sampler
+   * parameters and not a second half-megabyte.
+   */
+  const grainClones = new Map();
+
+  // The cord colour buffer, filled by buildChime and written by applyCordLook.
+  let cordTone = null;
+
+  /**
+   * Tone along a cord.
+   *
+   * The buffer is laid out cord by cord, and inside a cord segment by segment,
+   * two vertices each - so local vertex j sits at u = floor(j/2)/SEGMENTS for
+   * the start of its segment and one step further for the end. That is the only
+   * thing needed to put a gradient along a line that is drawn as loose
+   * segments.
+   *
+   * `knot` is darker at both ends and brightest in the middle of the span,
+   * which is what a cord looks like where it passes through a hole and where it
+   * is tied off. `fibre` is a fixed per-vertex jitter - a twisted cord is not a
+   * cylinder, and the reason a real string does not read as a drawn line is
+   * that its brightness flickers a little along its length.
+   *
+   * Seeded off the cord index, so the same chime comes back with the same
+   * cords rather than re-spinning them on every rebuild.
+   */
+  function applyCordLook() {
+    if (!cordTone) return;
+    const amount = lk('cordTone', 0);
+    const data = cordTone.data;
+    const per = CORD_SEGMENTS * 2;
+
+    for (let k = 0; k < cordTone.count; k++) {
+      for (let j = 0; j < per; j++) {
+        const s = (j >> 1) + (j & 1);
+        const u = s / CORD_SEGMENTS;
+        const knot = 0.60 + 0.40 * Math.sin(Math.PI * u);
+        const fibre = 0.88 + 0.12 * hash1(k * 13.7 + j * 2.3);
+        // amount 0 leaves the buffer at flat 1.0, which is the porch.
+        const v = 1 - amount * (1 - knot * fibre);
+        const o = (k * per + j) * 3;
+        data[o] = v;
+        data[o + 1] = v;
+        data[o + 2] = v;
+      }
+    }
+
+    cordTone.attr.needsUpdate = true;
+  }
+
+  function grainFor(base, repeat) {
+    const key = base.uuid + ':' + repeat.toFixed(3);
+    let t = grainClones.get(key);
+    if (t) return t;
+    t = base.clone();
+    t.repeat.set(repeat, 1);
+    t.needsUpdate = true;
+    grainClones.set(key, t);
+    return t;
+  }
+
+  function applyWoodLook() {
+    const on = !!lk('woodGrain', false);
+    const maps = on ? grainMaps() : null;
+
+    for (const entry of woodEnv) {
+      const mat = entry[0];
+      const width = entry[2];
+      // The bore is the dark inside of a tube, not a plank. It is in woodEnv
+      // because it takes a share of the environment probe, and it carries no
+      // width, which is how it opts out of this.
+      if (!mat || !mat.isMeshPhysicalMaterial || !width) continue;
+
+      // PLANK_M is the width of board the texture draws: the plate's own
+      // diameter, because the plate is the part the ring count was authored
+      // against. Every other part is a fraction of that board.
+      const repeat = width / (2 * R_PLATE);
+      const map = on ? grainFor(maps.colour, repeat) : null;
+      const rmap = on ? grainFor(maps.rough, repeat) : null;
+      // needsUpdate only when a MAP appears or goes: swapping a texture in or
+      // out recompiles the shader, and the numbers below are uniforms.
+      if (mat.map !== map || mat.roughnessMap !== rmap) {
+        mat.map = map;
+        mat.roughnessMap = rmap;
+        mat.needsUpdate = true;
+      }
+
+      if (on) {
+        // 1.0 because the absolute roughness lives in the map, same convention
+        // as the tubes.
+        mat.roughness = 1.0;
+        if (mat.clearcoat !== 1) { mat.clearcoat = 1; mat.needsUpdate = true; }
+        mat.clearcoatRoughness = lk('woodLacquer', 0.07);
+      } else {
+        mat.roughness = mat.userData.baseRoughness;
+        if (mat.clearcoat !== 0) { mat.clearcoat = 0; mat.needsUpdate = true; }
+      }
+    }
+  }
 
   let plateMesh = null;
   let clapperMesh = null;
@@ -1525,6 +1979,7 @@ export function createStage(opts) {
     sailMesh = null;
     cordLine = null;
     cordPositions = null;
+    cordTone = null;
   }
 
   function buildChime(tubes) {
@@ -1536,9 +1991,16 @@ export function createStage(opts) {
 
     // Suspension disk.
     const plateGeo = new THREE.CylinderGeometry(R_PLATE, R_PLATE, 0.012, 32);
-    const plateMat = new THREE.MeshStandardMaterial({
-      color: S.plate, roughness: 0.85, metalness: 0, envMapIntensity: 0.56 * S.envIntensity,
+    // Physical rather than Standard for all three wood parts, so a place can
+    // ask for a lacquer - see applyWoodLook. With clearcoat 0 three.js compiles
+    // the same shader Standard would, so the porch is not paying for this.
+    // baseRoughness is the style's own answer, kept so turning the finish back
+    // off is a restore rather than a guess.
+    const plateMat = new THREE.MeshPhysicalMaterial({
+      color: S.plate, roughness: 0.85, metalness: 0, clearcoat: 0,
+      envMapIntensity: 0.56 * S.envIntensity,
     });
+    plateMat.userData.baseRoughness = 0.85;
     plateMesh = new THREE.Mesh(plateGeo, plateMat);
     plateMesh.castShadow = true;
     // RECEIVE as well as cast, and this is new for every piece of the chime.
@@ -1604,10 +2066,12 @@ export function createStage(opts) {
     // values; these fall back to the same defaults if params is bare.
     const clapD = Number.isFinite(params.clapperWidth) ? params.clapperWidth : 0.068;
     const clapGeo = new THREE.CylinderGeometry(clapD * 0.5, clapD * 0.5, 0.014, 24);
-    const clapMat = new THREE.MeshStandardMaterial({
-      color: S.clapper, roughness: 0.8, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
+    const clapMat = new THREE.MeshPhysicalMaterial({
+      color: S.clapper, roughness: 0.8, metalness: 0, clearcoat: 0,
+      envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
     });
+    clapMat.userData.baseRoughness = 0.8;
     clapperMesh = new THREE.Mesh(clapGeo, clapMat);
     clapperMesh.castShadow = true;
     clapperMesh.receiveShadow = true;
@@ -1618,10 +2082,12 @@ export function createStage(opts) {
     // Wind sail: the only part the wind meaningfully pushes.
     const sailH = Number.isFinite(params.sailHeight) ? params.sailHeight : 0.15;
     const sailGeo = new THREE.BoxGeometry(0.11, sailH, 0.004);
-    const sailMat = new THREE.MeshStandardMaterial({
-      color: S.sail, roughness: 0.7, metalness: 0, envMapIntensity: 0.68 * S.envIntensity,
+    const sailMat = new THREE.MeshPhysicalMaterial({
+      color: S.sail, roughness: 0.7, metalness: 0, clearcoat: 0,
+      envMapIntensity: 0.68 * S.envIntensity,
       emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0,
     });
+    sailMat.userData.baseRoughness = 0.7;
     sailMesh = new THREE.Mesh(sailGeo, sailMat);
     sailMesh.castShadow = true;
     sailMesh.receiveShadow = true;
@@ -1658,14 +2124,55 @@ export function createStage(opts) {
     // depth, and the splats occlude them exactly as they occlude the tubes. The
     // softening goes; at this line width it was worth about one shade and it is
     // not worth being the only part of the chime the forest cannot cover.
+    // TONE, AND WHY IT HAS TO BE PER-VERTEX.
+    //
+    // A LineBasicMaterial is not lit. It has no normal to light, so every cord
+    // on this object was one flat value from the anchor to the knot, in every
+    // wind, at every sun angle - Myra's report, 2026-08-11: they read as white
+    // lines. The obvious fix is real geometry, and the comment above rules it
+    // out for a real reason: a TubeGeometry per cord rebuilt every frame costs
+    // more than the entire rest of syncRig.
+    //
+    // What is left is the vertex colour, which a line DOES take. It cannot
+    // respond to the sun, but it can carry the two things that actually make a
+    // cord read as string rather than as a drawn line: it is darker where it is
+    // tied and brighter in the free span, and a twisted fibre catches the light
+    // unevenly along its length. Both are properties of the object rather than
+    // of the moment, so the buffer is written once and never touched again -
+    // the positions are rewritten every frame and these are not.
+    const cordColours = new Float32Array(cordCount * CORD_SEGMENTS * 2 * 3);
+    const colAttr = new THREE.BufferAttribute(cordColours, 3);
+    cordGeo.setAttribute('color', colAttr);
+    cordTone = { data: cordColours, attr: colAttr, count: cordCount };
+
     const cordMat = new THREE.LineBasicMaterial({
       color: S.cord, transparent: false, fog: true,
+      // Always on, and flat 1.0 when a place has not asked for tone - so the
+      // porch is numerically unchanged and switching places does not recompile
+      // a shader for a dozen lines.
+      vertexColors: true,
     });
     cordLine = new THREE.LineSegments(cordGeo, cordMat);
     cordLine.frustumCulled = false;   // positions are rewritten every frame
     chime.add(cordLine);
     chimeGeoms.push(cordGeo);
     chimeMats.push(cordMat);
+
+    // The non-metal half of the object: [material, share of the probe, width of
+    // the piece in metres]. The widths are what give every part the same ring
+    // pitch (see grainFor). The bore has none - it is the dark inside of a tube
+    // and takes the probe but not the plank. A LineBasicMaterial has no envMap,
+    // so the cords are not in the list at all.
+    woodEnv = [
+      [plateMat, 0.56, 2 * R_PLATE],
+      [boreMat, 0.34, 0],
+      [clapMat, 0.68, clapD],
+      [sailMat, 0.68, 0.11],
+    ];
+
+    // Last, so a rig rebuilt inside a place comes back wearing that place's
+    // metal rather than the style's paint.
+    applyChimeLook();
   }
 
   // -- grab proxies ---------------------------------------------------------
@@ -1766,7 +2273,158 @@ export function createStage(opts) {
     envBaked = true;
   }
 
+  /**
+   * THE PLACE'S OWN ENVIRONMENT, BAKED OFF THE PICTURE IT SHIPS.
+   *
+   * bakeEnvironment above builds a procedural sky, a gold ground bounce and a
+   * dark roof slab, which is a probe for the porch at eleven degrees and would
+   * put a sunset on a chime hanging in a green wood. A place that names an
+   * image in its look block gets that image instead.
+   *
+   * IT IS A COLOUR PROBE, NOT A REFLECTION, AND THE DIFFERENCE IS WORTH
+   * STATING. plate.webp is a perspective photograph. Wrapped round the inside
+   * of a sphere it puts those leaves nowhere near where they actually are, so a
+   * mirror finish would be wrong in a way anyone could see. Nothing here is a
+   * mirror: the tubes run 0.24 to 0.44 rough, which is four or five mips down
+   * the prefiltered chain, and what survives that convolution is the colour
+   * distribution - green above and around, deep shade to one side, one hot gap
+   * where the sun comes through the canopy. That is the thing that was missing.
+   *
+   * ONE BAKE, ASYNCHRONOUS, AND NEVER BLOCKING. The texture is a fetch; the
+   * chime is already on screen and sounding before it lands. Until then the
+   * tubes are lit by the sun and the hemisphere alone, which is what they had
+   * before this existed, so a load that fails costs the shine and nothing else.
+   *
+   * The sun elevation slider does NOT re-bake this one. The procedural probe
+   * has to, because its sky is a function of the sun; a photograph's light was
+   * fixed the day it was taken and re-convolving it on every slider tick would
+   * spend a PMREM pass to produce the identical cube.
+   */
+  let envImageUrl = null;
+  let envImageScene = null;
+  let envImagePending = false;
+
+  /**
+   * A PHOTOGRAPH HAS NO SUN IN IT, AND THAT IS WHY THE FIRST CUT OF THIS HAD NO
+   * SHINE.
+   *
+   * Baking the plate straight through fromEquirectangular gave tubes that were
+   * the right colour and dead flat, which is exactly what the arithmetic says
+   * it should: plate.webp is 8-bit sRGB, its brightest canopy pixel is about
+   * 0.79 in linear, and a prefiltered cube cannot contain a value its source
+   * did not. Real sunlight through a gap is tens of times the shade around it,
+   * and every bit of that ratio was clipped out of the image the day it was
+   * saved. A metal reflecting a probe with no bright spot in it has nowhere to
+   * put a highlight.
+   *
+   * So the probe is a SCENE, not a texture: the photograph wrapped round the
+   * inside of a sphere for its colour, and one small very bright disc parked
+   * along the sun vector for the specular. Both halves are load-bearing. The
+   * sphere is what makes the tubes belong to a green wood; the disc is what
+   * makes them read as metal rather than as paint, and because it sits at a
+   * real direction the streak travels down a tube as it turns in the wind
+   * instead of sitting on it like a sticker.
+   *
+   * The sphere's UVs put the top of the image at the top of the sphere, which
+   * is the one thing about this mapping that is not arbitrary: canopy overhead,
+   * path underfoot. Everything else about where those leaves land is wrong, and
+   * at 0.24 to 0.44 roughness - four or five mips down - none of it survives.
+   */
+  function bakeImageEnvironment(url) {
+    if (envImagePending) return;
+    envImagePending = true;
+    new THREE.TextureLoader().load(url, (tex) => {
+      envImagePending = false;
+      // The place moved on while 2560x1792 was in flight.
+      if (url !== (look().env || null)) { tex.dispose(); return; }
+      try {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        if (!pmrem) pmrem = new THREE.PMREMGenerator(renderer);
+        disposeImageEnvScene();
+        envImageScene = buildImageEnvScene(tex);
+        const rt = pmrem.fromScene(envImageScene, 0.04, 0.1, 100);
+        if (envRT) envRT.dispose();
+        envRT = rt;
+        scene.environment = rt.texture;
+        envBaked = true;
+        envImageUrl = url;
+      } catch (err) {
+        // A failed bake is a duller chime, not a broken page.
+      }
+      // The cube is convolved and uploaded; the source image and the proxy
+      // geometry have no further job. Held only for the length of one bake.
+      disposeImageEnvScene();
+      tex.dispose();
+    }, undefined, () => {
+      envImagePending = false;
+      notePlaceError('place-env-failed');
+    });
+  }
+
+  function buildImageEnvScene(tex) {
+    const s = new THREE.Scene();
+    const L = look();
+
+    // The wood. Radius 30 to sit inside the 0.1..100 the PMREM camera runs, and
+    // BackSide because the camera is inside it.
+    const geo = new THREE.SphereGeometry(30, 32, 24);
+    const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
+    // Set in LINEAR, and above one on purpose. This is the exposure the
+    // photograph was saved at being partially undone: a mid-green leaf at 0.2
+    // sRGB is not a surface that returns a fifth of the light falling on it, it
+    // is a surface photographed at an exposure chosen for the canopy. Without
+    // this the tubes come out darker than the wood they are standing in, which
+    // is the one thing metal never is.
+    const gain = L.envGain === undefined ? 1.9 : L.envGain;
+    mat.color.setRGB(gain, gain, gain, THREE.LinearSRGBColorSpace);
+    s.add(new THREE.Mesh(geo, mat));
+
+    // The sun through the gap. Small and very bright, which is what a specular
+    // wants: widening it does not make a stronger highlight, it makes a duller
+    // one over more of the tube.
+    const sunGeo = new THREE.SphereGeometry(1.7, 12, 10);
+    const sunMat = new THREE.MeshBasicMaterial({ fog: false });
+    const g = L.envSunGain === undefined ? 14 : L.envSunGain;
+    sunMat.color.setRGB(g, g * 0.95, g * 0.84, THREE.LinearSRGBColorSpace);
+    const disc = new THREE.Mesh(sunGeo, sunMat);
+    // The place's own sun, not the style's: applyPlace has already put the real
+    // light there, and a highlight coming from a different direction than the
+    // shadows is worse than no highlight.
+    sunDirection(currentSunElev, _vA, S.sunAzDeg);
+    disc.position.copy(_vA).multiplyScalar(22);
+    s.add(disc);
+
+    s.userData.geoms = [geo, sunGeo];
+    s.userData.mats = [mat, sunMat];
+    return s;
+  }
+
+  function disposeImageEnvScene() {
+    if (!envImageScene) return;
+    for (const g of envImageScene.userData.geoms || []) g.dispose();
+    for (const m of envImageScene.userData.mats || []) m.dispose();
+    envImageScene = null;
+  }
+
   function buildEnvironment() {
+    // A place that carries its own probe wins over the style, in both
+    // directions: it switches one ON under storybook, which says there is no
+    // environment at all, and it would override golden's procedural sky too.
+    const url = look().env || null;
+    if (url) {
+      if (envImageUrl === url && envBaked) return;
+      bakeImageEnvironment(url);
+      return;
+    }
+    // Left the place that owned the probe. The cube is dropped rather than kept
+    // around, so a style that says "nothing here is reflective" is telling the
+    // truth again the moment you walk out of the wood.
+    if (envImageUrl) {
+      envImageUrl = null;
+      if (envRT) { envRT.dispose(); envRT = null; }
+      scene.environment = null;
+      envBaked = false;
+    }
     // Nothing in the storybook style is reflective, so there is no environment
     // map to bake -- and skipping the PMREM convolution is the single biggest
     // saving in that style.
@@ -1820,7 +2478,12 @@ export function createStage(opts) {
     if (Math.abs(d - currentSunElev) <= 0.5) return;   // PMREM bakes are not free
     currentSunElev = d;
     applySun();
-    if (envBaked) bakeEnvironment();
+    // Only the PROCEDURAL probe follows the slider: its sky IS a function of
+    // the sun, so a cube baked at eleven degrees is wrong at twenty. A place
+    // that reflects a photograph has light that was fixed the day it was taken,
+    // and re-convolving 2560x1792 on every tick of the slider would spend a
+    // PMREM pass to produce the identical cube.
+    if (envBaked && !look().env) bakeEnvironment();
   }
 
   // -- post chain -----------------------------------------------------------
@@ -1844,6 +2507,23 @@ export function createStage(opts) {
   // having here. The capture arrived with real bokeh and real blown highlights
   // in its own pixels; UnrealBloom on top of a photograph is paying twice for
   // something we already own.
+  //
+  // THE PERFORMANCE HALF OF THAT DID NOT SURVIVE RE-MEASUREMENT, AND THE RULE
+  // STANDS ANYWAY FOR A BETTER REASON. Re-run 2026-08-11 on real ANGLE rather
+  // than the software rasteriser those fps came from, three alternating reps at
+  // 1440x900, twelve-second windows: composer ON 59.98 / 60.00 / 59.99, OFF
+  // 38.83 / 35.90 / 38.99. Bloom was not merely affordable here, it was pinned
+  // at vsync while the direct path was not - rendering the splat blend into an
+  // offscreen target is FASTER on this driver than into the swapchain.
+  //
+  // What killed it is colour, not cost. With the composer in the chain the
+  // whole capture comes back brighter and hazier, and it does so at a bloom
+  // threshold of 50, which blooms nothing at all - so it is the intermediate
+  // target and not the pass. Spark writes its own colour conversion and
+  // OutputPass converts a second time on the way out. Fixing that is a change
+  // inside how spark is driven, not a setting, and it is not what "some shine
+  // on the tubes" was asking for. The shine comes from the environment probe
+  // and the metal instead; see the `look` block on the forest place.
   // Function declarations, not consts: setPixelRatio runs during init, long
   // before this line is reached, and a const arrow would still be in its
   // temporal dead zone when it did.
@@ -1935,7 +2615,12 @@ export function createStage(opts) {
       // references rather than dispose them; their GPU side is already gone.
       envRT = null;
       pmrem = null;
-      bakeEnvironment();
+      // Through buildEnvironment rather than straight to bakeEnvironment, so a
+      // place reflecting its own photograph comes back reflecting it rather
+      // than reflecting the porch's procedural sky. envImageUrl is cleared for
+      // the same reason envBaked is: the cube it named is gone with the context.
+      envImageUrl = null;
+      buildEnvironment();
     }
     if (typeof opts.onContextRestored === 'function') opts.onContextRestored(e);
   }
@@ -2226,7 +2911,13 @@ export function createStage(opts) {
         s.ring = r;
 
         const mat = tubeMats[i];
-        mat.emissiveIntensity = 0.35 * r;
+        // The strike flash decays back to the PLACE'S floor, not to zero. A
+        // place whose look asks for an ambient bounce (see the forest's
+        // tubeGlowAmount) had it wiped by this line on the first frame after
+        // the first strike, so the tubes lost their bounce the moment the chime
+        // started sounding - which is every frame anybody is looking at.
+        const floor = mat.userData.glowFloor || 0;
+        mat.emissiveIntensity = floor + (0.35 - floor) * r;
         // Sub-millimetre bend wobble: 6 percent of a 14 mm radius is 0.8 mm.
         mesh.scale.x = r > 0 ? 1 + 0.06 * r * Math.sin(60 * tSec) : 1;
       }
@@ -2724,6 +3415,9 @@ export function createStage(opts) {
       envScene = null;
       envSky = null;
     }
+    // Normally already gone - the image probe's proxy geometry is dropped at
+    // the end of its own bake - but a dispose() landing mid-bake would leave it.
+    disposeImageEnvScene();
     scene.environment = null;
 
     if (sky) {
@@ -2745,6 +3439,13 @@ export function createStage(opts) {
     clapProxyGeo.dispose();
     proxyMat.dispose();
     roughMap.dispose();
+    for (const t of grainClones.values()) t.dispose();
+    grainClones.clear();
+    if (woodMaps) {
+      woodMaps.colour.dispose();
+      woodMaps.rough.dispose();
+      woodMaps = null;
+    }
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     // dispose() names fifteen handles by hand and nothing traverses (H15), so
     // the plate has to be threaded in here or its texture outlives the stage on

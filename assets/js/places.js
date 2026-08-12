@@ -263,6 +263,122 @@ export const PLACES = Object.freeze( {
 			reach: Object.freeze( { x: 3.2, y: 1.4 } )
 		} ),
 
+		// -------------------------------------------------------------------
+		// THE OBJECT'S OWN MATERIALS, OVERRIDING THE STYLE'S.
+		//
+		// `style: 'storybook'` above supplies the render idiom and nothing else,
+		// and storybook is an idiom for a DRAWN world: flat shading, no
+		// environment map, no tone curve, and tubes that are painted rather than
+		// bare because with no travelling highlight, colour is the only thing
+		// telling six cylinders apart. Every one of those choices is right on
+		// the porch and wrong in a photograph. Myra's report, 2026-08-11, on
+		// seeing the two side by side: the tubes read as flat geometry pasted
+		// onto broken sunlight.
+		//
+		// So a place may now say what its object is MADE OF, separately from how
+		// its world is drawn. scene.js merges this over S for the chime's
+		// materials only - nothing here reaches the ground, the sky, the fog or
+		// the camera.
+		//
+		// `env` IS THE PLATE, AND THAT IS THE WHOLE IDEA. A metal tube's job is
+		// to show you what is around it, and what is around this one is a
+		// photograph we already ship. Prefiltered to a rough mip it is a colour
+		// probe rather than a correct reflection - the plate is a perspective
+		// photograph and the sphere it bakes off is not where those leaves are -
+		// but at roughness 0.24..0.44 what survives the convolution is the
+		// distribution, and the distribution is exactly right: green above and
+		// around, deep shade to one side, one hot gap where the sun comes
+		// through. Nobody reads geometry in a brushed highlight; they read
+		// whether it belongs.
+		look: Object.freeze( {
+			env: 'assets/places/forest-path/plate.webp',
+			// The tubes only. Everything else on the chime is wood and takes a
+			// fraction of it, below.
+			envIntensity: 1.0,
+			envIntensityWood: 0.45,
+			// Two numbers that undo, roughly, what saving a JPEG did to the light
+			// in this wood. `envGain` lifts the whole probe: an 8-bit photograph
+			// exposed for the canopy records a mid leaf at about 0.2 linear, and a
+			// metal reflecting THAT comes out darker than the wood it hangs in,
+			// which is the one thing metal never is. `envSunGain` is the specular,
+			// and it is large because a prefiltered cube spreads a small bright
+			// disc over the whole roughness lobe - the peak that survives at 0.3
+			// rough is roughly the disc's solid angle over the lobe's, which is a
+			// factor of thirty or so. Both dialled in the live page with
+			// `?look=envGain,envSunGain,tubeMetalness,tubeLight,tubeSat` and pasted
+			// back here, same as the pose was.
+			envGain: 2.1,
+			envSunGain: 400,
+			// Bare metal rather than painted. tubeRoughness stays at 1.0 because
+			// three.js MULTIPLIES roughnessMap.g by material.roughness and the
+			// map carries the absolute 0.24..0.44 - see makeTubeRoughnessMap.
+			//
+			// 0.72 and not the 0.86 this was first dialled to. Past about 0.8 the
+			// diffuse term is gone and every photon on the tube has come from the
+			// probe, which is a photograph of a wood in shade - so the chime went
+			// DARKER than the leaves behind it and read as a silhouette. Real
+			// anodised chime tubes are not mirrors either. A little base colour
+			// left in is what keeps them legible against their own reflection.
+			tubeMetalness: 0.72,
+			tubeRoughness: 1.0,
+			tubeBrushed: true,
+			// A metal tints its reflection by its base colour, so the hue spread
+			// that separates six painted tubes has to come most of the way down
+			// or the far ones go visibly cyan against a green wood.
+			tubeSat: 0.07,
+			tubeLight: 0.74,
+			// A little light of its own, tinted to the canopy overhead. This is
+			// standing in for the bounce a real object gets from a wood full of
+			// backlit leaves, which no amount of direct sun and one hemisphere
+			// light reproduces - and it is what stops the tubes going flat black
+			// where they face away from everything. It is deliberately small: at
+			// anything more it stops reading as light in the place and starts
+			// reading as the object being lit from inside.
+			//
+			// It is here rather than in a bloom pass, and that was measured
+			// rather than assumed. UnrealBloom on this place is affordable (see
+			// the note over splatPlace in scene.js) and still wrong: the
+			// composer's intermediate target double-converts spark's colour, so
+			// the whole wood comes back washed even at a threshold that blooms
+			// nothing.
+			tubeGlow: 0x8fae5e,
+			tubeGlowAmount: 0.02,
+
+			// THE WOOD. A cedar disk, a striker and a sail, and all three were
+			// one flat colour each - which is the same tell the painted tubes
+			// were, one part over. A disc cut from a board has grain running
+			// across it and a finish that catches the light.
+			//
+			// `woodGrain` switches on a procedurally generated plank and its
+			// finish (makeWoodMaps in scene.js). `woodLacquer` is the CLEARCOAT's
+			// roughness, not the wood's: the finish is a separate specular film
+			// over the grain, so the board underneath stays matte and brown while
+			// the light slides over the top of it. Painting gloss onto the wood
+			// itself instead makes the dark grain shiny too, which reads as
+			// varnished plastic. 0.07 is a satin lacquer - low enough to hold a
+			// highlight, high enough not to mirror the canopy.
+			woodGrain: true,
+			woodLacquer: 0.07,
+
+			// THE CORDS. A LineBasicMaterial takes no light, so every string on
+			// this object was one flat value end to end - and 0xcfc4ac is a bright
+			// cream authored against a drawn porch under a pale sky. Hung in
+			// woodland shade the same number made the strings the brightest thing
+			// in the frame, which is how they came to read as white lines rather
+			// than as cord.
+			//
+			// Two changes, and they do different jobs. The colour drops the whole
+			// set into the object's own range: a waxed flax that has been outside,
+			// greyed off and pulled a little toward the green it is hanging in.
+			// `cordTone` is the variation along each one - darker where it is tied,
+			// brighter in the free span, with a fixed per-vertex flicker for the
+			// twist. At 1 it is the full range the generator draws; 0.7 leaves the
+			// cords legible against deep shade, which they have to stay, because
+			// they are the only thing telling you what is holding the chime up.
+			cord: 0x9a927c,
+			cordTone: 0.7
+		} ),
+
 		// The light. `azDeg` is NOT free: scene.js's applySun reads the STYLE's
 		// sunAzDeg and its body is off limits to this piece, so a plate place has
 		// to be shot under the style's own bearing. Storybook's is 28, and the
